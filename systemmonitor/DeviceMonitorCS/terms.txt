@@ -1,0 +1,64 @@
+END USER LICENSE AGREEMENT AND TERMS OF SERVICE
+Last Updated: January 16, 2026
+
+IMPORTANT — READ CAREFULLY: This End User License Agreement ("Agreement") is a legal agreement between you (either an individual or a single entity, hereinafter "User" or "You") and MagicPoint.ai ("Company", "We", or "Us") for the software product "Auto Command" (the "Software"), which includes computer software and may include associated media, printed materials, and "online" or electronic documentation.
+
+BY DOWNLOADING, INSTALLING, COPYING, OR OTHERWISE USING THE SOFTWARE, YOU AGREE TO BE BOUND BY THE TERMS OF THIS AGREEMENT. IF YOU DO NOT AGREE TO THE TERMS OF THIS AGREEMENT, DO NOT INSTALL OR USE THE SOFTWARE.
+
+1. GRANT OF LICENSE (BETA)
+The Software is currently in a Beta state. The Company grants you a revocable, non-exclusive, non-transferable, limited license to download, install, and use the Software solely for your personal, non-commercial purposes, strictly in accordance with the terms of this Agreement. This license does not grant you any ownership rights in the Software.
+
+2. BETA DISCLAIMER
+THE SOFTWARE IS A PRERELEASE "BETA" VERSION. It may contain bugs, errors, and other problems that could cause system or other failures and data loss. You acknowledge that:
+
+The Software is not a final product.
+
+The Software may not operate correctly or fully.
+
+You are using the Software entirely at your own risk.
+
+3. PRIVACY AND DATA COLLECTION
+By using the Software, you acknowledge and agree that the Company collects and processes data to fix bugs, improve the Software, and enhance user experience.
+
+3.1 Anonymous Telemetry: The Company uses Google Firebase Analytics and similar tools to automatically collect anonymous usage data, including but not limited to: device information (OS version, hardware model), session duration, feature usage statistics, and crash reports.
+
+3.2 Purpose of Collection: This data is collected strictly for the purpose of software development, specifically to identify technical failures, optimize performance, and prioritize feature development.
+
+3.3 No Personally Identifiable Information (PII): The Company does not collect names, email addresses, or other personally identifiable information through the Software's telemetry systems unless explicitly provided by you (e.g., via a support email).
+
+3.4 Opt-Out: You may opt out of data collection at any time by disabling the "Share Usage Data" option in the Software’s settings menu.
+
+4. PROPRIETARY RIGHTS
+The Software is protected by copyright laws and international copyright treaties, as well as other intellectual property laws and treaties. The Software is licensed, not sold. All title and intellectual property rights in and to the Software are owned by the Company.
+
+5. RESTRICTIONS
+You agree not to, and you will not permit others to:
+
+Reverse engineer, decompile, disassemble, or derive the source code of the Software.
+
+Modify, translate, adapt, or create derivative works or improvements of the Software.
+
+Rent, lease, lend, sell, sublicense, assign, distribute, publish, transfer, or otherwise make available the Software to any third party.
+
+6. UPDATES TO TERMS
+WE RESERVE THE RIGHT TO MODIFY THESE TERMS AT ANY TIME WITHOUT PRIOR NOTICE. The most current version of these Terms will supersede all previous versions. It is your responsibility to check for updates. Your continued use of the Software following the implementation of any changes constitutes acceptance of those changes.
+
+7. DISCLAIMER OF WARRANTIES
+THE SOFTWARE IS PROVIDED TO YOU "AS IS" AND WITH ALL FAULTS AND DEFECTS WITHOUT WARRANTY OF ANY KIND. TO THE MAXIMUM EXTENT PERMITTED UNDER APPLICABLE LAW, THE COMPANY EXPRESSLY DISCLAIMS ALL WARRANTIES, WHETHER EXPRESS, IMPLIED, STATUTORY, OR OTHERWISE, INCLUDING WITHOUT LIMITATION ALL IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT.
+
+8. LIMITATION OF LIABILITY
+TO THE FULLEST EXTENT PERMITTED BY APPLICABLE LAW, IN NO EVENT WILL THE COMPANY OR ITS AFFILIATES BE LIABLE FOR ANY SPECIAL, INCIDENTAL, INDIRECT, OR CONSEQUENTIAL DAMAGES WHATSOEVER (INCLUDING, BUT NOT LIMITED TO, DAMAGES FOR LOSS OF PROFITS, LOSS OF DATA OR OTHER INFORMATION, BUSINESS INTERRUPTION, PERSONAL INJURY, LOSS OF PRIVACY) ARISING OUT OF OR IN ANY WAY RELATED TO THE USE OF OR INABILITY TO USE THE SOFTWARE, EVEN IF THE COMPANY HAS BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES.
+
+9. INDEMNIFICATION
+You agree to indemnify, defend, and hold harmless the Company and its officers, directors, employees, agents, affiliates, successors, and assigns from and against any and all losses, damages, liabilities, deficiencies, claims, actions, judgments, settlements, interest, awards, penalties, fines, costs, or expenses of whatever kind, including attorneys' fees, arising from or relating to your use or misuse of the Software or your breach of this Agreement.
+
+1.0 TERMINATION
+The Company may terminate this Agreement at any time without notice if you cease to comply with any of its terms. Upon termination, you must cease all use of the Software and destroy all copies of the Software in your possession.
+
+1.1 GOVERNING LAW
+This Agreement shall be governed by and construed in accordance with the laws of the State of California, United States, without regard to its conflict of law principles.
+
+1.2 CONTACT INFORMATION
+If you have any questions about this Agreement, please contact us at: support@magicpoint.ai
+
+BY CLICKING "I AGREE," DOWNLOADING, OR USING THE SOFTWARE, YOU ACKNOWLEDGE THAT YOU HAVE READ THIS AGREEMENT, UNDERSTAND IT, AND AGREE TO BE BOUND BY ITS TERMS.

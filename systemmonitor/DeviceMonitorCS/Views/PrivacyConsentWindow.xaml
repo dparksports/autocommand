@@ -1,0 +1,121 @@
+<Window x:Class="DeviceMonitorCS.Views.PrivacyConsentWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Welcome to AutoCommand" Height="500" Width="600"
+        WindowStartupLocation="CenterScreen" ResizeMode="NoResize"
+        Background="#1E1E1E" Foreground="White">
+    <Grid Margin="30">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,20">
+            <TextBlock Text="Auto Command" FontSize="24" FontWeight="Bold" Foreground="#61AFEF"/>
+            <TextBlock Text="Secure. Intelligent. Connected." FontSize="14" Foreground="#94A3B8" Margin="0,5,0,0"/>
+        </StackPanel>
+
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto" Margin="0,0,0,20">
+            <TextBlock TextWrapping="Wrap" FontSize="12" LineHeight="18" Foreground="#DCDCDC" Opacity="0.9">
+                <Run FontWeight="Bold" FontSize="14">END USER LICENSE AGREEMENT AND TERMS OF SERVICE</Run>
+                <LineBreak/><LineBreak/>
+                <Run FontWeight="Bold">IMPORTANT — READ CAREFULLY:</Run> This End User License Agreement ("Agreement") is a legal agreement between you (either an individual or a single entity, hereinafter "User" or "You") and MagicPoint.ai ("Company", "We", or "Us") for the software product "Auto Command" (the "Software").
+                <LineBreak/><LineBreak/>
+                BY DOWNLOADING, INSTALLING, COPYING, OR OTHERWISE USING THE SOFTWARE, YOU AGREE TO BE BOUND BY THE TERMS OF THIS AGREEMENT. IF YOU DO NOT AGREE TO THE TERMS OF THIS AGREEMENT, DO NOT INSTALL OR USE THE SOFTWARE.
+                <LineBreak/><LineBreak/>
+                <Run FontWeight="Bold">1. GRANT OF LICENSE (BETA)</Run>
+                <LineBreak/>
+                The Software is currently in a Beta state. The Company grants you a revocable, non-exclusive, non-transferable, limited license to download, install, and use the Software solely for your personal, non-commercial purposes, strictly in accordance with the terms of this Agreement.
+                <LineBreak/><LineBreak/>
+                <Run FontWeight="Bold">2. BETA DISCLAIMER</Run>
+                <LineBreak/>
+                THE SOFTWARE IS A PRERELEASE "BETA" VERSION. It may contain bugs, errors, and other problems that could cause system or other failures and data loss. You acknowledge that you are using the Software entirely at your own risk.
+                <LineBreak/><LineBreak/>
+                <Run FontWeight="Bold">3. PRIVACY AND DATA COLLECTION</Run>
+                <LineBreak/>
+                By using the Software, you acknowledge and agree that the Company collects and processes data to fix bugs, improve the Software, and enhance user experience.
+                <LineBreak/>
+                • <Run FontStyle="Italic">Anonymous Telemetry:</Run> We use Google Firebase Analytics to collect anonymous usage data (e.g., OS version, session duration, crash reports).
+                <LineBreak/>
+                • <Run FontStyle="Italic">No PII:</Run> We do not collect names, email addresses, or other personally identifiable information unless explicitly provided by you.
+                <LineBreak/>
+                • <Run FontStyle="Italic">Opt-Out:</Run> You may opt out of data collection at any time by disabling the "Share Usage Data" option in the Software’s settings menu.
+                <LineBreak/><LineBreak/>
+                <Run FontWeight="Bold">4. PROPRIETARY RIGHTS</Run>
+                <LineBreak/>
+                The Software is protected by copyright laws. All title and intellectual property rights in and to the Software are owned by the Company.
+                <LineBreak/><LineBreak/>
+                <Run FontWeight="Bold">5. RESTRICTIONS</Run>
+                <LineBreak/>
+                You agree not to reverse engineer, decompile, modify, or distribute the Software.
+                <LineBreak/><LineBreak/>
+                <Run FontWeight="Bold">6. UPDATES TO TERMS</Run>
+                <LineBreak/>
+                We reserve the right to modify these terms at any time without prior notice.
+                <LineBreak/><LineBreak/>
+                <Run FontWeight="Bold">7. DISCLAIMER OF WARRANTIES</Run>
+                <LineBreak/>
+                THE SOFTWARE IS PROVIDED "AS IS" WITHOUT WARRANTY OF ANY KIND.
+                <LineBreak/><LineBreak/>
+                <Run FontWeight="Bold">8. LIMITATION OF LIABILITY</Run>
+                <LineBreak/>
+                To the fullest extent permitted by law, the Company shall not be liable for any special, incidental, indirect, or consequential damages.
+                <LineBreak/><LineBreak/>
+                <Run FontWeight="Bold">9. INDEMNIFICATION</Run>
+                <LineBreak/>
+                You agree to indemnify and hold harmless the Company from any claims arising from your use of the Software.
+                <LineBreak/><LineBreak/>
+                <Run FontWeight="Bold">10. TERMINATION</Run>
+                <LineBreak/>
+                The Company may terminate this Agreement at any time if you cease to comply with its terms.
+                <LineBreak/><LineBreak/>
+                <Run FontWeight="Bold">11. GOVERNING LAW</Run>
+                <LineBreak/>
+                This Agreement shall be governed by the laws of the State of California, United States.
+                <LineBreak/><LineBreak/>
+                <Run FontWeight="Bold">12. CONTACT INFORMATION</Run>
+                <LineBreak/>
+                If you have any questions about this Agreement, please contact us at: support@magicpoint.ai
+                <LineBreak/><LineBreak/>
+                BY CLICKING "AGREE," YOU ACKNOWLEDGE THAT YOU HAVE READ THIS AGREEMENT AND AGREE TO BE BOUND BY ITS TERMS.
+            </TextBlock>
+        </ScrollViewer>
+
+        <CheckBox x:Name="AgreeCheckBox" Grid.Row="2" Content="I have read and agree to the Privacy Policy and Terms of Service" 
+                  Foreground="#DCDCDC" Margin="0,10,0,15" HorizontalAlignment="Left" FontSize="12"
+                  Checked="AgreeCheckBox_CheckedChanged" Unchecked="AgreeCheckBox_CheckedChanged"/>
+
+        <Grid Grid.Row="3">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+
+            <Button x:Name="QuitButton" Grid.Column="0" Content="Quit Application" Width="120" Height="36"
+                    Click="QuitButton_Click" Background="Transparent" Foreground="#FF6B6B" BorderBrush="#FF6B6B" BorderThickness="1" Cursor="Hand"/>
+
+            <StackPanel Grid.Column="1" Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="StartButton" Content="Agree" Width="180" Height="36" IsEnabled="False"
+                        Click="StartButton_Click" Background="#61AFEF" Foreground="White" FontWeight="Bold" BorderThickness="0" Cursor="Hand">
+                    <Button.Resources>
+                        <Style TargetType="Border">
+                            <Setter Property="CornerRadius" Value="4"/>
+                        </Style>
+                    </Button.Resources>
+                    <Button.Style>
+                        <Style TargetType="Button">
+                            <Setter Property="Opacity" Value="1"/>
+                            <Style.Triggers>
+                                <Trigger Property="IsEnabled" Value="False">
+                                    <Setter Property="Opacity" Value="0.5"/>
+                                </Trigger>
+                            </Style.Triggers>
+                        </Style>
+                    </Button.Style>
+                </Button>
+            </StackPanel>
+        </Grid>
+    </Grid>
+</Window>

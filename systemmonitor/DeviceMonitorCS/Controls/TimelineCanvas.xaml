@@ -1,0 +1,27 @@
+<UserControl x:Class="DeviceMonitorCS.Controls.TimelineCanvas"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             mc:Ignorable="d" 
+             d:DesignHeight="600" d:DesignWidth="800"
+             Background="#1E1E1E">
+    <Grid>
+        <!-- Background Grid Lines can go here -->
+        <Border BorderBrush="#333" BorderThickness="0,1,0,0">
+            <Canvas x:Name="BackgroundCanvas" IsHitTestVisible="False"/>
+        </Border>
+
+        <!-- Main Drawing Canvas -->
+        <ScrollViewer x:Name="MainScrollViewer" HorizontalScrollBarVisibility="Auto" VerticalScrollBarVisibility="Disabled" PanningMode="HorizontalOnly">
+            <Canvas x:Name="DrawingCanvas" Height="500" Width="2000" Background="Transparent"
+                    MouseLeftButtonUp="DrawingCanvas_MouseLeftButtonUp"/>
+        </ScrollViewer>
+        
+        <!-- Zoom Controls / Overlay -->
+        <StackPanel Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Bottom" Margin="10">
+            <Button x:Name="ZoomInBtn" Content="+" Width="30" Height="30" Click="ZoomInBtn_Click"/>
+            <Button x:Name="ZoomOutBtn" Content="-" Width="30" Height="30" Click="ZoomOutBtn_Click"/>
+        </StackPanel>
+    </Grid>
+</UserControl>

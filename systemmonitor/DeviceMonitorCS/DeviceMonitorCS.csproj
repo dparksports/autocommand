@@ -1,0 +1,41 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net8.0-windows</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <Version>3.15.2</Version>
+    <ApplicationIcon>app_icon.ico</ApplicationIcon>
+    <AssemblyName>AutoCommand</AssemblyName>
+    <Product>AutoCommand</Product>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+    <DefaultItemExcludes>$(DefaultItemExcludes);UsbTestApp\**;GeminiVerification\**;usb-keyboard.cs;usb-mouse.cs</DefaultItemExcludes>
+  </PropertyGroup>
+
+  <ItemGroup>
+
+    <PackageReference Include="System.Management" Version="8.0.0" />
+    <PackageReference Include="System.ServiceProcess.ServiceController" Version="8.0.0" />
+    <PackageReference Include="Google.Apis.Auth" Version="1.60.0" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Resource Include="app_icon.ico" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Content Include="..\sigcheck64.exe" Condition="Exists('..\sigcheck64.exe')">
+      <Link>sigcheck64.exe</Link>
+      <CopyToOutputDirectory>PreserveNewest</CopyToOutputDirectory>
+    </Content>
+  </ItemGroup>
+
+  <ItemGroup>
+    <None Update="firebase_config.json">
+      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
+    </None>
+  </ItemGroup>
+
+</Project>

@@ -1,0 +1,85 @@
+<Window x:Class="DeviceMonitorCS.Views.SecurityWarningDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Security Alert" Height="300" Width="500"
+        WindowStartupLocation="CenterScreen" ResizeMode="NoResize"
+        Background="#1E1E1E" Foreground="White">
+    <Window.Resources>
+        <Style TargetType="Button">
+            <Setter Property="Background" Value="#333"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="4">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Cursor" Value="Hand"/>
+                    <Setter Property="Background" Value="#444"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+    </Window.Resources>
+    
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <StackPanel Orientation="Horizontal" Grid.Row="0" Margin="0,0,0,15">
+            <TextBlock Text="&#xE7BA;" FontFamily="Segoe MDL2 Assets" FontSize="32" Foreground="#FFD700" Margin="0,0,15,0" VerticalAlignment="Center"/>
+            <TextBlock Text="Security Warning: Firewall Exception" FontSize="18" FontWeight="Bold" VerticalAlignment="Center"/>
+        </StackPanel>
+
+        <!-- Content -->
+        <ScrollViewer Grid.Row="1" VerticalScrollBarVisibility="Auto">
+            <StackPanel>
+                <TextBlock Text="Enabling SSTP creates a direct tunnel through your firewall that is accessible from the outside. This significantly increases your attack surface." 
+                           TextWrapping="Wrap" FontSize="14" Foreground="#DDD"/>
+                
+                <TextBlock Text="Do you want to proceed?" Margin="0,15,0,0" FontSize="14" FontWeight="SemiBold"/>
+
+                <!-- Gemini Response Area -->
+                <Border x:Name="GeminiResponseBorder" Background="#252526" BorderBrush="#007ACC" BorderThickness="1" CornerRadius="4" Margin="0,15,0,0" Padding="10" Visibility="Collapsed">
+                    <StackPanel>
+                        <TextBlock Text="Gemini Analysis:" FontWeight="Bold" Foreground="#007ACC" Margin="0,0,0,5"/>
+                        <TextBlock x:Name="GeminiResponseText" TextWrapping="Wrap" Foreground="#EEE"/>
+                    </StackPanel>
+                </Border>
+            </StackPanel>
+        </ScrollViewer>
+
+        <!-- Buttons -->
+        <Grid Grid.Row="2" Margin="0,20,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="10"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+
+            <!-- Ask Gemini (Left) -->
+            <Button x:Name="AskGeminiBtn" Click="AskGeminiBtn_Click" Grid.Column="0" Background="#005A9E">
+                <StackPanel Orientation="Horizontal">
+                    <TextBlock Text="&#xE946;" FontFamily="Segoe MDL2 Assets" Margin="0,0,8,0"/>
+                    <TextBlock Text="Ask Gemini"/>
+                </StackPanel>
+            </Button>
+
+            <!-- Action Buttons (Right) -->
+            <Button x:Name="AuthorizeBtn" Content="Authorize (Unsafe)" Click="AuthorizeBtn_Click" Grid.Column="4" Background="#C42B1C" Margin="0,0,0,0"/>
+            <Button x:Name="CancelBtn" Content="Cancel" Click="CancelBtn_Click" Grid.Column="2"/>
+        </Grid>
+    </Grid>
+</Window>

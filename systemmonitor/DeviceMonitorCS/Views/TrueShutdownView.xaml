@@ -1,0 +1,42 @@
+<UserControl x:Class="DeviceMonitorCS.Views.TrueShutdownView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             mc:Ignorable="d" 
+             d:DesignHeight="600" d:DesignWidth="800">
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Text="True Shutdown &amp; Hibernation Manager" FontSize="24" FontWeight="Bold" Foreground="White" Margin="0,0,0,20"/>
+
+        <!-- Hibernation Section -->
+        <GroupBox Header="Hibernation Settings" Grid.Row="1" Margin="0,0,0,20" Padding="15">
+            <StackPanel>
+                <StackPanel Orientation="Horizontal" Margin="0,0,0,15">
+                    <TextBlock Text="Current Status: " Foreground="#CCCCCC" FontSize="16" VerticalAlignment="Center"/>
+                    <TextBlock x:Name="HibernateStatusText" Text="Checking..." FontSize="16" FontWeight="SemiBold" VerticalAlignment="Center" Margin="10,0,0,0"/>
+                </StackPanel>
+
+                <Button x:Name="ToggleHibernateBtn" Content="Toggle Hibernation" Width="200" HorizontalAlignment="Left" Padding="10" Click="ToggleHibernateBtn_Click"/>
+                <TextBlock Text="Note: Disabling hibernation frees up disk space (hiberfil.sys) but disables Fast Startup." Foreground="Gray" Margin="0,10,0,0" TextWrapping="Wrap"/>
+            </StackPanel>
+        </GroupBox>
+
+        <!-- True Shutdown Section -->
+        <GroupBox Header="Perform True Shutdown" Grid.Row="2" Margin="0,0,0,20" Padding="15">
+            <StackPanel>
+                <TextBlock Text="A 'True Shutdown' forces a full system shutdown, bypassing Fast Startup and ensuring all services are completely stopped." Foreground="#CCCCCC" Margin="0,0,0,15" TextWrapping="Wrap"/>
+                
+                <Button x:Name="TrueShutdownBtn" Content="PERFORM TRUE SHUTDOWN" Background="#FF8C00" Foreground="White" Width="250" HorizontalAlignment="Left" Padding="10" FontWeight="Bold" Click="TrueShutdownBtn_Click"/>
+            </StackPanel>
+        </GroupBox>
+
+    </Grid>
+</UserControl>
