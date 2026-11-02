@@ -163,7 +163,6 @@ namespace AutoCommand.Agent.Core
                         "# Hand-edit freely; the change is picked up on the next pass.",
                         "svchost.exe",
                         "taskhostw.exe",
-                        "backgroundTaskHost.exe",
                         "dllhost.exe",
                         "RuntimeBroker.exe",
                         "consent.exe",
