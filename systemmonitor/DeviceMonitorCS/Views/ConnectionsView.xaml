@@ -1,0 +1,154 @@
+<UserControl x:Class="DeviceMonitorCS.Views.ConnectionsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             mc:Ignorable="d" 
+             d:DesignHeight="600" d:DesignWidth="800"
+             Background="#1E1E1E">
+    <UserControl.Resources>
+        <Style TargetType="Button">
+            <Setter Property="Background" Value="#2D2D30"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Padding" Value="10,5"/>
+            <Setter Property="Margin" Value="5"/>
+            <Setter Property="BorderThickness" Value="0"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border Background="{TemplateBinding Background}" CornerRadius="5" Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center"/>
+                        </Border>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="#3E3E42"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style TargetType="TabItem">
+            <Setter Property="Background" Value="#2D2D30"/>
+            <Setter Property="Foreground" Value="White"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="TabItem">
+                        <Border Name="Border" Background="{TemplateBinding Background}" BorderBrush="#3E3E42" BorderThickness="0,0,1,0" Padding="10,5">
+                            <ContentPresenter x:Name="ContentSite" VerticalAlignment="Center" HorizontalAlignment="Center" ContentSource="Header" Margin="10,2"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsSelected" Value="True">
+                                <Setter TargetName="Border" Property="Background" Value="#007ACC"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid Margin="10">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Text="Network Connections Manager" FontSize="24" Foreground="White" Margin="0,0,0,20"/>
+
+        <!-- Toolbar -->
+        <WrapPanel Grid.Row="1" Margin="0,0,0,10">
+             <Button x:Name="RefreshBtn" Content="Refresh Now" Background="#007ACC"/>
+             <CheckBox x:Name="AutoRefreshToggle" Content="Auto Refresh (2s)" IsChecked="True" VerticalAlignment="Center" Foreground="White" Margin="10,0"/>
+             <Button x:Name="ClearHistoryBtn" Content="Clear History"/>
+        </WrapPanel>
+
+        <!-- Tabs -->
+        <TabControl Grid.Row="2" Background="Transparent" BorderThickness="0">
+            <!-- Active -->
+            <TabItem Header="Active Connections">
+                <Border Background="#252526" CornerRadius="0,5,5,5" Padding="5">
+                    <DataGrid x:Name="ActiveGrid" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column" GridLinesVisibility="Horizontal" SelectionMode="Single"
+                              Background="Transparent" BorderThickness="0" Foreground="White" RowBackground="#252526" AlternatingRowBackground="#2D2D30">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Process" Binding="{Binding ProcessName}" Width="150"/>
+                            <DataGridTextColumn Header="PID" Binding="{Binding Pid}" Width="60"/>
+                            <DataGridTextColumn Header="Proto" Binding="{Binding Protocol}" Width="50"/>
+                            <DataGridTextColumn Header="Local Address" Binding="{Binding LocalAddress}" Width="150"/>
+                            <DataGridTextColumn Header="Remote Address" Binding="{Binding RemoteAddress}" Width="150"/>
+                            <DataGridTextColumn Header="State" Binding="{Binding State}" Width="100"/>
+                            <DataGridTextColumn Header="Who Is" Binding="{Binding WhoIs}" Width="150"/>
+                            <DataGridTextColumn Header="Duration" Binding="{Binding Duration}" Width="80"/>
+                        </DataGrid.Columns>
+                        <DataGrid.ContextMenu>
+                            <ContextMenu>
+                                <MenuItem Header="Mute This Connection" x:Name="MuteActiveCtx"/>
+                                <MenuItem Header="Copy Remote IP" x:Name="CopyActiveIpCtx"/>
+                                <MenuItem Header="Ask AI about this" Click="AskAi_Click"/>
+                            </ContextMenu>
+                        </DataGrid.ContextMenu>
+                    </DataGrid>
+                </Border>
+            </TabItem>
+
+            <!-- History -->
+            <TabItem Header="Historical Connections">
+                <Border Background="#252526" CornerRadius="0,5,5,5" Padding="5">
+                    <DataGrid x:Name="HistoryGrid" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column" GridLinesVisibility="Horizontal" SelectionMode="Single"
+                              Background="Transparent" BorderThickness="0" Foreground="White" RowBackground="#252526" AlternatingRowBackground="#2D2D30">
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Process" Binding="{Binding ProcessName}" Width="150"/>
+                            <DataGridTextColumn Header="PID" Binding="{Binding Pid}" Width="60"/>
+                            <DataGridTextColumn Header="Proto" Binding="{Binding Protocol}" Width="50"/>
+                            <DataGridTextColumn Header="Local Address" Binding="{Binding LocalAddress}" Width="150"/>
+                            <DataGridTextColumn Header="Remote Address" Binding="{Binding RemoteAddress}" Width="150"/>
+                            <DataGridTextColumn Header="Recorded State" Binding="{Binding State}" Width="100"/>
+                            <DataGridTextColumn Header="Who Is" Binding="{Binding WhoIs}" Width="150"/>
+                            <DataGridTextColumn Header="Total Duration" Binding="{Binding Duration}" Width="80"/>
+                        </DataGrid.Columns>
+                         <DataGrid.ContextMenu>
+                            <ContextMenu>
+                                 <MenuItem Header="Mute This Connection" x:Name="MuteHistoryCtx"/>
+                                 <MenuItem Header="Copy Remote IP" x:Name="CopyHistoryIpCtx"/>
+                                 <MenuItem Header="Ask AI about this" Click="AskAi_Click"/>
+                            </ContextMenu>
+                        </DataGrid.ContextMenu>
+                    </DataGrid>
+                </Border>
+            </TabItem>
+
+            <!-- Muted -->
+            <TabItem Header="Muted Connections">
+                <Border Background="#252526" CornerRadius="0,5,5,5" Padding="5">
+                    <Grid>
+                        <Grid.RowDefinitions>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="*"/>
+                        </Grid.RowDefinitions>
+                        <TextBlock Text="Muted IPs (Rules &amp; Active Traffic) - Double click to Unmute" Margin="5" FontStyle="Italic" Foreground="Gray"/>
+                        <DataGrid Grid.Row="1" x:Name="MutedGrid" AutoGenerateColumns="False" IsReadOnly="True" HeadersVisibility="Column" GridLinesVisibility="Horizontal" SelectionMode="Single"
+                                  Background="Transparent" BorderThickness="0" Foreground="White" RowBackground="#252526" AlternatingRowBackground="#2D2D30">
+                            <DataGrid.Columns>
+                                <DataGridTextColumn Header="Process" Binding="{Binding ProcessName}" Width="150"/>
+                                <DataGridTextColumn Header="PID" Binding="{Binding Pid}" Width="60"/>
+                                <DataGridTextColumn Header="Proto" Binding="{Binding Protocol}" Width="50"/>
+                                <DataGridTextColumn Header="Local Address" Binding="{Binding LocalAddress}" Width="150"/>
+                                <DataGridTextColumn Header="Remote Address" Binding="{Binding RemoteAddress}" Width="150"/>
+                                <DataGridTextColumn Header="State" Binding="{Binding State}" Width="100"/>
+                                <DataGridTextColumn Header="Who Is" Binding="{Binding WhoIs}" Width="150"/>
+                                <DataGridTextColumn Header="Duration" Binding="{Binding Duration}" Width="80"/>
+                            </DataGrid.Columns>
+                            <DataGrid.ContextMenu>
+                                <ContextMenu>
+                                    <MenuItem Header="Unmute" x:Name="UnmuteCtx"/>
+                                    <MenuItem Header="Ask AI about this" Click="AskAi_Click"/>
+                                </ContextMenu>
+                            </DataGrid.ContextMenu>
+                        </DataGrid>
+                    </Grid>
+                </Border>
+            </TabItem>
+        </TabControl>
+    </Grid>
+</UserControl>

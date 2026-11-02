@@ -1,0 +1,48 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="620" viewBox="0 0 1120 620" role="img" aria-label="How to read one connection row">
+  <rect width="1120" height="620" fill="#0f172a"/>
+  <g font-family="Segoe UI, Arial, sans-serif">
+    <text x="56" y="64" font-size="32" font-weight="700" fill="#f1f5f9">How to read one row</text>
+    <rect x="56" y="78" width="64" height="4" fill="#22d3ee"/>
+
+    <rect x="56" y="110" width="1008" height="104" rx="12" fill="#1e293b" stroke="#334155"/>
+    <circle cx="96" cy="150" r="9" fill="#34d399"/>
+    <text x="120" y="146" font-size="19" font-weight="600" fill="#f1f5f9">chrome.exe</text>
+    <text x="120" y="172" font-size="13" fill="#94a3b8">started by your user · signed Google LLC</text>
+    <text x="430" y="146" font-size="15.5" fill="#e2e8f0">→ update.google.com:443</text>
+    <text x="430" y="172" font-size="13" fill="#94a3b8">Mountain View, US · AS15169 Google</text>
+    <text x="680" y="138" font-size="12.5" fill="#94a3b8">TX 12.4 KB/s</text>
+    <rect x="680" y="146" width="140" height="12" rx="6" fill="#0b1220"/>
+    <rect x="680" y="146" width="92" height="12" rx="6" fill="#22d3ee"/>
+    <text x="680" y="180" font-size="12.5" fill="#94a3b8">RX 2.1 KB/s</text>
+    <text x="850" y="146" font-size="14" fill="#e2e8f0">up 42 min</text>
+    <text x="850" y="172" font-size="13" fill="#94a3b8">first seen 09:14</text>
+    <rect x="952" y="128" width="88" height="36" rx="8" fill="#7f1d1d" stroke="#f87171"/>
+    <text x="996" y="151" font-size="15.5" font-weight="600" fill="#fecaca" text-anchor="middle">Block</text>
+
+    <g stroke="#475569">
+      <line x1="96" y1="214" x2="96" y2="232"/>
+      <line x1="520" y1="214" x2="520" y2="232"/>
+      <line x1="750" y1="214" x2="750" y2="232"/>
+      <line x1="860" y1="214" x2="860" y2="232"/>
+      <line x1="996" y1="214" x2="996" y2="232"/>
+    </g>
+    <g font-size="14" fill="#94a3b8">
+      <text x="64" y="254">who is talking — the process</text>
+      <text x="410" y="254">to whom — host + network</text>
+      <text x="672" y="254">how much — live TX/RX</text>
+      <text x="838" y="254">how long</text>
+      <text x="1040" y="254" text-anchor="end">undo included</text>
+    </g>
+
+    <rect x="56" y="300" width="1008" height="250" rx="12" fill="#1e293b" stroke="#334155"/>
+    <text x="88" y="344" font-size="20" font-weight="700" fill="#f1f5f9">The built-in lens: TX-only (no reply)</text>
+    <g font-size="15.5" fill="#cbd5e1">
+      <text x="88" y="382">A checkbox narrows the list to programs that sent packets and never heard one word back — the</text>
+      <text x="88" y="408">shape of a dead-end beacon or a blocked outbound call. It shows how many are out there before</text>
+      <text x="88" y="434">you switch it on.</text>
+      <text x="88" y="486">It is a lens, not a verdict: uncheck it and the full list is exactly where it was — nothing hidden</text>
+      <text x="88" y="512">while you were not looking.</text>
+    </g>
+    <text x="1064" y="604" font-size="13" fill="#64748b" text-anchor="end">AutoCommand · dparksports/autocommand</text>
+  </g>
+</svg>

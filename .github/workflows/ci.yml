@@ -15,7 +15,9 @@ name: ci
 on:
   push:
     branches: [master]
+    paths-ignore: ['systemmonitor/**']
   pull_request:
+    paths-ignore: ['systemmonitor/**']
   workflow_dispatch:
 
 permissions:

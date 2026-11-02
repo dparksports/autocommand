@@ -1,0 +1,24 @@
+<UserControl x:Class="DeviceMonitorCS.Controls.TimelineFilter"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             mc:Ignorable="d" 
+             d:DesignHeight="400" d:DesignWidth="200"
+             Background="#252526">
+    <StackPanel Margin="10">
+        <TextBlock Text="FILTERS" FontWeight="Bold" Foreground="Gray" Margin="0,0,0,10"/>
+        
+        <CheckBox Content="Logins" Foreground="White" IsChecked="True" Tag="Login" Margin="0,5" Click="Filter_Click"/>
+        <CheckBox Content="System" Foreground="White" IsChecked="True" Tag="System" Margin="0,5" Click="Filter_Click"/>
+        <CheckBox Content="Security" Foreground="White" IsChecked="True" Tag="Security" Margin="0,5" Click="Filter_Click"/>
+        <CheckBox Content="Software" Foreground="White" IsChecked="True" Tag="Software" Margin="0,5" Click="Filter_Click"/>
+        <CheckBox Content="Defender" Foreground="White" IsChecked="True" Tag="Defender" Margin="0,5" Click="Filter_Click"/>
+        
+        <Separator Background="#3E3E42" Margin="0,10"/>
+        
+        <TextBlock Text="HIGHLIGHTS" FontWeight="Bold" Foreground="Gray" Margin="0,0,0,10"/>
+        <CheckBox Content="Show Patterns" Foreground="White" Margin="0,5"/>
+        <CheckBox Content="Anomalies Only" Foreground="White" Margin="0,5"/>
+    </StackPanel>
+</UserControl>

@@ -1,0 +1,62 @@
+# C# / .NET
+[Cc]ache/
+[Oo]bj/
+[Bb]in/
+*.user
+*.suo
+*.userprefs
+*.lock.json
+*.ide
+
+# Visual Studio
+.vs/
+*.generated.cs
+
+# PowerShell
+*.psd1
+!manifest.psd1
+
+# OS specific
+Thumbs.db
+Desktop.ini
+.DS_Store
+
+# ReSharper
+_ReSharper*/
+*.resharper
+*.DotSettings.user
+
+# VS Code
+.vscode/
+
+# Build results
+[Dd]ebug/
+[Dd]ebugPublic/
+[Rr]elease/
+[Rr]eleases/
+x64/
+x86/
+[Aa]rm/
+[Aa]rm64/
+bld/
+[Bb]in/
+[Oo]bj/
+[Ll]og/
+[Ll]ogs/
+
+apikey.txt
+
+# Publishing
+*.zip
+publish/
+PublishOutput*/
+*.exe
+publish_*/
+DeviceMonitorCS.zip
+
+# Secrets
+# DeviceMonitorCS/firebase_config.json # Uncomment if you want to keep it private
+# firebase_config.json
+
+public*
+*.mp4

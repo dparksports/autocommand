@@ -16,8 +16,13 @@
 name: release
 
 on:
+  # 'v20*' = AutoCommand's calendar versions (v2026.11.x) only. The
+  # precursor's classic semver tags (v3.x, folded in from SystemMonitor
+  # with its history) must not trigger this pipeline; the tag-must-equal-
+  # csproj-version guard would refuse them anyway - the filter keeps the
+  # Actions history free of guaranteed-red runs.
   push:
-    tags: ['v*']
+    tags: ['v20*']
   workflow_dispatch:
     inputs:
       tag:

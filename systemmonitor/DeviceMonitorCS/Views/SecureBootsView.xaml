@@ -1,0 +1,171 @@
+<UserControl x:Class="DeviceMonitorCS.Views.SecureBootsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:mc="http://schemas.openxmlformats.org/markup-compatibility/2006" 
+             xmlns:d="http://schemas.microsoft.com/expression/blend/2008" 
+             mc:Ignorable="d" 
+             d:DesignHeight="600" d:DesignWidth="800">
+    <UserControl.Resources>
+        <!-- Modern ScrollBar Style -->
+        <Style TargetType="ScrollBar">
+            <Setter Property="Background" Value="Transparent"/>
+            <Setter Property="Width" Value="8"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="ScrollBar">
+                        <Grid>
+                            <Border Background="Transparent"/>
+                            <Track Name="PART_Track" IsDirectionReversed="true">
+                                <Track.Thumb>
+                                    <Thumb>
+                                        <Thumb.Template>
+                                            <ControlTemplate TargetType="Thumb">
+                                                <Border Background="#44FFFFFF" CornerRadius="4"/>
+                                            </ControlTemplate>
+                                        </Thumb.Template>
+                                    </Thumb>
+                                </Track.Thumb>
+                            </Track>
+                        </Grid>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+    </UserControl.Resources>
+
+    <Grid>
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <!-- Header -->
+        <Border Grid.Row="0" Margin="0,0,0,20">
+            <StackPanel>
+                <TextBlock Text="Secure Boot Configuration" FontSize="24" FontWeight="SemiBold" Foreground="White" Margin="0,0,0,5"/>
+                <TextBlock Text="Inspect allowed and forbidden boot signatures stored in NVRAM." Foreground="#A0A0A0" FontSize="14"/>
+                
+                <StackPanel Orientation="Horizontal" Margin="0,15,0,0">
+                     <Border Background="#2200FF00" CornerRadius="4" Padding="10,5" Margin="0,0,10,0">
+                        <TextBlock x:Name="DbCountText" Text="Allowed (db): Loading..." Foreground="#00FF00" FontWeight="SemiBold"/>
+                    </Border>
+                    <Border Background="#22FF0000" CornerRadius="4" Padding="10,5" Margin="0,0,10,0">
+                        <TextBlock x:Name="DbxCountText" Text="Revocations (dbx): Loading..." Foreground="#FF4444" FontWeight="SemiBold"/>
+                    </Border>
+
+                </StackPanel>
+
+
+            </StackPanel>
+        </Border>
+
+        <!-- Main Content -->
+        <TabControl Grid.Row="1" Background="Transparent" BorderThickness="0">
+            <TabControl.Resources>
+                <Style TargetType="TabItem">
+                    <Setter Property="Template">
+                        <Setter.Value>
+                            <ControlTemplate TargetType="TabItem">
+                                <Border Name="Border" BorderThickness="0,0,0,2" BorderBrush="Transparent" Margin="0,0,20,0" Padding="10,5">
+                                    <ContentPresenter x:Name="ContentSite" VerticalAlignment="Center" HorizontalAlignment="Center" ContentSource="Header" Margin="0,2"/>
+                                </Border>
+                                <ControlTemplate.Triggers>
+                                    <Trigger Property="IsSelected" Value="True">
+                                        <Setter TargetName="Border" Property="BorderBrush" Value="#00A2E8"/> <!-- Blue Highlights -->
+                                        <Setter Property="Foreground" Value="White"/>
+                                    </Trigger>
+                                    <Trigger Property="IsSelected" Value="False">
+                                        <Setter Property="Foreground" Value="#888888"/>
+                                    </Trigger>
+                                </ControlTemplate.Triggers>
+                            </ControlTemplate>
+                        </Setter.Value>
+                    </Setter>
+                </Style>
+            </TabControl.Resources>
+
+            <!-- TAB 1: Allowed Signatures -->
+            <TabItem Header="ALLOWED SIGNATURES (db)">
+                <Grid Margin="0,15,0,0">
+                    <DataGrid x:Name="DbGrid" AutoGenerateColumns="False" Background="Transparent" 
+                              RowBackground="#11FFFFFF" AlternatingRowBackground="#05FFFFFF"
+                              HeadersVisibility="Column" GridLinesVisibility="None" BorderThickness="0"
+                              Foreground="#DDDDDD" CanUserAddRows="False">
+                        <DataGrid.ColumnHeaderStyle>
+                            <Style TargetType="DataGridColumnHeader">
+                                <Setter Property="Background" Value="Transparent"/>
+                                <Setter Property="Foreground" Value="#888888"/>
+                                <Setter Property="Padding" Value="10,5"/>
+                                <Setter Property="HorizontalContentAlignment" Value="Left"/>
+                            </Style>
+                        </DataGrid.ColumnHeaderStyle>
+                        <DataGrid.CellStyle>
+                            <Style TargetType="DataGridCell">
+                                <Setter Property="Padding" Value="10"/>
+                                <Setter Property="BorderThickness" Value="0"/>
+                                <Setter Property="Background" Value="Transparent"/>
+                                <Setter Property="Template">
+                                    <Setter.Value>
+                                        <ControlTemplate TargetType="DataGridCell">
+                                            <Border Padding="{TemplateBinding Padding}" BorderBrush="{TemplateBinding BorderBrush}" BorderThickness="{TemplateBinding BorderThickness}" Background="{TemplateBinding Background}" SnapsToDevicePixels="True">
+                                                <ContentPresenter SnapsToDevicePixels="{TemplateBinding SnapsToDevicePixels}"/>
+                                            </Border>
+                                        </ControlTemplate>
+                                    </Setter.Value>
+                                </Setter>
+                                <Style.Triggers>
+                                    <DataTrigger Binding="{Binding IsNew}" Value="True">
+                                        <Setter Property="Background" Value="#33FFAE00"/>
+                                        <Setter Property="Foreground" Value="#FFFFFF"/>
+                                        <Setter Property="FontWeight" Value="Bold"/>
+                                    </DataTrigger>
+                                </Style.Triggers>
+                            </Style>
+                        </DataGrid.CellStyle>
+
+                        <DataGrid.Columns>
+                            <DataGridTextColumn Header="Subject" Binding="{Binding Subject}" Width="*"/>
+                            <DataGridTextColumn Header="Issuer" Binding="{Binding Issuer}" Width="*"/>
+                            <DataGridTextColumn Header="Algorithm" Binding="{Binding Algorithm}" Width="100"/>
+                            <DataGridTextColumn Header="Valid Until" Binding="{Binding Expires}" Width="100"/>
+                            <DataGridTextColumn Header="Guid Type" Binding="{Binding GuidType}" Width="150" Visibility="Collapsed"/>
+                        </DataGrid.Columns>
+                    </DataGrid>
+                </Grid>
+            </TabItem>
+
+            <!-- TAB 2: Revocations -->
+            <TabItem Header="REVOCATIONS (dbx)">
+                <Grid Margin="0,15,0,0">
+                    <Grid.RowDefinitions>
+                        <RowDefinition Height="Auto"/>
+                        <RowDefinition Height="*"/>
+                    </Grid.RowDefinitions>
+
+                    <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                        <TextBlock Text="Search DBX Hashes:" VerticalAlignment="Center" Foreground="#AAAAAA" Margin="0,0,10,0"/>
+                        <TextBox x:Name="SearchBox" Width="300" Height="30" VerticalContentAlignment="Center" Background="#22FFFFFF" Foreground="White" BorderThickness="0" Padding="5,0"/>
+                        <Button Content="Search" Width="80" Height="30" Margin="10,0,0,0" Click="SearchBtn_Click" Background="#33FFFFFF" Foreground="White" BorderThickness="0"/>
+                        <TextBlock Text="try '459458' for BlackLotus" VerticalAlignment="Center" Foreground="#666666" Margin="15,0,0,0" FontStyle="Italic"/>
+                    </StackPanel>
+
+                    <ListView x:Name="DbxList" Grid.Row="1" Background="Transparent" BorderThickness="0" Foreground="#CCCCCC">
+                         <ListView.View>
+                            <GridView>
+                                <GridViewColumn Header="Hash" DisplayMemberBinding="{Binding Hash}" Width="400"/>
+                                <GridViewColumn Header="Type" DisplayMemberBinding="{Binding GuidType}" Width="300"/>
+                            </GridView>
+                        </ListView.View>
+                    </ListView>
+                </Grid>
+            </TabItem>
+        </TabControl>
+
+        <!-- Loading Overlay -->
+        <Border x:Name="LoadingOverlay" Grid.RowSpan="2" Background="#AA000000" Visibility="Collapsed">
+            <StackPanel VerticalAlignment="Center" HorizontalAlignment="Center">
+                <TextBlock Text="Reading NVRAM..." FontSize="18" Foreground="White" HorizontalAlignment="Center"/>
+            </StackPanel>
+        </Border>
+    </Grid>
+</UserControl>
