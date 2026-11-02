@@ -32,6 +32,8 @@ const string OfflineToolsJson = """
   { "name": "get_svchost_identity", "description": "SCM services + -k/-s identity of one svchost instance (needs an active session)." },
   { "name": "run_pid_inquiry", "description": "Full PID provenance report (needs an active session)." },
   { "name": "tail_sysmon", "description": "Recent Sysmon/Operational events (needs an active session)." },
+  { "name": "list_watches", "description": "Spawn watch rules with match definitions and 24h hit counts (needs an active session)." },
+  { "name": "tail_watches", "description": "Recent spawn-watch hits: rule, image, PID, parent image, parent service, command line (needs an active session)." },
   { "name": "trace_analyze", "description": "svchost trace capture + pattern analysis (needs an active session)." },
   { "name": "classify_ip", "description": "Destination-range classification, block-warning text and blocked-list status (needs an active session)." },
   { "name": "lookup_ip", "description": "Resolve one IP: hostname, range classification, org/geo with its cache state (ip-api throttled + RDAP fallback), blocked-list status; force=true re-asks urgently (needs an active session)." },
