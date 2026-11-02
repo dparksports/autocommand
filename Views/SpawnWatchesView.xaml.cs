@@ -23,31 +23,34 @@ namespace AutoCommand.Views
     {
         private sealed class RuleRowVm
         {
-            public SpawnWatch Watch;
-            public string MatchDescription;
-            public string Hits24hText;
-            public bool IsSelected;
+            // public PROPERTIES, not fields — WPF bindings resolve CLR
+            // properties only; a field silently binds to nothing (the
+            // BlockRowVm house pattern exists for exactly this reason)
+            public SpawnWatch Watch { get; set; }
+            public string MatchDescription { get; set; }
+            public string Hits24hText { get; set; }
+            public bool IsSelected { get; set; }
         }
 
         private sealed class HitRowVm
         {
-            public string TimeText;
-            public string Rule;
-            public string Image;
-            public string Pid;
-            public string Parent;
-            public string Service;
-            public string CmdText;
-            public SpawnWatchService.HitRow Raw;
+            public string TimeText { get; set; }
+            public string Rule { get; set; }
+            public string Image { get; set; }
+            public string Pid { get; set; }
+            public string Parent { get; set; }
+            public string Service { get; set; }
+            public string CmdText { get; set; }
+            public SpawnWatchService.HitRow Raw { get; set; }
         }
 
         /// <summary>A load pass's result, built off the UI thread.</summary>
         private sealed class Snapshot
         {
-            public List<RuleRowVm> Rules;
-            public int Hits24hTotal;
-            public List<HitRowVm> Hits;
-            public DateTime? LastHitUtc;
+            public List<RuleRowVm> Rules { get; set; }
+            public int Hits24hTotal { get; set; }
+            public List<HitRowVm> Hits { get; set; }
+            public DateTime? LastHitUtc { get; set; }
         }
 
         private const int RefreshSeconds = 10;
