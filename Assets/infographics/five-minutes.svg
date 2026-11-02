@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="540" viewBox="0 0 1120 540" role="img" aria-label="Try it in five minutes: download, run as administrator, look around">
+  <rect width="1120" height="540" fill="#0f172a"/>
+  <g font-family="Segoe UI, Arial, sans-serif">
+    <text x="56" y="64" font-size="32" font-weight="700" fill="#f1f5f9">Try it in five minutes</text>
+    <rect x="56" y="78" width="64" height="4" fill="#22d3ee"/>
+
+    <g>
+      <rect x="56" y="110" width="296" height="320" rx="12" fill="#1e293b" stroke="#334155"/>
+      <text x="84" y="172" font-size="40" font-weight="700" fill="#22d3ee">01</text>
+      <text x="84" y="206" font-size="21" font-weight="700" fill="#f1f5f9">Download &amp; unzip</text>
+      <g font-size="15" fill="#cbd5e1">
+        <text x="84" y="242">Grab the zip from Releases.</text>
+        <text x="84" y="268">Unzip it anywhere — there</text>
+        <text x="84" y="294">is no installer.</text>
+        <text x="84" y="346">Delete the folder later and</text>
+        <text x="84" y="372">the app is completely gone.</text>
+      </g>
+    </g>
+
+    <g>
+      <rect x="408" y="110" width="296" height="320" rx="12" fill="#1e293b" stroke="#334155"/>
+      <text x="436" y="172" font-size="40" font-weight="700" fill="#22d3ee">02</text>
+      <text x="436" y="206" font-size="21" font-weight="700" fill="#f1f5f9">Run as administrator</text>
+      <g font-size="15" fill="#cbd5e1">
+        <text x="436" y="242">Right-click AutoCommand.exe</text>
+        <text x="436" y="268">and pick Run as</text>
+        <text x="436" y="294">administrator.</text>
+        <text x="436" y="346">A blue warning screen? It</text>
+        <text x="436" y="372">just means it is not from a</text>
+        <text x="436" y="398">big company: More info, then</text>
+        <text x="436" y="424">Run anyway.</text>
+      </g>
+    </g>
+
+    <g>
+      <rect x="760" y="110" width="296" height="320" rx="12" fill="#1e293b" stroke="#334155"/>
+      <text x="788" y="172" font-size="40" font-weight="700" fill="#22d3ee">03</text>
+      <text x="788" y="206" font-size="21" font-weight="700" fill="#f1f5f9">Look around</text>
+      <g font-size="15" fill="#cbd5e1">
+        <text x="788" y="242">Every program talking to</text>
+        <text x="788" y="268">the internet, in plain</text>
+        <text x="788" y="294">English.</text>
+        <text x="788" y="346">Click a row to see who</text>
+        <text x="788" y="372">started it. Block what you</text>
+        <text x="788" y="398">do not want — undo</text>
+        <text x="788" y="424">included.</text>
+      </g>
+    </g>
+
+    <text x="56" y="482" font-size="14" fill="#94a3b8">Administrator permission is the same reason Task Manager asks — to see the whole machine, not just yours.</text>
+    <text x="1064" y="524" font-size="13" fill="#64748b" text-anchor="end">AutoCommand · dparksports/autocommand</text>
+  </g>
+</svg>

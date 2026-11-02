@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="300" viewBox="0 0 1120 300" role="img" aria-label="AutoCommand — see what your Windows PC is really doing">
+  <rect width="1120" height="300" fill="#0f172a"/>
+  <rect width="1120" height="6" fill="#22d3ee"/>
+  <g font-family="Segoe UI, Arial, sans-serif">
+    <text x="56" y="112" font-size="54" font-weight="700" fill="#f1f5f9">AutoCommand</text>
+    <text x="56" y="152" font-size="22" fill="#94a3b8">See what your Windows PC is really doing.</text>
+
+    <g font-size="14" fill="#cbd5e1">
+      <rect x="56" y="196" width="160" height="32" rx="16" fill="#1e293b" stroke="#334155"/>
+      <text x="76" y="217">Free &amp; open source</text>
+      <rect x="228" y="196" width="112" height="32" rx="16" fill="#1e293b" stroke="#334155"/>
+      <text x="248" y="217">Local-first</text>
+      <rect x="352" y="196" width="140" height="32" rx="16" fill="#1e293b" stroke="#334155"/>
+      <text x="372" y="217">No subscription</text>
+      <rect x="504" y="196" width="116" height="32" rx="16" fill="#1e293b" stroke="#334155"/>
+      <text x="524" y="217">No installer</text>
+    </g>
+
+    <rect x="648" y="52" width="416" height="212" rx="12" fill="#1e293b" stroke="#334155"/>
+    <circle cx="672" cy="74" r="5" fill="#f87171"/>
+    <circle cx="690" cy="74" r="5" fill="#fbbf24"/>
+    <circle cx="708" cy="74" r="5" fill="#34d399"/>
+    <text x="1040" y="79" font-size="13" fill="#64748b" text-anchor="end">live</text>
+    <line x1="664" y1="90" x2="1048" y2="90" stroke="#334155"/>
+
+    <circle cx="684" cy="120" r="7" fill="#34d399"/>
+    <text x="702" y="125" font-size="15" font-weight="600" fill="#f1f5f9">chrome.exe</text>
+    <text x="702" y="143" font-size="13" fill="#94a3b8">update.google.com:443 · replied</text>
+    <rect x="984" y="106" width="52" height="24" rx="6" fill="#0b1220" stroke="#334155"/>
+    <text x="1010" y="122" font-size="12" fill="#94a3b8" text-anchor="middle">info</text>
+
+    <circle cx="684" cy="164" r="7" fill="#fbbf24"/>
+    <text x="702" y="169" font-size="15" font-weight="600" fill="#f1f5f9">svchost.exe</text>
+    <text x="702" y="187" font-size="13" fill="#94a3b8">13.107.4.50:443 · no reply yet</text>
+    <rect x="984" y="150" width="52" height="24" rx="6" fill="#0b1220" stroke="#334155"/>
+    <text x="1010" y="166" font-size="12" fill="#94a3b8" text-anchor="middle">info</text>
+
+    <circle cx="684" cy="208" r="7" fill="#f87171"/>
+    <text x="702" y="213" font-size="15" font-weight="600" fill="#f1f5f9">svchost.exe</text>
+    <text x="702" y="231" font-size="13" fill="#94a3b8">uploading · blocked with one click</text>
+    <rect x="964" y="194" width="72" height="24" rx="6" fill="#7f1d1d" stroke="#f87171"/>
+    <text x="1000" y="210" font-size="12" fill="#fecaca" text-anchor="middle">undo</text>
+  </g>
+  <text x="1064" y="284" font-size="13" fill="#64748b" text-anchor="end" font-family="Segoe UI, Arial, sans-serif">AutoCommand · dparksports/autocommand</text>
+</svg>

@@ -1,0 +1,61 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="540" viewBox="0 0 1120 540" role="img" aria-label="Where it came from: SystemMonitor, AutoCommand two and three, AutoCommand today">
+  <rect width="1120" height="540" fill="#0f172a"/>
+  <g font-family="Segoe UI, Arial, sans-serif">
+    <text x="56" y="64" font-size="32" font-weight="700" fill="#f1f5f9">Where it came from</text>
+    <rect x="56" y="78" width="64" height="4" fill="#22d3ee"/>
+
+    <line x1="88" y1="120" x2="1032" y2="120" stroke="#334155" stroke-width="3"/>
+    <circle cx="206" cy="120" r="7" fill="#34d399"/>
+    <circle cx="562" cy="120" r="7" fill="#22d3ee"/>
+    <circle cx="918" cy="120" r="7" fill="#a78bfa"/>
+
+    <g>
+      <rect x="56" y="150" width="296" height="250" rx="12" fill="#1e293b" stroke="#334155"/>
+      <text x="84" y="186" font-size="13" font-weight="600" fill="#34d399">2026 · THE PRECURSOR</text>
+      <text x="84" y="216" font-size="20" font-weight="700" fill="#f1f5f9">SystemMonitor</text>
+      <g font-size="14.5" fill="#cbd5e1">
+        <text x="84" y="250">Firmware, UEFI/DBX and</text>
+        <text x="84" y="274">Defender forensics — the</text>
+        <text x="84" y="298">dashboard this whole</text>
+        <text x="84" y="322">family started from.</text>
+        <text x="84" y="366">Classic v3.x downloads</text>
+        <text x="84" y="390">stay available forever.</text>
+      </g>
+    </g>
+
+    <g>
+      <rect x="412" y="150" width="296" height="250" rx="12" fill="#1e293b" stroke="#334155"/>
+      <text x="440" y="186" font-size="13" font-weight="600" fill="#22d3ee">2026 · THE REBUILD</text>
+      <text x="440" y="216" font-size="20" font-weight="700" fill="#f1f5f9">AutoCommand II &amp; III</text>
+      <g font-size="14.5" fill="#cbd5e1">
+        <text x="440" y="250">Core engines rebuilt in</text>
+        <text x="440" y="274">F#, shipped as II, then</text>
+        <text x="440" y="298">III — then consolidated</text>
+        <text x="440" y="322">back into one repo.</text>
+      </g>
+    </g>
+
+    <g>
+      <rect x="768" y="150" width="296" height="250" rx="12" fill="#1e293b" stroke="#334155"/>
+      <text x="796" y="186" font-size="13" font-weight="600" fill="#a78bfa">NOW · ONE HOME</text>
+      <text x="796" y="216" font-size="20" font-weight="700" fill="#f1f5f9">AutoCommand</text>
+      <g font-size="14.5" fill="#cbd5e1">
+        <text x="796" y="250">Calendar releases</text>
+        <text x="796" y="274">(v2026.x.x). The precursor's</text>
+        <text x="796" y="298">full commit history now</text>
+        <text x="796" y="322">lives in this repo, under</text>
+        <text x="796" y="346">systemmonitor/.</text>
+      </g>
+    </g>
+
+    <g fill="#94a3b8">
+      <line x1="356" y1="275" x2="396" y2="275" stroke="#94a3b8" stroke-width="2"/>
+      <polygon points="404,275 394,270 394,280"/>
+      <line x1="712" y1="275" x2="752" y2="275" stroke="#94a3b8" stroke-width="2"/>
+      <polygon points="760,275 750,270 750,280"/>
+    </g>
+
+    <text x="56" y="456" font-size="15" fill="#94a3b8">One repository now holds the whole family tree — every commit from precursor to present.</text>
+    <text x="1064" y="524" font-size="13" fill="#64748b" text-anchor="end">AutoCommand · dparksports/autocommand</text>
+  </g>
+</svg>
