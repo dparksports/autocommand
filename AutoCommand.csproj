@@ -116,6 +116,16 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- Precursor tree: SystemMonitor's classic source, folded in with its
+         full history (2026-11). Preserved as-is — never compiled into the
+         app; its own Main()s and foreign deps (Google.Apis etc.) belong to
+         the classic app, not this one (see systemmonitor\) -->
+    <Compile Remove="systemmonitor\**" />
+    <None Remove="systemmonitor\**" />
+    <Content Remove="systemmonitor\**" />
+    <Resource Remove="systemmonitor\**" />
+    <Page Remove="systemmonitor\**" />
+    <EmbeddedResource Remove="systemmonitor\**" />
     <!-- Exclude scratch/test scripts — they define their own Main() -->
     <Compile Remove="ScratchTest\**" />
     <Compile Remove="Sdk\**" />

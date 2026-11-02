@@ -98,6 +98,12 @@ self-tests, all of them green. The full story — what moved, what was
 ported forward from II, what the seams look like — is in
 **[README-III.md](docs/history/README-III.md)** (the III-era readme, kept in `docs/history/`).
 
+The family tree starts one generation further back: **SystemMonitor was the
+original precursor** to all of this. Its complete source tree and commit
+history are preserved in [`systemmonitor/`](systemmonitor/) — the classic
+v3.x firmware-forensics dashboard, unchanged, with every commit that led
+here. Its future is this repo; its past now lives here too.
+
 ![The migration](docs/infographic-migration.svg)
 
 ```powershell
