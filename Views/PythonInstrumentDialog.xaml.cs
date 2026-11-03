@@ -7,6 +7,7 @@ using System.Windows;
 using System.Windows.Controls;
 using AutoCommand.Engines.Watch;
 using AutoCommand.Forensics.Core;
+using AutoCommand.Helpers;
 
 namespace AutoCommand.Views
 {
@@ -45,6 +46,7 @@ namespace AutoCommand.Views
         public PythonInstrumentDialog()
         {
             InitializeComponent();
+            WindowPlacement.ConstrainToMonitor(this);   // must fit an 800×600 screen
             EnvList.ItemsSource = _rows;
             Populate();
             _ = DiscoverSeenRunningAsync(); // tier 3 streams in after the fast tiers

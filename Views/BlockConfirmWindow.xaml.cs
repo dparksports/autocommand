@@ -5,6 +5,7 @@ using AutoCommand.Contain.Core;
 using AutoCommand.Forensics.Core;
 using AutoCommand.NetWatch.Core;
 using AutoCommand.Sitedoctor.Core;
+using AutoCommand.Helpers;
 
 namespace AutoCommand.Views
 {
@@ -29,6 +30,7 @@ namespace AutoCommand.Views
                                   string suppressKey, string suppressLabel)
         {
             InitializeComponent();
+            WindowPlacement.ConstrainToMonitor(this);   // must fit an 800×600 screen
             HeadText.Text = headline;
             WarningText.Text = warning;
             WarningBorder.Visibility = string.IsNullOrEmpty(warning) ? Visibility.Collapsed : Visibility.Visible;

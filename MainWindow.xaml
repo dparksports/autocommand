@@ -4,6 +4,7 @@
         xmlns:views="clr-namespace:AutoCommand.Views"
         x:Name="RootWindow"
         Title="Auto-Command" Height="750" Width="1200"
+        MinWidth="640" MinHeight="420"
         Icon="app_icon.ico"
         WindowStartupLocation="CenterScreen"
         FontFamily="Segoe UI">

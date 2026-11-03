@@ -12,6 +12,7 @@ using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Media;
 using AutoCommand.Services;
+using AutoCommand.Helpers;
 
 namespace AutoCommand.Views
 {
@@ -52,6 +53,7 @@ namespace AutoCommand.Views
             _hintSeenUtc = hintSeenUtc;
             _knownCreatedUtc = knownCreatedUtc;
             InitializeComponent();
+            WindowPlacement.ConstrainToMonitor(this);   // must fit an 800×600 screen
             Title = $"PID Inquiry — {pid} {knownName}".TrimEnd();
             Loaded += (_, _) => _ = CollectAsync();
         }

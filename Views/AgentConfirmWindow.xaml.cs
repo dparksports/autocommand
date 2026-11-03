@@ -5,6 +5,7 @@ using AutoCommand.Contain.Core;
 using AutoCommand.Forensics.Core;
 using AutoCommand.NetWatch.Core;
 using AutoCommand.Sitedoctor.Core;
+using AutoCommand.Helpers;
 
 namespace AutoCommand.Views
 {
@@ -22,6 +23,7 @@ namespace AutoCommand.Views
         public AgentConfirmWindow(string tool, string detail)
         {
             InitializeComponent();
+            WindowPlacement.ConstrainToMonitor(this);   // must fit an 800×600 screen
             HeadText.Text = $"An AI assistant asks to run: {tool}";
             DetailText.Text = detail;
             if (tool == "open_gate" || tool == "close_gate")

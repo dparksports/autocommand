@@ -11,6 +11,7 @@ using System.Windows;
 using System.Windows.Data;
 using System.Windows.Threading;
 using AutoCommand.Services;
+using AutoCommand.Helpers;
 
 namespace AutoCommand.Views
 {
@@ -65,6 +66,7 @@ namespace AutoCommand.Views
         public BlockedRulesWindow()
         {
             InitializeComponent();
+            WindowPlacement.ConstrainToMonitor(this);   // must fit an 800×600 screen
             var view = (ListCollectionView)CollectionViewSource.GetDefaultView(_rows);
             view.GroupDescriptions.Add(new PropertyGroupDescription("Class"));
             RulesGrid.ItemsSource = view;

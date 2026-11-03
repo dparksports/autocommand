@@ -1,5 +1,6 @@
 using System.Windows;
 using AutoCommand.Contain.Core;
+using AutoCommand.Helpers;
 
 namespace AutoCommand.Views;
 
@@ -15,6 +16,7 @@ public partial class WslDiagnosisWindow : Window
     public WslDiagnosisWindow()
     {
         InitializeComponent();
+        WindowPlacement.ConstrainToMonitor(this);   // must fit an 800×600 screen
         Loaded += async (_, _) => await RunAsync();
     }
 

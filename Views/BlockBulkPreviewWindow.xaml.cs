@@ -4,6 +4,7 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Media;
+using AutoCommand.Helpers;
 
 namespace AutoCommand.Views
 {
@@ -47,6 +48,7 @@ namespace AutoCommand.Views
             int mHi = hi.Sum(g => g.Rules);
 
             InitializeComponent();
+            WindowPlacement.ConstrainToMonitor(this);   // must fit an 800×600 screen
             RbAll.Checked += Scope_Changed;
             RbExcept.Checked += Scope_Changed;
 

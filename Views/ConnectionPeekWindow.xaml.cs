@@ -8,6 +8,7 @@ using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Threading;
 using AutoCommand.Forensics.Core;
+using AutoCommand.Helpers;
 
 namespace AutoCommand.Views
 {
@@ -87,6 +88,7 @@ namespace AutoCommand.Views
             _hostedServices = hostedServices;
             _hostname = hostname;
             InitializeComponent();
+            WindowPlacement.ConstrainToMonitor(this);   // must fit an 800×600 screen
 
             Title = $"Traffic Peek — {subject}";
             bool programScope = scope.IsProgramScope || scope.IsServiceScope;

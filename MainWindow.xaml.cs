@@ -218,6 +218,23 @@ namespace AutoCommand
             _rainWidthDebounce.Tick += RainWidthDebounce_Tick;
             ApplyPaneState();
 
+            // ── adaptive placement (small-screen support) ────────────────
+            // Restores persisted geometry, or starts MAXIMIZED on screens too
+            // small for the designed 1200×750 — the 800×600-class a refresh
+            // install shows until GPU drivers land. Runs before the window
+            // shows so no oversized frame ever flashes. TrackWorkArea keeps
+            // the window on-screen when the resolution changes mid-session.
+            WindowPlacement.ApplyStartupPlacement(this);
+            WindowPlacement.TrackWorkArea(this);
+
+            // narrow launches start with the sidebar folded to icons — every
+            // horizontal pixel goes to content; the burger expands it and
+            // the choice sticks for the session. Covers both the 800×600
+            // class (maximized) and a restored narrow window on a big screen.
+            if (WindowPlacement.SmallScreenStartup ||
+                (WindowState == WindowState.Normal && Width < 1000))
+                IsPaneCollapsed = true;
+
             // Live version from the assembly instead of a hardcoded string
             VersionText.Text = $"AutoCommand v{AppVersion}";
 
@@ -378,6 +395,14 @@ namespace AutoCommand
                 ThreatAlertText.Text = $"⚠ Firewall drift detected: {driftItems.Count} rule(s) changed";
                 ThreatAlertText.Foreground = new SolidColorBrush(Color.FromRgb(0xE5, 0xA6, 0x31));
             });
+        }
+
+        // Persist the final placement while the state is still valid — the
+        // restore path re-clamps it against whatever screen exists next run.
+        protected override void OnClosing(System.ComponentModel.CancelEventArgs e)
+        {
+            WindowPlacement.SaveState(this);
+            base.OnClosing(e);
         }
 
         protected override void OnClosed(EventArgs e)

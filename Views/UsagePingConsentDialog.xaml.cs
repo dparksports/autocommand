@@ -6,6 +6,7 @@ using AutoCommand.NetWatch.Core;
 using AutoCommand.Sitedoctor.Core;
 using System.Windows.Navigation;
 using AutoCommand.Services;
+using AutoCommand.Helpers;
 
 namespace AutoCommand.Views
 {
@@ -18,6 +19,7 @@ namespace AutoCommand.Views
         public UsagePingConsentDialog()
         {
             InitializeComponent();
+            WindowPlacement.ConstrainToMonitor(this);   // must fit an 800×600 screen
             if (UsagePingService.GraphPageUrl != null)
                 GraphLink.Visibility = Visibility.Visible;
         }
