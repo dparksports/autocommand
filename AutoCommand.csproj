@@ -206,6 +206,10 @@
          all offline with synthetic inputs (own Main(), same glob reason as
          every side project) -->
     <Compile Remove="WslSelfTest\**" />
+    <!-- Allow-list self-test: the tamper-evident ledger + the surface
+         verdict evaluators, offline against a temp ledger root (own
+         Main(), same glob reason as every side project) -->
+    <Compile Remove="AllowListSelfTest\**" />
   </ItemGroup>
 
   <!-- Filter out Linux .so native binaries when publishing for Windows win-x64 -->

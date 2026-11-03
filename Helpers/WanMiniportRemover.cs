@@ -81,11 +81,20 @@ namespace AutoCommand.Helpers
         public static List<string> SetSstpMiniportsEnabled(bool enable)
             => ExecuteInternal(null, remove: false, sstpOnly: true, enableDevice: enable);
 
+        /// <summary>
+        /// Lists the SSTP-family WAN miniports present on the machine without touching
+        /// them — the "removed and stayed removed?" probe for the surface verdicts.
+        /// A "Failed to get device information set." line means the enumeration itself
+        /// failed (treat presence as unknown, not as clean).
+        /// </summary>
+        public static List<string> ListSstpMiniports() => ExecuteInternal(null, remove: false, sstpOnly: true, enumerateOnly: true);
+
         private static List<string> ExecuteInternal(
             string specificPattern,
-            bool remove       = true,
-            bool sstpOnly     = false,
-            bool enableDevice = false)
+            bool remove        = true,
+            bool sstpOnly      = false,
+            bool enableDevice  = false,
+            bool enumerateOnly = false)
         {
             var results = new List<string>();
             Guid guid = NetworkClassGuid;
@@ -116,7 +125,11 @@ namespace AutoCommand.Helpers
                     {
                         try
                         {
-                            if (remove)
+                            if (enumerateOnly)
+                            {
+                                results.Add($"Present: {instanceId}");
+                            }
+                            else if (remove)
                             {
                                 if (SetupDiCallClassInstaller(DIF_REMOVE, hDevInfo, ref devInfo))
                                 {

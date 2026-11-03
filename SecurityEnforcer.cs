@@ -36,7 +36,21 @@ namespace AutoCommand
         public SecurityEnforcer(Action<string, string> onThreatDetected)
         {
             _onThreatDetected = onThreatDetected;
+            Active = this;
         }
+
+        // The one live enforcer instance (MainWindow constructs a single one);
+        // lets the static Settings re-arm path trigger an immediate re-verify.
+        public static SecurityEnforcer Active { get; private set; }
+
+        // Allow-list persistence goes through AllowListLedger (Contain core): the
+        // plain files keep their legacy format, but every app-side change is
+        // hash-pinned in %PROGRAMDATA%\AutoCommand\allowlist-ledger.log and every
+        // load is checked against that pin — a "True" written by anything else
+        // fails secure (enforcement re-arms, tamper reported) instead of silently
+        // disarming the sweep.
+        public const string SstpPrefPath = "allowed_sstp.txt";
+        public const string KdnetPrefPath = "allowed_kerneldebug.txt";
 
         private static volatile bool _isSstpAllowed = false;
         public static bool IsSstpAllowed
@@ -45,7 +59,7 @@ namespace AutoCommand
             set
             {
                 _isSstpAllowed = value;
-                try { System.IO.File.WriteAllText("allowed_sstp.txt", value.ToString()); } catch { }
+                try { AllowListLedger.Commit("sstp", SstpPrefPath, value); } catch { }
             }
         }
 
@@ -56,8 +70,60 @@ namespace AutoCommand
             set
             {
                 _isKernelDebugAllowed = value;
-                try { System.IO.File.WriteAllText("allowed_kerneldebug.txt", value.ToString()); } catch { }
+                try { AllowListLedger.Commit("kdnet", KdnetPrefPath, value); } catch { }
             }
+        }
+
+        // ── Surface verdicts: live machine truth, computed every sweep ────────
+        // Detected regardless of allow state — the allow flag gates remediation,
+        // never observation. Settings renders these directly.
+        private static readonly object _verdictGate = new object();
+        private static readonly List<SurfaceVerdict> _verdicts = new List<SurfaceVerdict>();
+        public static event Action VerdictsUpdated;
+
+        public static IReadOnlyList<SurfaceVerdict> LastVerdicts
+        {
+            get { lock (_verdictGate) return _verdicts.ToArray(); }
+        }
+
+        // Fires VerdictsUpdated only when a verdict's content actually changes —
+        // the sweep runs every few seconds and the render is not free.
+        private static readonly Dictionary<string, string> _verdictSignatures = new Dictionary<string, string>();
+
+        private static void UpdateVerdict(SurfaceVerdict verdict)
+        {
+            string sig = verdict.Clean + "|" + verdict.Allowed + "|" + verdict.Summary;
+            bool changed;
+            lock (_verdictGate)
+            {
+                int idx = _verdicts.FindIndex(v => v.Surface == verdict.Surface);
+                if (idx >= 0) _verdicts[idx] = verdict; else _verdicts.Add(verdict);
+                string prev;
+                if (!_verdictSignatures.TryGetValue(verdict.Surface, out prev) || prev != sig)
+                {
+                    _verdictSignatures[verdict.Surface] = sig;
+                    changed = true;
+                }
+                else changed = false;
+            }
+            if (changed) VerdictsUpdated?.Invoke();
+        }
+
+        /// <summary>Re-arms a whitelisted surface ("sstp" | "kdnet") — enforcement
+        /// resumes and the surface is re-verified immediately.</summary>
+        public static void ReArm(string surface)
+        {
+            if (surface == "sstp") IsSstpAllowed = false;
+            else if (surface == "kdnet") IsKernelDebugAllowed = false;
+            Active?.VerifyNow(surface);
+        }
+
+        /// <summary>Immediate verification + (if armed) remediation sweep for one
+        /// surface, outside the metronome cadence.</summary>
+        public void VerifyNow(string surface)
+        {
+            if (surface == "sstp") EnforceSstpService();
+            else if (surface == "kdnet") EnforceKernelDebug();
         }
 
         // AutoMitigateAdapters: cached in-memory; persisted to disk via setter only.
@@ -72,20 +138,34 @@ namespace AutoCommand
             }
         }
 
+        // Tamper notices produced while loading the allow-lists (files rewritten
+        // or deleted outside the app); surfaced as alerts once Start() runs and
+        // the alert callbacks are wired.
+        private static readonly List<string> _tamperNotices = new List<string>();
+
         // Load all persisted preferences from disk — called once at Start().
         private static void LoadPersistedPreferences()
         {
             try
             {
-                if (System.IO.File.Exists("allowed_sstp.txt"))
-                    _isSstpAllowed = System.IO.File.ReadAllText("allowed_sstp.txt").Trim() == "True";
-                if (System.IO.File.Exists("allowed_kerneldebug.txt"))
-                    _isKernelDebugAllowed = System.IO.File.ReadAllText("allowed_kerneldebug.txt").Trim() == "True";
+                var sstp = AllowListLedger.Load("sstp", SstpPrefPath);
+                _isSstpAllowed = sstp.Value;
+                if (sstp.Status == AllowListLoadStatus.Tampered)
+                    _tamperNotices.Add("SSTP allow-list: " + sstp.Detail);
+
+                var kdnet = AllowListLedger.Load("kdnet", KdnetPrefPath);
+                _isKernelDebugAllowed = kdnet.Value;
+                if (kdnet.Status == AllowListLoadStatus.Tampered)
+                    _tamperNotices.Add("Kernel-debug allow-list: " + kdnet.Detail);
+
                 if (System.IO.File.Exists("auto_mitigate_adapters.txt"))
                     _autoMitigateAdapters = System.IO.File.ReadAllText("auto_mitigate_adapters.txt").Trim() == "True";
             }
             catch { }
         }
+
+        /// <summary>Allow-list tamper notices from load time (empty when clean).</summary>
+        public static IReadOnlyList<string> TamperNotices => _tamperNotices.ToArray();
 
         private static HashSet<string> _whitelistedTasks = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
 
@@ -102,6 +182,17 @@ namespace AutoCommand
             if (_isRunning) return;
             LoadPersistedPreferences();
             _isRunning = true;
+
+            // Tampered allow-lists were reverted to enforce-on at load; say so
+            // loudly now that the alert callbacks are wired (MainWindow wires
+            // them before Start). This is the "a True appeared in my pref file
+            // and I did not write it" moment — never silent.
+            foreach (string notice in _tamperNotices)
+            {
+                _onThreatDetected?.Invoke("Allow-list Tamper", notice);
+                StatusChanged?.Invoke("Tamper: Allow-list Reverted", "Red");
+                OnAdapterAlert?.Invoke("🔴 AutoCommand re-armed a tampered allow-list", notice);
+            }
 
             // Start the event-driven adapter watcher (replaces 2s WMI polling)
             _adapterWatcher = new Helpers.AdapterEventWatcher();
@@ -222,6 +313,11 @@ namespace AutoCommand
         private DateTime _lastSstpDriftAlertUtc = DateTime.MinValue;
         private DateTime _lastKdnetDriftAlertUtc = DateTime.MinValue;
         private DateTime _lastFirewallDriftAlertUtc = DateTime.MinValue;
+
+        // Transition dedup for whitelisted-surface drift notes (one ledger line
+        // and one amber status per clean→drift flip, not one per tick)
+        private bool _sstpDriftRecorded;
+        private bool _kdnetDriftRecorded;
 
         public event Action<List<string>> ConfigurationDriftDetected;
 
@@ -349,34 +445,44 @@ namespace AutoCommand
         // by verifying the desired state every tick and neutralizing any drift.
 
         /// <summary>
-        /// Reconciles the SSTP attack surface every tick: unless the user allow-listed
-        /// SSTP, SstpSvc must be stopped AND disabled (Start=4). Windows Update and RAS
+        /// Reconciles the SSTP attack surface every tick. The surface is probed and
+        /// the verdict updated EVEN when allow-listed — detection is never gated by
+        /// the preference; the allow flag only skips the stop/disable remediation,
+        /// and allowed drift is recorded to the ledger instead. Unless allow-listed,
+        /// SstpSvc must be stopped AND disabled (Start=4): Windows Update and RAS
         /// reconfiguration can re-enable both silently, so the state is re-asserted.
         /// </summary>
         private void EnforceSstpService()
         {
-            if (IsSstpAllowed) return;
+            var state = ProbeSstp();
+            var verdict = SurfaceAssurance.EvaluateSstp(state, IsSstpAllowed);
+            UpdateVerdict(verdict);
+
+            if (IsSstpAllowed)
+            {
+                // Whitelisted: record drift in the ledger (once per clean→drift
+                // transition), alert amber, never remediate.
+                if (!verdict.Clean && !_sstpDriftRecorded)
+                {
+                    _sstpDriftRecorded = true;
+                    AllowListLedger.NoteDrift("sstp", verdict.Summary);
+                    _onThreatDetected?.Invoke("SSTP Service",
+                        $"Drift on a whitelisted surface (recorded, NOT remediated): {verdict.Summary}");
+                    StatusChanged?.Invoke("Drift (whitelisted): SSTP Service", "Amber");
+                }
+                else if (verdict.Clean)
+                {
+                    _sstpDriftRecorded = false;
+                }
+                return;
+            }
+
             try
             {
-                bool running;
-                try
-                {
-                    using (var sc = new ServiceController("SstpSvc"))
-                    {
-                        running = sc.Status == ServiceControllerStatus.Running
-                               || sc.Status == ServiceControllerStatus.StartPending;
-                    }
-                }
-                catch
-                {
-                    return; // Service not installed — nothing to enforce
-                }
-
-                int startValue = GetServiceStartValue("SstpSvc");
-                if (startValue == -1) return; // registry unreadable — skip this tick
-                bool startDisabled = startValue == 4; // SERVICE_DISABLED
-
-                if (!running && startDisabled) return; // desired state
+                if (!state.SstpServiceInstalled) return; // nothing to enforce
+                if (state.SstpStartValue == -1) return; // registry unreadable — skip this tick
+                bool serviceDrift = state.SstpServiceRunning || state.SstpStartValue != 4;
+                if (!serviceDrift) return; // service at desired state; miniport presence only informs the verdict
 
                 if (AutoMitigateAdapters)
                 {
@@ -387,7 +493,7 @@ namespace AutoCommand
                     {
                         _lastSstpDriftAlertUtc = DateTime.UtcNow;
                         _onThreatDetected?.Invoke("SSTP Service",
-                            $"SstpSvc was re-enabled ({(running ? "service running" : "startup type restored")}) and has been stopped and disabled again.");
+                            $"SstpSvc was re-enabled ({(state.SstpServiceRunning ? "service running" : "startup type restored")}) and has been stopped and disabled again.");
                         StatusChanged?.Invoke("Threat Blocked: SSTP Service", "Red");
                         OnAdapterAlert?.Invoke("🔴 AutoCommand blocked: SSTP service",
                             "SstpSvc was re-enabled and has been stopped and disabled again.");
@@ -410,13 +516,49 @@ namespace AutoCommand
             }
         }
 
+        /// <summary>Live SSTP surface probe: service presence/status, registry Start
+        /// value, and a no-touch enumeration of the SSTP-family WAN miniports.</summary>
+        private static SurfaceState ProbeSstp()
+        {
+            var state = new SurfaceState();
+            try
+            {
+                using (var sc = new ServiceController("SstpSvc"))
+                {
+                    state.SstpServiceInstalled = true;
+                    state.SstpServiceRunning = sc.Status == ServiceControllerStatus.Running
+                                            || sc.Status == ServiceControllerStatus.StartPending;
+                }
+            }
+            catch
+            {
+                state.SstpServiceInstalled = false; // service not installed
+            }
+
+            state.SstpStartValue = GetServiceStartValue("SstpSvc");
+
+            try
+            {
+                var listed = Helpers.WanMiniportRemover.ListSstpMiniports();
+                state.SstpMiniportsPresent =
+                    listed.Count > 0 && !listed[0].StartsWith("Failed", StringComparison.Ordinal);
+            }
+            catch
+            {
+                state.SstpMiniportsPresent = false; // enumeration failed — evaluator still says what it knows
+            }
+
+            return state;
+        }
+
         /// <summary>
-        /// Reconciles the KDNET attack surface every ~30s: unless allow-listed, kernel
-        /// debug must be OFF in the BCD and no working KDNIC adapter may be present.
+        /// Reconciles the KDNET attack surface every ~30s. Probed and judged even
+        /// when allow-listed (the verdict updates); remediation — debug off in the
+        /// BCD, KDNIC removal — only when NOT allow-listed. Allowed drift is
+        /// recorded to the ledger, never remediated.
         /// </summary>
         private void EnforceKernelDebug()
         {
-            if (IsKernelDebugAllowed) return;
             try
             {
                 bool debugOn = false;
@@ -429,7 +571,29 @@ namespace AutoCommand
 
                 bool kdnicActive = IsKdnicAdapterActive();
 
-                if (!debugOn && !kdnicActive) return; // desired state
+                var verdict = SurfaceAssurance.EvaluateKdnet(
+                    new SurfaceState { BcdDebugOn = debugOn, KdnicActive = kdnicActive },
+                    IsKernelDebugAllowed);
+                UpdateVerdict(verdict);
+
+                if (IsKernelDebugAllowed)
+                {
+                    if (!verdict.Clean && !_kdnetDriftRecorded)
+                    {
+                        _kdnetDriftRecorded = true;
+                        AllowListLedger.NoteDrift("kdnet", verdict.Summary);
+                        _onThreatDetected?.Invoke("Kernel Debug",
+                            $"Drift on a whitelisted surface (recorded, NOT remediated): {verdict.Summary}");
+                        StatusChanged?.Invoke("Drift (whitelisted): Kernel Debug", "Amber");
+                    }
+                    else if (verdict.Clean)
+                    {
+                        _kdnetDriftRecorded = false;
+                    }
+                    return;
+                }
+
+                if (verdict.Clean) return; // desired state
 
                 if (AutoMitigateAdapters)
                 {

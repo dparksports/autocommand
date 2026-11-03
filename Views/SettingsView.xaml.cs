@@ -59,6 +59,83 @@ namespace AutoCommand.Views
             }
             ThemeCombo.SelectionChanged += ThemeCombo_SelectionChanged;
 
+            // Protected-surface verdicts (SSTP / kernel debug): render now and
+            // stay live on every enforcement sweep while this view is open.
+            SecurityEnforcer.VerdictsUpdated -= OnVerdictsUpdated;
+            SecurityEnforcer.VerdictsUpdated += OnVerdictsUpdated;
+            RefreshSurfaceVerdicts();
+        }
+
+        private void UserControl_Unloaded(object sender, RoutedEventArgs e)
+        {
+            SecurityEnforcer.VerdictsUpdated -= OnVerdictsUpdated;
+        }
+
+        // ── protected surfaces (SSTP / kernel debug) ─────────────────────
+
+        // Live machine truth from the enforcer sweeps — computed regardless of
+        // allow-list state, so a whitelisted surface still shows its drift.
+        private void OnVerdictsUpdated() => RefreshSurfaceVerdicts();
+
+        private void RefreshSurfaceVerdicts()
+        {
+            SurfaceVerdict sstp = null, kdnet = null;
+            foreach (var v in SecurityEnforcer.LastVerdicts)
+            {
+                if (v.Surface == SurfaceAssurance.SstpSurfaceName) sstp = v;
+                else if (v.Surface == SurfaceAssurance.KdnetSurfaceName) kdnet = v;
+            }
+
+            SstpVerdictText.Text = sstp == null
+                ? "SSTP service — first sweep pending…"
+                : Describe(sstp);
+            SstpVerdictText.Foreground = VerdictBrush(sstp);
+            ReArmSstpBtn.Visibility = sstp != null && sstp.Allowed ? Visibility.Visible : Visibility.Collapsed;
+
+            KdnetVerdictText.Text = kdnet == null
+                ? "Kernel debug — first sweep pending…"
+                : Describe(kdnet);
+            KdnetVerdictText.Foreground = VerdictBrush(kdnet);
+            ReArmKdnetBtn.Visibility = kdnet != null && kdnet.Allowed ? Visibility.Visible : Visibility.Collapsed;
+
+            var notices = SecurityEnforcer.TamperNotices;
+            if (notices.Count > 0)
+            {
+                AllowListStatusText.Text = "⚠ Allow-list tamper detected — enforcement re-armed. Last: " +
+                                           notices[notices.Count - 1];
+                AllowListStatusText.Visibility = Visibility.Visible;
+            }
+            else
+            {
+                AllowListStatusText.Visibility = Visibility.Collapsed;
+            }
+        }
+
+        private static string Describe(SurfaceVerdict v)
+        {
+            string icon = v.Clean ? "✅" : (v.Allowed ? "🟡" : "🔴");
+            string mode = v.Allowed ? " — whitelisted (drift recorded, NOT remediated)" : " — enforced";
+            return $"{icon} {v.Surface}: {v.Summary}{mode} · verified {v.VerifiedUtc.ToLocalTime():HH:mm:ss}";
+        }
+
+        private Brush VerdictBrush(SurfaceVerdict v)
+        {
+            if (v == null) return (Brush)FindResource("TextSecondaryBrush");
+            if (v.Clean) return new SolidColorBrush(Color.FromRgb(0x4E, 0xC9, 0x6F)); // green
+            if (v.Allowed) return new SolidColorBrush(Color.FromRgb(0xE5, 0xA5, 0x0A)); // amber
+            return new SolidColorBrush(Color.FromRgb(0xE5, 0x6B, 0x56)); // red — drift while enforced
+        }
+
+        private void ReArmSstpBtn_Click(object sender, RoutedEventArgs e)
+        {
+            SecurityEnforcer.ReArm("sstp");
+            RefreshSurfaceVerdicts();
+        }
+
+        private void ReArmKdnetBtn_Click(object sender, RoutedEventArgs e)
+        {
+            SecurityEnforcer.ReArm("kdnet");
+            RefreshSurfaceVerdicts();
         }
 
         private void ThemeCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)

@@ -346,7 +346,8 @@ namespace AutoCommand
                 string msg = $"Active Adapter Detected: {_currentThreatDetails}\n\n" +
                              "This adapter might be used for unauthorized tunneling or kernel debugging.\n\n" +
                              "Click 'Yes' to Block & Delete (removes device and service).\n" +
-                             "Click 'No' to Whitelist (ignore this adapter permanently).\n" +
+                             "Click 'No' to Whitelist — AutoCommand will STOP checking for and removing this surface. " +
+                             "Drift is still detected and recorded, but NOT remediated; re-arm anytime in Settings → Network Adapter Security.\n" +
                              "Click 'Cancel' to ignore for now.";
                              
                 var result = MessageBox.Show(msg, "Review Network Adapter", MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
