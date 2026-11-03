@@ -68,7 +68,54 @@ namespace DeviceMonitorCS.Models
             [MarshalAs(UnmanagedType.ByValArray, SizeConst = 1)]
             public MIB_UDPROW_OWNER_PID[] table;
         }
-        
+
+        // IPv6 rows — the AF_INET6 const existed but no v6 table was ever
+        // queried: every IPv6 endpoint was invisible. Field order per the
+        // SDK's MIB_*6ROW_OWNER_PID (address, scopeId, port[, remote...], pid).
+        [StructLayout(LayoutKind.Sequential)]
+        public struct MIB_TCP6ROW_OWNER_PID
+        {
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 16)]
+            public byte[] localAddr;
+            public uint localScopeId;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 4)]
+            public byte[] localPort;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 16)]
+            public byte[] remoteAddr;
+            public uint remoteScopeId;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 4)]
+            public byte[] remotePort;
+            public uint state;
+            public uint owningPid;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct MIB_TCP6TABLE_OWNER_PID
+        {
+            public uint dwNumEntries;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 1)]
+            public MIB_TCP6ROW_OWNER_PID[] table;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct MIB_UDP6ROW_OWNER_PID
+        {
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 16)]
+            public byte[] localAddr;
+            public uint localScopeId;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 4)]
+            public byte[] localPort;
+            public uint owningPid;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        public struct MIB_UDP6TABLE_OWNER_PID
+        {
+            public uint dwNumEntries;
+            [MarshalAs(UnmanagedType.ByValArray, SizeConst = 1)]
+            public MIB_UDP6ROW_OWNER_PID[] table;
+        }
+
         // P/Invokes
         [DllImport("iphlpapi.dll", SetLastError = true)]
         public static extern uint GetExtendedTcpTable(

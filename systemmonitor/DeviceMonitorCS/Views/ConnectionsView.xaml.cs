@@ -52,11 +52,16 @@ namespace DeviceMonitorCS.Views
         {
             if (grid.SelectedItem is ConnectionItem item)
             {
-                var res = MessageBox.Show($"Mute all contributions from {item.RemoteAddress}?", "Confirm Mute", MessageBoxButton.YesNo, MessageBoxImage.Question);
+                // UDP rows carry no remote ("-" was shown here); their mute
+                // identity is the local endpoint — say what will be muted.
+                string what = item.Protocol == "UDP"
+                    ? $"UDP endpoint {item.LocalAddress} ({item.ProcessName})"
+                    : item.RemoteAddress;
+                var res = MessageBox.Show($"Mute all contributions from {what}?", "Confirm Mute", MessageBoxButton.YesNo, MessageBoxImage.Question);
                 if (res == MessageBoxResult.Yes)
                 {
                     _monitor.MuteConnection(item);
-                    _monitor.RefreshConnections(); 
+                    _monitor.RefreshConnections();
                 }
             }
         }
@@ -65,7 +70,10 @@ namespace DeviceMonitorCS.Views
         {
             if (MutedGrid.SelectedItem is ConnectionItem item)
             {
-                 _monitor.UnmuteConnection(item.RemoteAddress);
+                 // Muted-grid rows may be inactive placeholders (rule text) or
+                 // live items — unmute by the same key the mute wrote.
+                 string key = item.Protocol == "UDP" ? "udp:" + item.LocalAddress : item.RemoteAddress;
+                 _monitor.UnmuteConnection(key);
                  _monitor.RefreshConnections();
             }
         }
@@ -74,7 +82,8 @@ namespace DeviceMonitorCS.Views
         {
              if (grid.SelectedItem is ConnectionItem item)
              {
-                 Clipboard.SetText(item.RemoteAddress);
+                 // Nothing sensible to copy for a connectionless row's "-"
+                 Clipboard.SetText(item.Protocol == "UDP" ? item.LocalAddress : item.RemoteAddress);
              }
         }
 

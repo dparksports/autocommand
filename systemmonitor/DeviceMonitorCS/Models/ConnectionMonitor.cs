@@ -21,6 +21,11 @@ namespace DeviceMonitorCS.Models
         public string Protocol { get; set; }
         public string LocalAddress { get; set; }
         public string RemoteAddress { get; set; }
+        // The TCP row always carried the remote port; the grid never rendered
+        // it ("Remote Port? Struct has it."). Kept separate from
+        // RemoteAddress, which must stay a BARE IP — WhoIs, DNS, clipboard
+        // and the TCP mute key all consume it as one.
+        public string RemotePort { get; set; } = "-";
         private string _state;
         public string State { get { return _state; } set { _state = value; OnPropertyChanged(nameof(State)); } }
         public string ProcessName { get; set; }
@@ -122,9 +127,17 @@ namespace DeviceMonitorCS.Models
             catch { }
         }
 
+        // Mute identity. TCP rows mute by remote IP — the historical contract
+        // (WhoIs, clipboard, and the View's Unmute(item.RemoteAddress) all
+        // key on the bare IP). UDP rows have NO remote ("-" for every one of
+        // them — one mute used to mute every UDP row at once); they mute by
+        // their local endpoint instead.
+        public string MuteKey(ConnectionItem item) =>
+            item.Protocol == "UDP" ? "udp:" + item.LocalAddress : item.RemoteAddress;
+
         public void MuteConnection(ConnectionItem item)
         {
-            string key = $"{item.RemoteAddress}"; // Mute by IP
+            string key = MuteKey(item);
             if (!MutedConnections.Contains(key))
             {
                 MutedConnections.Add(key);
@@ -149,6 +162,11 @@ namespace DeviceMonitorCS.Models
 
         public void RefreshConnections()
         {
+            // pid→name pairs go stale the moment a pid is reused by a
+            // different image (the cache never expired before) — re-resolve
+            // once per refresh cycle, the same cadence Task Manager uses.
+            _processCache.Clear();
+
             var currentSnapshot = new List<ConnectionItem>();
             currentSnapshot.AddRange(GetTcpConnections());
             currentSnapshot.AddRange(GetUdpConnections());
@@ -164,14 +182,12 @@ namespace DeviceMonitorCS.Models
             foreach (var item in toRemove)
             {
                 ActiveConnections.Remove(item);
-                // Move to History if not muted
+                // Move to History if not muted. TCP connections close; a UDP
+                // endpoint UNBINDS — "Closed" fabricated a connection
+                // lifecycle that connectionless sockets never had.
                 if (!IsMuted(item))
                 {
-                    // Avoid duplicates in history? User wants log.
-                    // Let's add if not recently added? Or just add.
-                    // Ideally we update the "LastSeen" of the history item if it exists?
-                    // "Historical connections" usually means "closed connections".
-                    item.State = "Closed";
+                    item.State = item.Protocol == "UDP" ? "Unbound" : "Closed";
                     HistoricalConnections.Insert(0, item);
                     if (HistoricalConnections.Count > 1000) HistoricalConnections.RemoveAt(HistoricalConnections.Count - 1);
                 }
@@ -199,10 +215,10 @@ namespace DeviceMonitorCS.Models
 
             // --- Muted Connections Display Logic ---
             var mutedActive = currentSnapshot.Where(IsMuted).ToList();
-            var activeMutedIps = new HashSet<string>(mutedActive.Select(c => c.RemoteAddress));
-            
-            // Inactive rules
-            var inactiveRules = MutedConnections.Where(ip => !activeMutedIps.Contains(ip)).ToList();
+            var activeMutedKeys = new HashSet<string>(mutedActive.Select(MuteKey));
+
+            // Inactive rules (keyed the same way they were muted)
+            var inactiveRules = MutedConnections.Where(key => !activeMutedKeys.Contains(key)).ToList();
 
             var newDisplayList = new List<ConnectionItem>();
             foreach (var item in mutedActive)
@@ -227,13 +243,13 @@ namespace DeviceMonitorCS.Models
 
             DisplayMutedConnections.Clear();
             foreach(var item in newDisplayList) DisplayMutedConnections.Add(item);
-            
-            SavePersistence(); // Maybe too frequent? Save on close instead?
+
+            SavePersistence();
         }
 
         private bool IsMuted(ConnectionItem item)
         {
-            return MutedConnections.Contains(item.RemoteAddress);
+            return MutedConnections.Contains(MuteKey(item));
         }
 
         private string Key(ConnectionItem c) => $"{c.Protocol}:{c.LocalAddress}->{c.RemoteAddress}:{c.Pid}";
@@ -242,6 +258,15 @@ namespace DeviceMonitorCS.Models
 
         private void ResolveWhoIs(ConnectionItem item)
         {
+            // Rows with no remote (UDP endpoints) must not enter the lookup
+            // pipeline — "-" used to be queued like an IP, junk-caching a
+            // literal dash and burning a lookup slot on it.
+            if (string.IsNullOrEmpty(item.RemoteAddress) || item.RemoteAddress == "-")
+            {
+                item.WhoIs = item.Protocol == "UDP" ? "UDP (bound, no remote)" : "-";
+                return;
+            }
+
             if (IsLocalIp(item.RemoteAddress))
             {
                 item.WhoIs = "Local/LAN";
@@ -287,12 +312,9 @@ namespace DeviceMonitorCS.Models
                         
                         _whoIsCache[ip] = result;
 
-                        // Update Active Items
-                        // Needs Dispatcher? No, binding should handle it if INPC is correct, but collection access is thread-safe?
-                        // ObservableCollection is not thread-safe. We should use Dispatcher if we modify the list, but we are modifying items IN the list.
-                        // Modifying properties of items in OC from bg thread is usually fine if UI dispatches change.
-                        // But finding the item needs lock or copy.
-                        
+                        // Item properties raise INPC from this background
+                        // thread — safe for the bound grid; the collection
+                        // itself is never mutated here.
                         UpdateItemsWithIp(ip, result);
                     }
                     catch { }
@@ -355,97 +377,182 @@ namespace DeviceMonitorCS.Models
 
         private bool IsLocalIp(string ip)
         {
-             return ip == "127.0.0.1" || ip == "0.0.0.0" || ip == "::" || ip.StartsWith("192.168.") || ip.StartsWith("10.") || ip.StartsWith("172.16.");
+            if (ip == "127.0.0.1" || ip == "::1" || ip == "0.0.0.0" || ip == "::") return true;
+            if (ip.StartsWith("192.168.") || ip.StartsWith("10.")) return true;
+            if (ip.StartsWith("172."))
+            {
+                // RFC1918 is 172.16.0.0/12 — second octet 16..31. The old
+                // "172.16."-prefix check misclassified 172.17–172.31 as
+                // non-local, so those LAN rows hit the WhoIs pipeline.
+                var second = ip.Substring(4).Split('.')[0];
+                if (int.TryParse(second, out int octet) && octet >= 16 && octet <= 31) return true;
+            }
+            return false;
         }
 
         private IEnumerable<ConnectionItem> GetTcpConnections()
         {
-            var buffer = IntPtr.Zero;
-            int size = 0;
-            // Get size
-            uint result = IpHlpApi.GetExtendedTcpTable(IntPtr.Zero, ref size, true, IpHlpApi.AF_INET, IpHlpApi.TCP_TABLE_CLASS.TCP_TABLE_OWNER_PID_ALL);
-            
-            buffer = Marshal.AllocHGlobal(size);
-            try
-            {
-                result = IpHlpApi.GetExtendedTcpTable(buffer, ref size, true, IpHlpApi.AF_INET, IpHlpApi.TCP_TABLE_CLASS.TCP_TABLE_OWNER_PID_ALL);
-                if (result != 0) return Enumerable.Empty<ConnectionItem>();
-
-                var table = Marshal.PtrToStructure<IpHlpApi.MIB_TCPTABLE_OWNER_PID>(buffer);
-                int rowSize = Marshal.SizeOf<IpHlpApi.MIB_TCPROW_OWNER_PID>();
-                IntPtr currentRow = buffer + Marshal.SizeOf<uint>(); // skip dwNumEntries
-
-                var list = new List<ConnectionItem>();
-                for (int i = 0; i < table.dwNumEntries; i++)
-                {
-                    var row = Marshal.PtrToStructure<IpHlpApi.MIB_TCPROW_OWNER_PID>(currentRow);
-                    
-                    string local = IPToString(row.localAddr) + ":" + PortToString(row.localPort);
-                    string remote = IPToString(row.remoteAddr); 
-                    // Remote Port? Struct has it.
-                    
-                    list.Add(new ConnectionItem
-                    {
-                        Protocol = "TCP",
-                        LocalAddress = local,
-                        RemoteAddress = remote,
-                        State = ((TcpState)row.state).ToString(),
-                        ProcessName = GetProcessName((int)row.owningPid),
-                        Pid = (int)row.owningPid
-                    });
-
-                    currentRow += rowSize;
-                }
-                return list;
-            }
-            finally
-            {
-                Marshal.FreeHGlobal(buffer);
-            }
+            var list = new List<ConnectionItem>();
+            list.AddRange(GetTcpTable(IpHlpApi.AF_INET));
+            list.AddRange(GetTcpTable(IpHlpApi.AF_INET6));
+            return list;
         }
 
         private IEnumerable<ConnectionItem> GetUdpConnections()
         {
-             var buffer = IntPtr.Zero;
+            var list = new List<ConnectionItem>();
+            list.AddRange(GetUdpTable(IpHlpApi.AF_INET));
+            list.AddRange(GetUdpTable(IpHlpApi.AF_INET6));
+            return list;
+        }
+
+        private const uint ErrorInsufficientBuffer = 122;
+
+        // One syscall pair per family with the race closed: the sizing probe
+        // must answer ERROR_INSUFFICIENT_BUFFER (its result was previously
+        // ignored), and if the table GROWS between sizing and fill the fill
+        // returns 122 too — retry once with the new size instead of the old
+        // code's silent EMPTY snapshot ("no connections" was a lie the race
+        // could produce at any moment).
+        private IEnumerable<ConnectionItem> GetTcpTable(int family)
+        {
+            bool v6 = family == IpHlpApi.AF_INET6;
             int size = 0;
-            // Get size
-            uint result = IpHlpApi.GetExtendedUdpTable(IntPtr.Zero, ref size, true, IpHlpApi.AF_INET, IpHlpApi.UDP_TABLE_CLASS.UDP_TABLE_OWNER_PID);
-            
-            buffer = Marshal.AllocHGlobal(size);
-            try
+            for (int attempt = 0; attempt < 2; attempt++)
             {
-                result = IpHlpApi.GetExtendedUdpTable(buffer, ref size, true, IpHlpApi.AF_INET, IpHlpApi.UDP_TABLE_CLASS.UDP_TABLE_OWNER_PID);
-                if (result != 0) return Enumerable.Empty<ConnectionItem>();
+                if (IpHlpApi.GetExtendedTcpTable(IntPtr.Zero, ref size, false, family,
+                        IpHlpApi.TCP_TABLE_CLASS.TCP_TABLE_OWNER_PID_ALL) != ErrorInsufficientBuffer)
+                    return Enumerable.Empty<ConnectionItem>();
 
-                var table = Marshal.PtrToStructure<IpHlpApi.MIB_UDPTABLE_OWNER_PID>(buffer);
-                int rowSize = Marshal.SizeOf<IpHlpApi.MIB_UDPROW_OWNER_PID>();
-                IntPtr currentRow = buffer + Marshal.SizeOf<uint>(); 
-
-                var list = new List<ConnectionItem>();
-                for (int i = 0; i < table.dwNumEntries; i++)
+                var buffer = Marshal.AllocHGlobal(size);
+                try
                 {
-                    var row = Marshal.PtrToStructure<IpHlpApi.MIB_UDPROW_OWNER_PID>(currentRow);
-                    
-                    string local = IPToString(row.localAddr) + ":" + PortToString(row.localPort);
-                    
-                    list.Add(new ConnectionItem
-                    {
-                        Protocol = "UDP",
-                        LocalAddress = local,
-                        RemoteAddress = "-", // UDP is connectionless
-                        State = "Listening",
-                        ProcessName = GetProcessName((int)row.owningPid),
-                        Pid = (int)row.owningPid
-                    });
+                    uint result = IpHlpApi.GetExtendedTcpTable(buffer, ref size, false, family,
+                        IpHlpApi.TCP_TABLE_CLASS.TCP_TABLE_OWNER_PID_ALL);
+                    if (result == ErrorInsufficientBuffer) continue; // grew — resize and retry
+                    if (result != 0) return Enumerable.Empty<ConnectionItem>();
 
-                    currentRow += rowSize;
+                    int count = Marshal.ReadInt32(buffer);
+                    int rowSize = v6
+                        ? Marshal.SizeOf<IpHlpApi.MIB_TCP6ROW_OWNER_PID>()
+                        : Marshal.SizeOf<IpHlpApi.MIB_TCPROW_OWNER_PID>();
+                    IntPtr currentRow = buffer + sizeof(uint); // skip dwNumEntries
+
+                    var list = new List<ConnectionItem>();
+                    for (int i = 0; i < count; i++)
+                    {
+                        if (v6)
+                        {
+                            var row = Marshal.PtrToStructure<IpHlpApi.MIB_TCP6ROW_OWNER_PID>(currentRow);
+                            var localIp = IP6ToString(row.localAddr, row.localScopeId);
+                            var remoteIp = IP6ToString(row.remoteAddr, row.remoteScopeId);
+                            list.Add(new ConnectionItem
+                            {
+                                Protocol = "TCP",
+                                LocalAddress = $"[{localIp}]:{PortToString(row.localPort)}",
+                                RemoteAddress = remoteIp, // bare IP: WhoIs/DNS/clipboard contract
+                                RemotePort = PortToString(row.remotePort),
+                                State = ((TcpState)row.state).ToString(),
+                                ProcessName = GetProcessName((int)row.owningPid),
+                                Pid = (int)row.owningPid
+                            });
+                        }
+                        else
+                        {
+                            var row = Marshal.PtrToStructure<IpHlpApi.MIB_TCPROW_OWNER_PID>(currentRow);
+                            list.Add(new ConnectionItem
+                            {
+                                Protocol = "TCP",
+                                LocalAddress = IPToString(row.localAddr) + ":" + PortToString(row.localPort),
+                                RemoteAddress = IPToString(row.remoteAddr), // bare IP: WhoIs/DNS/clipboard contract
+                                RemotePort = PortToString(row.remotePort),
+                                State = ((TcpState)row.state).ToString(),
+                                ProcessName = GetProcessName((int)row.owningPid),
+                                Pid = (int)row.owningPid
+                            });
+                        }
+                        currentRow += rowSize;
+                    }
+                    return list;
                 }
-                return list;
+                finally
+                {
+                    Marshal.FreeHGlobal(buffer);
+                }
             }
-            finally
+            return Enumerable.Empty<ConnectionItem>();
+        }
+
+        private IEnumerable<ConnectionItem> GetUdpTable(int family)
+        {
+            bool v6 = family == IpHlpApi.AF_INET6;
+            int size = 0;
+            for (int attempt = 0; attempt < 2; attempt++)
             {
-                Marshal.FreeHGlobal(buffer);
+                if (IpHlpApi.GetExtendedUdpTable(IntPtr.Zero, ref size, false, family,
+                        IpHlpApi.UDP_TABLE_CLASS.UDP_TABLE_OWNER_PID) != ErrorInsufficientBuffer)
+                    return Enumerable.Empty<ConnectionItem>();
+
+                var buffer = Marshal.AllocHGlobal(size);
+                try
+                {
+                    uint result = IpHlpApi.GetExtendedUdpTable(buffer, ref size, false, family,
+                        IpHlpApi.UDP_TABLE_CLASS.UDP_TABLE_OWNER_PID);
+                    if (result == ErrorInsufficientBuffer) continue; // grew — resize and retry
+                    if (result != 0) return Enumerable.Empty<ConnectionItem>();
+
+                    int count = Marshal.ReadInt32(buffer);
+                    int rowSize = v6
+                        ? Marshal.SizeOf<IpHlpApi.MIB_UDP6ROW_OWNER_PID>()
+                        : Marshal.SizeOf<IpHlpApi.MIB_UDPROW_OWNER_PID>();
+                    IntPtr currentRow = buffer + sizeof(uint); // skip dwNumEntries
+
+                    var list = new List<ConnectionItem>();
+                    for (int i = 0; i < count; i++)
+                    {
+                        if (v6)
+                        {
+                            var row = Marshal.PtrToStructure<IpHlpApi.MIB_UDP6ROW_OWNER_PID>(currentRow);
+                            var localIp = IP6ToString(row.localAddr, row.localScopeId);
+                            list.Add(new ConnectionItem
+                            {
+                                Protocol = "UDP",
+                                LocalAddress = $"[{localIp}]:{PortToString(row.localPort)}",
+                                RemoteAddress = "-", // the owner-pid UDP row HAS no remote — connectionless
+                                State = "Bound",     // a UDP endpoint is bound; "Listening" is a TCP concept
+                                ProcessName = GetProcessName((int)row.owningPid),
+                                Pid = (int)row.owningPid
+                            });
+                        }
+                        else
+                        {
+                            var row = Marshal.PtrToStructure<IpHlpApi.MIB_UDPROW_OWNER_PID>(currentRow);
+                            list.Add(new ConnectionItem
+                            {
+                                Protocol = "UDP",
+                                LocalAddress = IPToString(row.localAddr) + ":" + PortToString(row.localPort),
+                                RemoteAddress = "-", // the owner-pid UDP row HAS no remote — connectionless
+                                State = "Bound",     // a UDP endpoint is bound; "Listening" is a TCP concept
+                                ProcessName = GetProcessName((int)row.owningPid),
+                                Pid = (int)row.owningPid
+                            });
+                        }
+                        currentRow += rowSize;
+                    }
+                    return list;
+                }
+                finally
+                {
+                    Marshal.FreeHGlobal(buffer);
+                }
             }
+            return Enumerable.Empty<ConnectionItem>();
+        }
+
+        private string IP6ToString(byte[] addr, uint scopeId)
+        {
+            var ip = scopeId == 0 ? new IPAddress(addr) : new IPAddress(addr, scopeId);
+            return ip.ToString();
         }
 
         private string IPToString(uint ip)
@@ -477,10 +584,14 @@ namespace DeviceMonitorCS.Models
                 _processCache[pid] = name;
                 return name;
             }
-            catch 
+            catch
             {
                 return $"PID {pid}";
             }
         }
+
+        /// <summary>Read-only diagnostic: is this key in the WhoIs cache?
+        /// (Canary tests assert "-" never lands here.)</summary>
+        public bool WhoIsCached(string ip) => _whoIsCache.ContainsKey(ip);
     }
 }
