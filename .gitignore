@@ -13,6 +13,11 @@ Plugins/
 publish_out/
 # SecurityEnforcer persisted check cadence (runtime data)
 check_interval.txt
+# SecurityEnforcer + ConfirmPrefs persisted toggles (runtime data)
+allowed_sstp.txt
+allowed_kerneldebug.txt
+auto_mitigate_adapters.txt
+confirm_prefs.txt
 Assets/icons/
 PyTraceSelfTest/bin/
 PyTraceSelfTest/obj/
