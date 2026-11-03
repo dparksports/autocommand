@@ -105,13 +105,6 @@ Step "Publishing self-contained single-file AgentProxy (tools)"
 dotnet publish AgentProxy\AutoCommand.AgentProxy.csproj -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true /p:PublishTrimmed=true /p:EnableCompressionInSingleFile=true -o "publish/v$relVersion/tools/AgentProxy"
 Assert-Exit 'dotnet publish proxy'
 
-# The headless agent face (phase 6): framework-dependent is fine here - it
-# is a script/unattended tool, run where .NET 10 exists (the app zip itself
-# is self-contained).
-Step "Publishing the headless agent host (AgentHost)"
-dotnet publish AgentHost\AutoCommand.AgentHost.csproj -c Release -r win-x64 --self-contained false -o "publish/v$relVersion/AgentHost"
-Assert-Exit 'dotnet publish agenthost'
-
 # -- Verify the binaries carry the csproj version - the whole point -----------
 $exe = "publish/v$relVersion/AutoCommand.exe"
 $binaryVersion = (Get-Item $exe).VersionInfo.ProductVersion

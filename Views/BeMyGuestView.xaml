@@ -42,7 +42,7 @@
                             <CheckBox x:Name="AgentAutostartCheck" Content="Start the session automatically whenever AutoCommand runs"
                                       Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,8"
                                       Checked="AgentAutostartCheck_Changed" Unchecked="AgentAutostartCheck_Changed"/>
-                            <CheckBox x:Name="AgentWakeCheck" Content="If AutoCommand isn't running, let my AI assistant launch it in the background (read-only; Windows asks once)"
+                            <CheckBox x:Name="AgentWakeCheck" Content="If AutoCommand isn't running, let my AI assistant open AutoCommand for me (Windows asks once; you start the session here in this tab)"
                                       Foreground="{DynamicResource TextPrimaryBrush}" Margin="0,0,0,8"
                                       Checked="AgentWakeCheck_Changed" Unchecked="AgentWakeCheck_Changed"/>
                             <TextBlock Text="Start a session only while you want an AI assistant (ZCode, Claude, …) to read this machine's security telemetry. The session listens on 127.0.0.1 only, is protected by a per-session token that never appears in any config file, and ends when you stop it, close AutoCommand, or its app exits. Read-only tools answer immediately; gate requests ask on every action (a grant covers one target only). What the assistant reads can be repeated by the assistant — that is the consent you are giving."
@@ -70,7 +70,7 @@
                             <Button x:Name="OpenAgentLogBtn" Content="Open activity log" Click="OpenAgentLogBtn_Click" Padding="10,2" Margin="0,0,12,0"/>
                         </StackPanel>
 
-                        <TextBlock Grid.Row="2" Text="Registration writes the 'autocommand' MCP entry into the client's config — the client spawns a small asInvoker proxy (never this elevated app), and the proxy forwards into the running session. Tools answer with setup guidance whenever no session is active here. For scripts and CI there is a headless mode: AutoCommand.exe --agent-headless [seconds] runs a read-only session with no UI (gate requests are always off there), ending when the timeout elapses or stdin closes."
+                        <TextBlock Grid.Row="2" Text="Registration writes the 'autocommand' MCP entry into the client's config — the client spawns a small asInvoker proxy (never this elevated app), and the proxy forwards into the running session. Tools answer with setup guidance whenever no session is active here. Sessions are started only from this tab — there is no command-line activation; when AutoCommand is closed, the assistant can at most open the app for you (if you tick the wake option above), and you click Start."
                                    Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" TextWrapping="Wrap"/>
                     </Grid>
                 </Border>

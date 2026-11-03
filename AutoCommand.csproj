@@ -166,10 +166,6 @@
     <!-- Contain self-test: the blocking/safety path — built test-first,
          before the phase 3 extraction (REWRITE.md); own Main() -->
     <Compile Remove="ContainSelfTest\**" />
-    <!-- AgentHost: the headless console face over the Agent core (phase 6,
-         REWRITE.md) - built through its own ProjectReference from its
-         csproj; own Main(), same glob reason as every other side project -->
-    <Compile Remove="AgentHost\**" />
     <Compile Remove="OneSettingsCadence\**" />
     <!-- DnsFeedSelfTest: newest self-test folder (added after the last ii
          app build); same glob reason as the others -->

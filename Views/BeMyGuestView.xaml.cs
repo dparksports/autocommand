@@ -1,4 +1,4 @@
-﻿using System;
+using System;
 using AutoCommand.Agent.Core;
 using AutoCommand.Engines.Bridge;
 using AgentBridgeService = AutoCommand.Agent.Core.AgentBridgeService;
@@ -162,16 +162,13 @@ namespace AutoCommand.Views
             if (on)
             {
                 var answer = MessageBox.Show(
-                    "Let your AI assistant launch AutoCommand in the background when it isn't running?\n\n" +
-                    "When a tool call arrives and no session exists, the assistant's proxy may start " +
-                    "AutoCommand headless: no window, READ-ONLY session, exits by itself after 30 minutes.\n" +
-                    "Windows will show ONE UAC approval for that launch (AutoCommand manages the firewall,\n" +
-                    "so it runs elevated).\n\n" +
-                    "• A background session can never perform mutating actions — those need this app's\n" +
-                    "  per-action confirmations.\n" +
-                    "• If AutoCommand is already running but its session is off, nothing launches;\n" +
-                    "  the assistant tells you to start it from Settings.\n\n" +
-                    "Allow background launch?",
+                    "Let your AI assistant open AutoCommand when it isn't running?\n\n" +
+                    "When a tool call arrives and no session exists, the assistant's proxy may launch\n" +
+                    "AutoCommand normally: Windows shows ONE UAC approval and the app opens at this tab.\n" +
+                    "It can never start the session for you - you click Start here when you want it.\n\n" +
+                    " If AutoCommand is already running, nothing launches; the assistant tells you\n" +
+                    "  to start the session from this tab.\n\n" +
+                    "Allow launch on knock?",
                     "Be My Guest — consent", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
                 if (answer != MessageBoxResult.Yes)
                 {

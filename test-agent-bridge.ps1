@@ -1,7 +1,7 @@
 # End-to-end smoke test for the AI-access bridge (the app half; the app's
 # manifest is requireAdministrator, so an elevation prompt appears when this
 # is started from a non-elevated shell).
-# 1. starts AutoCommand --agent-headless
+# 1. requires a live AI session started from the Be My Guest tab
 # 2. MCP lifecycle: request before initialize -> -32002; initialize
 #    negotiates the protocol version (never blind-echoes); tools/list /
 #    tools/call over loopback with the session token
@@ -25,14 +25,11 @@ function Check([string]$name, [bool]$pass, [string]$detail = '') {
     else { Write-Host "FAIL $name$suffix" -ForegroundColor Red; $script:failures++ }
 }
 
-# -- launch headless session -------------------------------------------------
-$proc = Start-Process -FilePath $Exe -ArgumentList '--agent-headless', '120' -PassThru -WindowStyle Hidden
-"started pid $($proc.Id)"
-
+# -- attach to the live session started from the Be My Guest tab --------------
 $sessionPath = Join-Path $env:LOCALAPPDATA 'AutoCommand\agent\session.json'
 $deadline = (Get-Date).AddSeconds(15)
 while (-not (Test-Path $sessionPath) -and (Get-Date) -lt $deadline) { Start-Sleep -Milliseconds 300 }
-if (-not (Test-Path $sessionPath)) { throw "session.json never appeared" }
+if (-not (Test-Path $sessionPath)) { throw "no live session - start one in the Be My Guest tab, then rerun" }
 $session = Get-Content $sessionPath -Raw | ConvertFrom-Json
 $port = $session.port; $token = $session.token
 "session: port=$port token=$($token.Substring(0,8))... mutating=$($session.mutatingAllowed) tools=$(@($session.tools).Count)"
@@ -121,7 +118,7 @@ $r = Invoke-Rpc '{"jsonrpc":"2.0","id":10,"method":"ping"}', "Bearer $token", 'e
 "spoofed host: status=$($r.Status) (expect 403)"
 
 # -- 11. stop: session file must disappear --------------------------------------------
-Stop-Process -Id $proc.Id -Force
+# the live session stays - stop it in the Be My Guest tab when done
 Start-Sleep -Milliseconds 800
 "session file after stop: exists=$(Test-Path $sessionPath) (expect False)"
 

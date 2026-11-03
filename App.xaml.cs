@@ -1,4 +1,4 @@
-﻿using System.Linq;
+using System.Linq;
 using System.Windows;
 
 using AutoCommand.Agent.Core;
@@ -106,20 +106,7 @@ namespace AutoCommand
             // them (proxy, firewall rule, CA) before anything else runs.
             AutoCommand.Intercept.Core.InterceptSystemHooks.RecoverAfterCrash();
 
-            // ── headless agent mode (no UI, no dialogs, no theme) ────────
-            // --agent-headless [sec]
-            //      start an AI session without the UI (scripts/tests).
-            //      NOTE: the exe carries requireAdministrator, so MCP clients
-            //      must NEVER spawn it — they spawn the small asInvoker
-            //      proxy (AutoCommand.AgentProxy, ProjectReferenced and
-            //      deployed next to this exe) which forwards here.
             var args = e.Args ?? System.Array.Empty<string>();
-            if (args.Any(a => string.Equals(a, "--agent-headless", System.StringComparison.OrdinalIgnoreCase)))
-            {
-                RunAgentHeadless(args);
-                return;
-            }
-
             // ── headless OneSettings watchdog path (no UI) ──────────────
             // The \AutoCommand\OneSettingsCadenceWatchdog SYSTEM task (installed
             // from the OneSettings tab with the watchdog box checked) launches
@@ -298,49 +285,6 @@ namespace AutoCommand
                 new OneSettingsCadence.CadenceEngine().Enforce();
             }
             catch { /* audited inside the engine where possible; always exit */ }
-            Shutdown();
-        }
-
-        private void RunAgentHeadless(string[] args)
-        {
-            ShutdownMode = ShutdownMode.OnExplicitShutdown;
-
-            // Single-instance guard: a wake-knock while the interactive app is
-            // already running must not spawn a second bridge fighting over
-            // session.json. Exit silently — the proxy's fallback guidance then
-            // tells the user to start the session from Settings.
-            try
-            {
-                foreach (var p in System.Diagnostics.Process.GetProcessesByName("AutoCommand"))
-                    using (p)
-                    {
-                        if (p.Id != System.Environment.ProcessId)
-                        {
-                            System.Console.WriteLine("another AutoCommand instance is running — headless session skipped");
-                            Shutdown();
-                            return;
-                        }
-                    }
-            }
-            catch { /* enumeration failure should not block the session */ }
-
-            int seconds = 0;
-            int flagIndex = System.Array.FindIndex(args,
-                a => string.Equals(a, "--agent-headless", System.StringComparison.OrdinalIgnoreCase));
-            if (flagIndex + 1 < args.Length && int.TryParse(args[flagIndex + 1], out int parsed) && parsed > 0)
-                seconds = parsed;
-
-            var (ok, message) = AgentBridgeService.Instance.Start(allowMutating: false);
-            System.Console.WriteLine(ok
-                ? $"AutoCommand agent session active ({message}) — Ctrl+C or close stdin to stop."
-                : "agent session failed: " + message);
-
-            if (ok)
-            {
-                if (seconds > 0) System.Threading.Thread.Sleep(TimeSpan.FromSeconds(seconds));
-                else while (System.Console.In.ReadLine() != null) { } // until stdin closes
-                AgentBridgeService.Instance.Stop();
-            }
             Shutdown();
         }
 

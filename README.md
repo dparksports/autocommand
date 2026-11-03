@@ -58,7 +58,7 @@ This started as **SystemMonitor** — a firmware, UEFI/DBX and Defender forensic
 
 If you use an AI assistant, the **Be My Guest** tab can invite it to read the same facts the app sees — who launched what, where things connect, what got blocked — through a local bridge on your own machine. **The door is only open while you keep it open**: the access is grant-based, revocable, and every capability it exposes is one the app already performs in front of you. No cloud middleman, no account, nothing to create.
 
-For scripts and unattended machines, the release zip ships a headless host: `AgentHost\AutoCommand.AgentHost.cmd [seconds]` opens the same grant-based session without a window — on the fast path it runs the framework-dependent exe (milliseconds to boot when a .NET 10 runtime is installed), and on a machine without .NET it falls back to the app's own embedded runtime (`AutoCommand.exe --agent-headless`), so nothing extra ever needs installing. Either way the session is read-only: mutating tools are permanently denied, one session at a time.
+AI access sessions are started only from inside the app - the Be My Guest tab's Start button (or its "start automatically" option). MCP clients never activate anything: they connect through the small asInvoker AgentProxy, which forwards to the session you started and answers with setup guidance when none is running.
 
 ## What it sends about you
 

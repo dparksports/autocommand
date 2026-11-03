@@ -189,18 +189,16 @@ JsonNode clientHello = null;   // params of the client's initialize, for faithfu
 string upstreamKey = null;     // bridge instance the handshake was last sent to
 long reinitCounter = 0;
 
-// ── wake-on-knock (opt-in) ──────────────────────────────────────────────
-// With no session and the user's wake preference on, this proxy may launch
-// AutoCommand itself: headless (--agent-headless 1800 — read-only, no
-// window, self-exits after 30 minutes). The app's manifest requires
-// administrator, so ShellExecute surfaces ONE UAC approval — the user is
-// present (they just asked their assistant to look at the PC). No prompts
-// repeat: a cooldown stops retry storms, and an already-running app is
-// never spawned over (its session being off is a Settings action, not a
+// wake-on-knock (opt-in): with no session and the preference on, a knock may
+// OPEN AutoCommand for the user - window up, Be My Guest tab in front. A
+// knock can never start a session: activation happens only in that tab. The
+// app's manifest requires administrator, so ShellExecute surfaces ONE UAC
+// approval (the user is present - they just asked their assistant to look at
+// the PC). A cooldown stops retry storms, and an already-running app is
+// never spawned over (its session being off is a user decision, not a
 // launch). AC_APP_EXE overrides the app path for offline self-tests.
 DateTime lastKnockUtc = DateTime.MinValue;
 TimeSpan KnockCooldown = TimeSpan.FromMinutes(5);
-TimeSpan KnockWaitCap = TimeSpan.FromSeconds(25);
 
 static bool PidAlive(long pid)
 {
@@ -266,8 +264,8 @@ async Task<(int Port, string Token, long Pid)?> TryWakeAsync()
     lastKnockUtc = DateTime.UtcNow;
     try
     {
-        Process.Start(new ProcessStartInfo(exe, "--agent-headless 1800") { UseShellExecute = true });
-        LogProxy("wake", "launch requested (--agent-headless 1800) — awaiting UAC + cold start");
+        Process.Start(new ProcessStartInfo(exe) { UseShellExecute = true });
+LogProxy("wake", "app launch requested - the user starts the session in the Be My Guest tab");
     }
     catch (Exception ex)
     {
@@ -275,14 +273,6 @@ async Task<(int Port, string Token, long Pid)?> TryWakeAsync()
         return null;
     }
 
-    var deadline = DateTime.UtcNow + KnockWaitCap;
-    while (DateTime.UtcNow < deadline)
-    {
-        await Task.Delay(500);
-        var s = ReadSession();
-        if (s != null && PidAlive(s.Value.Pid)) return s;
-    }
-    LogProxy("wake", "no live session appeared within the wait window");
     return null;
 }
 
@@ -334,7 +324,7 @@ string AnswerOffline(JsonObject rpc)
                 },
                 ["instructions"] = "Bridge to the locally running AutoCommand app. No AI session is currently " +
                     "active — every tool call answers with setup guidance until the user starts one " +
-                    "(AutoCommand → Settings → AI access → Start session).",
+                    "(AutoCommand > Be My Guest tab > Start session).",
             });
         case "ping":
             return Result(id, new JsonObject());
@@ -354,9 +344,9 @@ string AnswerOffline(JsonObject rpc)
                     {
                         ["type"] = "text",
                         ["text"] = "AutoCommand is not running or its AI session is off.\n" +
-                            "Ask the user to open AutoCommand → Settings → 'AI access' → Start session, then retry.\n" +
-                            "(To stop being asked: Settings → AI access → tick 'Start the session automatically' and/or " +
-                            "'let my AI assistant launch it in the background'.)",
+                            "Ask the user to open AutoCommand > Be My Guest tab > Start session, then retry.\n" +
+                            "(To stop being asked: tick 'Start the session automatically' and/or " +
+                            "'let my AI assistant open it for me' - both on the Be My Guest tab.)",
                     },
                 },
                 ["isError"] = true,

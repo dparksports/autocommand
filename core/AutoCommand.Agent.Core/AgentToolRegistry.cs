@@ -52,8 +52,8 @@ namespace AutoCommand.Agent.Core
         // The firewall baseline manager lives in the app assembly (the
         // enforcer and the Firewall tab both own it there), so the bridge
         // cannot call it directly. The app installs this seam at startup;
-        // headless hosts (self-tests, AgentHost) install nothing and the
-        // preset tool degrades to apply-only with an honest note.
+        // the offline self-tests install nothing and the preset tool
+        // degrades to apply-only with an honest note.
         public sealed record ShieldsUpBaselineSeam(
             Action<int> PauseMinutes,
             Func<Task<(int Count, DateTime CapturedAt)>> CaptureAsync);
