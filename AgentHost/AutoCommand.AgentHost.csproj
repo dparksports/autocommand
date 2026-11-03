@@ -33,9 +33,14 @@
 
   <!-- Ships beside the exe in the zip's AgentHost\ folder: the .NET 10
        runtime requirement and the no-mutating-tools rule, where the user
-       looks when a framework-dependent exe fails to start. -->
+       looks when a framework-dependent exe fails to start. The launcher
+       rides along too: it is the zip-layout entry point for scripts - it
+       probes for a .NET 10 runtime and, when none exists, reuses the app's
+       embedded runtime via the app's own headless agent path (the app
+       ships self-contained, so the no-runtime case still works end to end). -->
   <ItemGroup>
     <None Include="README.txt" CopyToOutputDirectory="PreserveNewest" />
+    <None Include="AutoCommand.AgentHost.cmd" CopyToOutputDirectory="PreserveNewest" />
   </ItemGroup>
 
 </Project>
