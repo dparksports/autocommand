@@ -44,6 +44,10 @@ namespace AutoCommand.Services
             "WindowsCalendar",        // Windows Calendar
             "WindowsCalculator",      // Calculator
             "WindowsSoundRecorder",   // Sound Recorder
+            "MicrosoftStickyNotes",   // Sticky Notes
+            "BingWeather",            // MSN Weather
+            "WindowsAlarms",          // Windows Clock (package: WindowsAlarms)
+            "WindowsCamera",          // Camera
             "WebExperience",          // Windows Web Experience Pack
             "WindowsTerminal",        // Terminal
             "WidgetsPlatformRuntime", // Widgets Platform Runtime
