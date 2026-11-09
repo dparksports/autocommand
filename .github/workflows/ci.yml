@@ -60,7 +60,8 @@ jobs:
             'InterceptSelfTest',
             'HardenSelfTest',
             'WslSelfTest',
-            'StartupHealthSelfTest'
+            'StartupHealthSelfTest',
+            'AllowListSelfTest'
           )
           foreach ($s in $suites) {
             Write-Host "== $s =="

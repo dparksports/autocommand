@@ -110,12 +110,15 @@ $unkMethod = $r.Body | ConvertFrom-Json
 Check '8a unknown method -> -32601' ($unkMethod.error.code -eq -32601) "code $($unkMethod.error.code)"
 
 # -- 9. negative: bad token -> 401 --------------------------------------------------
-$r = Invoke-Rpc '{"jsonrpc":"2.0","id":9,"method":"ping"}', 'Bearer deadbeef'
-"bad token: status=$($r.Status) (expect 401)"
+# Named parameters on purpose: the old comma-call form passed both values as
+# ONE positional argument (the valid-token default won), so this check never
+# exercised the 401 path — and it only printed, never asserted.
+$r = Invoke-Rpc -Json '{"jsonrpc":"2.0","id":9,"method":"ping"}' -Auth 'Bearer deadbeef'
+Check '9a bad token -> 401' ($r.Status -eq 401) "status $($r.Status)"
 
 # -- 10. negative: spoofed Host -> 403 -----------------------------------------------
-$r = Invoke-Rpc '{"jsonrpc":"2.0","id":10,"method":"ping"}', "Bearer $token", 'evil.example.com:443'
-"spoofed host: status=$($r.Status) (expect 403)"
+$r = Invoke-Rpc -Json '{"jsonrpc":"2.0","id":10,"method":"ping"}' -HostHeader 'evil.example.com:443'
+Check '10a spoofed Host -> 403' ($r.Status -eq 403) "status $($r.Status)"
 
 # -- 11. stop: session file must disappear --------------------------------------------
 # the live session stays - stop it in the Be My Guest tab when done

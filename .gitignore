@@ -18,10 +18,20 @@ allowed_sstp.txt
 allowed_kerneldebug.txt
 auto_mitigate_adapters.txt
 confirm_prefs.txt
+whitelisted_tasks.txt
+# machine-specific ignore list the monitor rewrites at runtime
+ignored_processes.txt
 Assets/icons/
 PyTraceSelfTest/bin/
 PyTraceSelfTest/obj/
 publish/
+
+# local incident artifacts (2026-11-08 and later) — kept at the desk, not in git
+evidence/
+
+# never commit analytics credentials, even in archived trees (see
+# systemmonitor/DeviceMonitorCS — the retired GA4 config must not return)
+firebase_config.json
 
 # telemetry deploy secret (never commit; see telemetry/server/DEPLOY.md)
 telemetry/server/admin-token.txt
