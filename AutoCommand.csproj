@@ -206,6 +206,13 @@
          verdict evaluators, offline against a temp ledger root (own
          Main(), same glob reason as every side project) -->
     <Compile Remove="AllowListSelfTest\**" />
+    <!-- StartupHealthSelfTest: pins the logon-task health rules and the
+         liveness death record (see StartupHealthSelfTest\). Without this
+         line the app's **/*.cs glob compiles the test project's Program.cs
+         and its generated obj AssemblyInfo.cs, which declares AssemblyVersion
+         a second time and fails every -r publish with CS0579 - the same
+         collision the BridgeSelfTest entry above documents. -->
+    <Compile Remove="StartupHealthSelfTest\**" />
   </ItemGroup>
 
   <!-- Filter out Linux .so native binaries when publishing for Windows win-x64 -->
