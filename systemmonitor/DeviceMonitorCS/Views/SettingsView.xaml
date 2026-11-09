@@ -71,11 +71,6 @@
 
             <GroupBox Header="Data Management" Foreground="White" BorderBrush="#3E3E42" Padding="15" Margin="0,20,0,0">
                 <StackPanel>
-                    <TextBlock Text="Privacy &amp; Analytics" FontWeight="Bold" Foreground="#61AFEF" Margin="0,0,0,10"/>
-                    <CheckBox x:Name="AnalyticsToggle" Content="Share anonymous usage data to help improve AutoCommand"
-                              Foreground="#DCDCDC" Margin="0,0,0,5" Checked="AnalyticsToggle_Changed" Unchecked="AnalyticsToggle_Changed"/>
-                    <TextBlock x:Name="AnalyticsStatusText" Text="Status: Unknown" Foreground="Gray" FontSize="12" Margin="20,0,0,15"/>
-                    
                     <TextBlock Text="Clear all monitored events and security logs from the dashboard views." Foreground="#CCCCCC" Margin="0,0,0,15"/>
                     <Button x:Name="ClearLogsBtn" Content="Clear System Logs" Width="200" HorizontalAlignment="Left" 
                             Padding="10,5" Background="#3E2020" Foreground="#FF6B6B" BorderBrush="#5E3030" Click="ClearLogsBtn_Click"/>

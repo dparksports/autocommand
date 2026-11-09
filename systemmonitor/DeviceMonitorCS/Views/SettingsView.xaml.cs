@@ -11,9 +11,8 @@ namespace DeviceMonitorCS.Views
         public SettingsView()
         {
             InitializeComponent();
-            
+
             // Sync UI with Service
-            AnalyticsToggle.IsChecked = Services.AnalyticsService.Instance.IsAnalyticsEnabled;
             ExpertModeToggle.IsChecked = Services.SettingsManager.Instance.IsExpertMode;
             RemediationDebugToggle.IsChecked = Services.SettingsManager.Instance.IsRemediationDebug;
             AppVersionText.Text = "v" + typeof(SettingsView).Assembly.GetName().Version.ToString(3);
@@ -24,27 +23,6 @@ namespace DeviceMonitorCS.Views
                 IntervalValueText.Text = $"{val} ms";
                 IntervalChanged?.Invoke(val);
             };
-
-            // Status Binding
-            UpdateAnalyticsStatus(Services.AnalyticsService.Instance.TelemetryStatus);
-            Services.AnalyticsService.Instance.StatusChanged += UpdateAnalyticsStatus;
-        }
-
-        private void UpdateAnalyticsStatus(string status)
-        {
-            Dispatcher.Invoke(() =>
-            {
-                AnalyticsStatusText.Text = $"Status: {status}";
-                
-                if (status == "Active") AnalyticsStatusText.Foreground = System.Windows.Media.Brushes.LightGreen;
-                else if (status.Contains("Disabled")) AnalyticsStatusText.Foreground = System.Windows.Media.Brushes.Gray;
-                else AnalyticsStatusText.Foreground = System.Windows.Media.Brushes.Red;
-            });
-        }
-        
-        private void AnalyticsToggle_Changed(object sender, System.Windows.RoutedEventArgs e)
-        {
-            Services.AnalyticsService.Instance.IsAnalyticsEnabled = AnalyticsToggle.IsChecked == true;
         }
 
         private void ExpertModeToggle_Changed(object sender, System.Windows.RoutedEventArgs e)

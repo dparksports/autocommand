@@ -35,13 +35,13 @@
                 <LineBreak/><LineBreak/>
                 <Run FontWeight="Bold">3. PRIVACY AND DATA COLLECTION</Run>
                 <LineBreak/>
-                By using the Software, you acknowledge and agree that the Company collects and processes data to fix bugs, improve the Software, and enhance user experience.
+                The Software does not collect, transmit, or process any usage data.
                 <LineBreak/>
-                • <Run FontStyle="Italic">Anonymous Telemetry:</Run> We use Google Firebase Analytics to collect anonymous usage data (e.g., OS version, session duration, crash reports).
+                • <Run FontStyle="Italic">No Telemetry:</Run> The Software contains no analytics or telemetry components and makes no network requests on its own behalf.
                 <LineBreak/>
-                • <Run FontStyle="Italic">No PII:</Run> We do not collect names, email addresses, or other personally identifiable information unless explicitly provided by you.
+                • <Run FontStyle="Italic">No PII:</Run> We do not collect names, email addresses, or other personally identifiable information.
                 <LineBreak/>
-                • <Run FontStyle="Italic">Opt-Out:</Run> You may opt out of data collection at any time by disabling the "Share Usage Data" option in the Software’s settings menu.
+                • <Run FontStyle="Italic">Local Only:</Run> All data the Software records stays on your machine.
                 <LineBreak/><LineBreak/>
                 <Run FontWeight="Bold">4. PROPRIETARY RIGHTS</Run>
                 <LineBreak/>

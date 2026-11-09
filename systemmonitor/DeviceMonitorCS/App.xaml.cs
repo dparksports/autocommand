@@ -27,15 +27,15 @@ public partial class App : Application
         // Prevent automatic shutdown when the Privacy window closes
         ShutdownMode = ShutdownMode.OnExplicitShutdown;
 
-        // Privacy Consent Check
-        if (!DeviceMonitorCS.Services.AnalyticsService.Instance.HasUserConsented)
+        // EULA Consent Check
+        if (!DeviceMonitorCS.Services.SettingsManager.Instance.HasAcceptedEula)
         {
             var privacyWin = new DeviceMonitorCS.Views.PrivacyConsentWindow();
             bool? result = privacyWin.ShowDialog();
 
             if (result == true)
             {
-                DeviceMonitorCS.Services.AnalyticsService.Instance.IsAnalyticsEnabled = true;
+                DeviceMonitorCS.Services.SettingsManager.Instance.HasAcceptedEula = true;
             }
             else
             {

@@ -32,10 +32,4 @@
     </Content>
   </ItemGroup>
 
-  <ItemGroup>
-    <None Update="firebase_config.json">
-      <CopyToOutputDirectory>Always</CopyToOutputDirectory>
-    </None>
-  </ItemGroup>
-
 </Project>

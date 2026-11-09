@@ -51,6 +51,20 @@ namespace DeviceMonitorCS.Services
             }
         }
 
+        private bool _hasAcceptedEula;
+        public bool HasAcceptedEula
+        {
+            get => _hasAcceptedEula;
+            set
+            {
+                if (_hasAcceptedEula != value)
+                {
+                    _hasAcceptedEula = value;
+                    SaveSettings();
+                }
+            }
+        }
+
         public event Action<bool> ExpertModeChanged;
 
         private SettingsManager()
@@ -75,12 +89,18 @@ namespace DeviceMonitorCS.Services
                     if (lines.Length > 1) bool.TryParse(lines[1], out _isFirstRun);
                     else _isFirstRun = true;
                     if (lines.Length > 2) bool.TryParse(lines[2], out _isRemediationDebug);
+                    // Existing settings file means the app ran before (the EULA was
+                    // accepted under the old analytics-settings marker); new installs
+                    // get line 3 and see the EULA once.
+                    if (lines.Length > 3) bool.TryParse(lines[3], out _hasAcceptedEula);
+                    else _hasAcceptedEula = true;
                 }
                 else
                 {
                     _isExpertMode = false;
                     _isFirstRun = true;
                     _isRemediationDebug = false;
+                    _hasAcceptedEula = false;
                 }
             }
             catch
@@ -88,6 +108,7 @@ namespace DeviceMonitorCS.Services
                 _isExpertMode = false;
                 _isFirstRun = true;
                 _isRemediationDebug = false;
+                _hasAcceptedEula = false;
             }
         }
 
@@ -97,7 +118,7 @@ namespace DeviceMonitorCS.Services
             {
                 string folder = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ApplicationData), "DeviceMonitorCS");
                 Directory.CreateDirectory(folder);
-                File.WriteAllLines(GetSettingsPath(), new[] { _isExpertMode.ToString(), _isFirstRun.ToString(), _isRemediationDebug.ToString() });
+                File.WriteAllLines(GetSettingsPath(), new[] { _isExpertMode.ToString(), _isFirstRun.ToString(), _isRemediationDebug.ToString(), _hasAcceptedEula.ToString() });
             }
             catch { }
         }

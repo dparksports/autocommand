@@ -64,7 +64,6 @@ namespace DeviceMonitorCS
         private SecurityEnforcer _enforcer;
         private PerformanceMonitor _perfMonitor;
 
-        // private FirebaseTelemetryService _telemetryService; // Old
         private AuthenticationService _authService;
 
         private Dictionary<Type, UserControl> _viewCache = new Dictionary<Type, UserControl>();
@@ -137,13 +136,6 @@ namespace DeviceMonitorCS
             // Set Content
             MainContentArea.Content = view;
 
-            // Telemetry
-            _ = Services.AnalyticsService.Instance.LogEventAsync("screen_view", new Dictionary<string, object>
-            {
-                { "screen_name", viewType.Name },
-                { "screen_class", viewType.Name }
-            });
-            
             // Handle Side-Effects (like perf timer for PerfView)
             // Perf timer was running globally, checking visibility. 
             // We can simplify or keep it running but checking if Content is PerfView
@@ -231,21 +223,6 @@ namespace DeviceMonitorCS
             InitializeComponent();
             
             _authService = new AuthenticationService();
-            // _analyticsService = new AnalyticsService(_authService); // Now Singleton
-
-            // Privacy Consent Check
-            // Privacy Consent Check Removed (Moved to App.xaml.cs)
-            Loaded += async (s, e) =>
-            {
-                await Services.AnalyticsService.Instance.LogEventAsync("app_start", new { app_version = "3.12.0" });
-            };
-
-            // _telemetryService = new FirebaseTelemetryService();
-            // _ = _telemetryService.SendEventAsync("app_start", new Dictionary<string, object> 
-            // { 
-            //    { "app_version", "3.9.2" }
-            // });
-
 
             this.AddHandler(Button.ClickEvent, new RoutedEventHandler(Global_ButtonClick));
 
@@ -382,13 +359,6 @@ namespace DeviceMonitorCS
                     string btnContent = btn.Content?.ToString() ?? "Icon/Image";
                     
                     if (string.IsNullOrEmpty(btnName)) btnName = "UnnamedButton";
-
-                    _ = Services.AnalyticsService.Instance.LogEventAsync("ui_interaction", new Dictionary<string, object>
-                    {
-                        { "element_type", "button" },
-                        { "element_name", btnName },
-                        { "element_content", btnContent }
-                    });
                 }
             }
             catch { }
