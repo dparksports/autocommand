@@ -2,6 +2,61 @@ AutoCommand III - release history
 All per-release notes consolidated here, newest first. No individual release_notes files remain in the repo; write a fresh one only for the next release (release.ps1 requires it).
 
 ================================================================================
+  2026.11.8  -  released 2026-11-08
+================================================================================
+
+# AutoCommand — v2026.11.8
+
+## The three-day fuse
+
+AutoCommand registered its own logon task with `schtasks /create ... /sc onlogon
+/rl highest /f`, which writes no `<ExecutionTimeLimit>`. Task Scheduler then
+applied its own default — PT72H — and terminated the task three days after the
+logon that started it. Field evidence from the development machine: the task was
+registered 2026-11-03 23:04:35, the machine booted 2026-11-05 20:05:05, and event
+329 ("terminated due to exceeding the time allocated for execution") landed at
+2026-11-08 20:05:22, exactly PT72H later, with 102/201 recording return
+0x8007050B. No crash.log, no WER report: a termination is not a crash, which is
+why the app appeared to vanish for no reason.
+
+Honest note: the app's own activity.jsonl records `session stopped` at
+20:05:22.577 — managed shutdown code ran at the same second the Scheduler reports
+the termination, so the two records disagree about *how* the process ended. The
+missing limit and the PT72H timing are not in doubt, and the fix is the same
+either way.
+
+## What changed
+
+- **ScheduledTaskGuard** reads the registered task back and repairs the three
+  settings that decide whether a long-lived watcher survives:
+  `ExecutionTimeLimit` -> `PT0S`, plus the two battery defaults. Inspect, Repair
+  and EnsureUnlimited never throw; an unreadable task is reported unhealthy with
+  the reason.
+- **Both task creators normalise at creation.** FreshSetupService and Shields
+  Up's LogonTaskService had the identical defect — `ShieldsUpStartupTask` would
+  also have died on day three. Creation now succeeds only if the task ends up
+  unlimited.
+- **Startup repairs a poisoned task.** An upgraded build cures the task an older
+  build left behind. Existence was never the right test: the old code reported a
+  72-hour task as healthy forever, and the affected user is exactly the one who
+  never opens Settings.
+- **Liveness.** `agent\heartbeat.json` is rewritten every 30 s and *deleted* by a
+  clean exit — an inversion chosen because a "clean = true" flag cannot survive
+  the paths that actually kill processes. A leftover beat whose pid is gone is an
+  abrupt end by construction, recorded in `agent\deaths.jsonl`, attributed to
+  `task-time-limit` when Task Scheduler's event 329 is readable. The user gets
+  one plain-English dialog at next start, never an event id.
+- **StartupHealthSelfTest** — 24 offline checks pinning the health matrix, the
+  cause table and the clean-exit inversion; added to the strict CI gate.
+
+## Deliberately not in this release
+
+- Evidence-bundle UI and token redaction: `session.json` carries the loopback
+  bridge's bearer token, and redacting it properly is its own change.
+- Sysmon EID 10 process-access arming: makes a future killer attributable rather
+  than reconstructed, but it is a shipped Sysmon config, not code.
+
+================================================================================
   2026.11.3.4  -  released 2026-11-03
 ================================================================================
 

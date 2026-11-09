@@ -20,7 +20,13 @@ public static class LogonTaskService
                 string exePath = System.Diagnostics.Process.GetCurrentProcess().MainModule.FileName;
                 var r = Helpers.ProcessRunner.RunWithDetails("schtasks",
                     $"/create /tn \"{TaskName}\" /tr \"\\\"{exePath}\\\"\" /sc onlogon /rl highest /f");
-                return r.ExitCode == 0;
+                if (r.ExitCode != 0) return false;
+
+                // Same trap as AutoCommand's own task: schtasks omits
+                // <ExecutionTimeLimit>, Task Scheduler supplies PT72H, and the
+                // task is terminated three days after logon. Repair before
+                // reporting success.
+                return ScheduledTaskGuard.Repair(TaskName).Healthy;
             }
             catch
             {

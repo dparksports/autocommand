@@ -68,6 +68,12 @@ namespace AutoCommand
             System.IO.File.WriteAllText(markerPath, current);
         }
 
+        /// <summary>
+        /// Set on startup when the previous instance ended without a clean exit;
+        /// the plain-English notice is shown once the shell is up.
+        /// </summary>
+        private AutoCommand.Agent.Core.LivenessDeath _startupDeath;
+
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
@@ -119,6 +125,20 @@ namespace AutoCommand
                 RunOneSettingsEnforce();
                 return;
             }
+
+            // ── liveness: read the predecessor's beat before anything else ──
+            // A clean exit deletes heartbeat.json; every other ending leaves it.
+            // So a beat whose pid is gone is an abrupt end by construction, and
+            // the Scheduler's own 329 record (when the channel is readable) names
+            // the reason. This runs before the rest of startup because the very
+            // next crash would otherwise overwrite the file that describes the
+            // last one.
+            //
+            // It also repairs the logon task an older build may have registered
+            // with schtasks' defaults (PT72H, stop-on-battery): the upgrade must
+            // cure the poisoned task, not just avoid creating new ones. Users who
+            // never open Settings are exactly the ones the fuse kills.
+            TryRecordLiveness();
 
             // Upgrade carry-over: state lives outside the program folder, so
             // an update that unzips a new folder keeps every block, the undo
@@ -193,7 +213,9 @@ namespace AutoCommand
                               "Between flushes, writes coalesce in memory (bounded by a byte threshold " +
                               "that self-flushes) - per-event disk writes are what this replaces.",
                 Cost = InstrumentCost.Light,
-                DefaultSeconds = 30,
+                DefaultSeconds = 300,   // thrifty by default (Settings'
+                                        // "Minimize disk writes" reads >= 300);
+                                        // a user calibration still wins
                 MinSeconds = 5,
                 MaxSeconds = 600,
                 Callback = () =>
@@ -290,6 +312,10 @@ namespace AutoCommand
 
         protected override void OnExit(ExitEventArgs e)
         {
+            // Clean-exit marker: removing the beat is what tells the next
+            // instance this was a shutdown and not a kill.
+            AutoCommand.Agent.Core.LivenessService.StopHeartbeat();
+
             // a live session must never outlive the app: the session file is
             // what grants access, so it dies here even on a crash-next-launch
             AgentBridgeService.Instance.Stop();
@@ -387,6 +413,51 @@ namespace AutoCommand
             catch (System.Exception ex)
             {
                 LogCrash(ex, "SysmonStartup");
+            }
+        }
+
+        /// <summary>
+        /// Records how the previous instance ended, starts this instance's
+        /// beat, and repairs a logon task registered before the PT72H fix.
+        /// Never throws: liveness bookkeeping must not be able to keep the
+        /// user out of the app that exists to explain the machine.
+        /// </summary>
+        private void TryRecordLiveness()
+        {
+            try
+            {
+                string agentDir = System.IO.Path.Combine(
+                    System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData),
+                    "AutoCommand", "agent");
+
+                _startupDeath = AutoCommand.Agent.Core.LivenessService.DetectAndRecordPreviousDeath(
+                    agentDir,
+                    AutoCommand.Agent.Core.LivenessService.IsAlive,
+                    since => AutoCommand.Agent.Core.TaskSchedulerProbe
+                        .RecentTimeLimitTermination(Services.FreshSetupService.StartupTaskName, since));
+
+                AutoCommand.Agent.Core.LivenessService.StartHeartbeat(agentDir);
+
+                Services.FreshSetupService.EnsureStartupTaskHealthy();
+
+                if (_startupDeath != null)
+                {
+                    string notice = AutoCommand.Agent.Core.LivenessService.Notice(_startupDeath);
+
+                    // Shown after the window exists: a modal dialog raised from
+                    // OnStartup would sit in front of an empty screen.
+                    Dispatcher.BeginInvoke(
+                        new System.Action(() => System.Windows.MessageBox.Show(
+                            notice,
+                            "AutoCommand",
+                            System.Windows.MessageBoxButton.OK,
+                            System.Windows.MessageBoxImage.Information)),
+                        System.Windows.Threading.DispatcherPriority.ApplicationIdle);
+                }
+            }
+            catch
+            {
+                // a courtesy, not a dependency
             }
         }
 

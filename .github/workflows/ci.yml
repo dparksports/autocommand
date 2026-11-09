@@ -59,7 +59,8 @@ jobs:
             'PyTraceSelfTest',
             'InterceptSelfTest',
             'HardenSelfTest',
-            'WslSelfTest'
+            'WslSelfTest',
+            'StartupHealthSelfTest'
           )
           foreach ($s in $suites) {
             Write-Host "== $s =="

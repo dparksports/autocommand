@@ -126,8 +126,13 @@ namespace AutoCommand
             else if (surface == "kdnet") EnforceKernelDebug();
         }
 
-        // AutoMitigateAdapters: cached in-memory; persisted to disk via setter only.
-        private static volatile bool _autoMitigateAdapters = false;
+        // AutoMitigateAdapters: ON by default — auto-removal extends the
+        // already-default SSTP/KDNET enforcement to full device removal
+        // (reversible from Shields Up). Persisted via the setter ONLY, so an
+        // auto_mitigate_adapters.txt holding "False" — an explicit opt-out —
+        // keeps winning over this default; a missing file means "never
+        // touched" and takes the default.
+        private static volatile bool _autoMitigateAdapters = true;
         public static bool AutoMitigateAdapters
         {
             get => _autoMitigateAdapters;
