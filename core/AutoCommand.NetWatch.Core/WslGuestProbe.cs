@@ -231,7 +231,11 @@ namespace AutoCommand.Services
             {
                 StartInfo = new ProcessStartInfo
                 {
-                    FileName = "wsl.exe",
+                    // Pinned to System32: the app runs elevated from a
+                    // portable folder, so an unqualified "wsl.exe" would
+                    // resolve through the app/CWD first (user-writable).
+                    FileName = System.IO.Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.System), "wsl.exe"),
                     Arguments = arguments,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
@@ -240,8 +244,16 @@ namespace AutoCommand.Services
                 }
             };
             proc.Start();
+            // Drain stderr concurrently — wsl.exe can write enough to it to
+            // deadlock a sequential read.
+            var stderrTask = proc.StandardError.ReadToEndAsync();
             string output = proc.StandardOutput.ReadToEnd();
-            proc.WaitForExit();
+            if (!proc.WaitForExit(120_000))
+            {
+                try { proc.Kill(); } catch { }
+                proc.WaitForExit();
+            }
+            _ = stderrTask.Result;
             return (output, proc.ExitCode);
         }
     }

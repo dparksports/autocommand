@@ -131,7 +131,10 @@ namespace AutoCommand.Services
             {
                 StartInfo = new ProcessStartInfo
                 {
-                    FileName = "wsl.exe",
+                    // Pinned to System32 (user-writable app/CWD resolve first
+                    // otherwise; this app runs elevated).
+                    FileName = System.IO.Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.System), "wsl.exe"),
                     Arguments = arguments,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
@@ -142,8 +145,15 @@ namespace AutoCommand.Services
             if (outputEncoding != null)
                 proc.StartInfo.StandardOutputEncoding = outputEncoding;
             proc.Start();
+            // Drain stderr concurrently (see WslGuestProbe.RunWsl).
+            var stderrTask = proc.StandardError.ReadToEndAsync();
             string output = proc.StandardOutput.ReadToEnd();
-            proc.WaitForExit();
+            if (!proc.WaitForExit(120_000))
+            {
+                try { proc.Kill(); } catch { }
+                proc.WaitForExit();
+            }
+            _ = stderrTask.Result;
             return (output, proc.ExitCode);
         }
 

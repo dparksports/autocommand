@@ -392,11 +392,13 @@ namespace AutoCommand.Services
                 if (item == null) return true; // already gone
 
                 // Ask the running sync client to exit cleanly first (best effort — the
-                // uninstaller proceeds even if the client is hung or absent)
+                // uninstaller proceeds even if the client is hung or absent).
+                // The install root can live in user-writable %LOCALAPPDATA%, so
+                // the exe must be Microsoft-signed before this elevated app runs it.
                 try
                 {
                     string oneDriveExe = System.IO.Path.Combine(item.InstallLocation, "OneDrive.exe");
-                    if (System.IO.File.Exists(oneDriveExe))
+                    if (IsTrustedOneDriveBinary(oneDriveExe, "OneDrive.exe"))
                         await Task.Run(() => ProcessRunner.Run(oneDriveExe, "/shutdown"))
                                  .WaitAsync(TimeSpan.FromSeconds(10));
                 }
@@ -429,12 +431,16 @@ namespace AutoCommand.Services
         /// <summary>
         /// Resolves the OneDrive uninstaller executable: the registered UninstallString
         /// first (it points at the versioned OneDriveSetup.exe), then a scan of the
-        /// install root's versioned subfolders.
+        /// install root's versioned subfolders. Every source here is user-writable
+        /// (HKCU registry values, %LOCALAPPDATA% install roots) while the resolution
+        /// result is executed by this elevated app, so only a Microsoft-signed
+        /// OneDriveSetup.exe is ever returned — anything else is treated as absent
+        /// and the winget fallback takes over.
         /// </summary>
         private static string LocateOneDriveUninstaller(string installRoot)
         {
             string path = ExtractExecutablePath(ReadOneDriveRegistryEntry().UninstallString);
-            if (path != null && System.IO.File.Exists(path)) return path;
+            if (IsTrustedOneDriveBinary(path, "OneDriveSetup.exe")) return path;
 
             try
             {
@@ -442,12 +448,24 @@ namespace AutoCommand.Services
                     .Select(dir => System.IO.Path.Combine(dir, "OneDriveSetup.exe"))
                     .Where(System.IO.File.Exists)
                     .OrderByDescending(p => System.IO.Path.GetDirectoryName(p), StringComparer.OrdinalIgnoreCase)
-                    .FirstOrDefault();
+                    .FirstOrDefault(p => IsTrustedOneDriveBinary(p, "OneDriveSetup.exe"));
             }
             catch
             {
                 return null;
             }
+        }
+
+        /// <summary>
+        /// A OneDrive binary path is acceptable only when the file exists, has the
+        /// exact expected leaf name, and is Microsoft-signed — the name alone
+        /// proves nothing in a user-writable directory.
+        /// </summary>
+        private static bool IsTrustedOneDriveBinary(string path, string leafName)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !System.IO.File.Exists(path)) return false;
+            if (!string.Equals(System.IO.Path.GetFileName(path), leafName, StringComparison.OrdinalIgnoreCase)) return false;
+            return SignatureChecker.IsMicrosoftSigned(path);
         }
 
         /// <summary>

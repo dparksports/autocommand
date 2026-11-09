@@ -1579,7 +1579,13 @@ type FirewallService(naming: FirewallNaming) =
         try
             let verb = if enable then "enable" else "disable"
 
-            let psi = ProcessStartInfo("netsh", $"advfirewall set allprofiles logging droppedconnections {verb}")
+            // netsh is pinned to System32: the app runs elevated from a
+            // portable folder, so a bare name would resolve through the app
+            // directory / CWD first (both user-writable).
+            let netshPath =
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "netsh.exe")
+
+            let psi = ProcessStartInfo(netshPath, $"advfirewall set allprofiles logging droppedconnections {verb}")
 
             psi.CreateNoWindow <- true
             psi.UseShellExecute <- false

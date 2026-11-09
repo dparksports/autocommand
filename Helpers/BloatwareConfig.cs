@@ -35,7 +35,7 @@ namespace AutoCommand.Helpers
 
         public BloatwareConfig()
         {
-            _configPath = Path.Combine(@"C:\ProgramData\AutoCommand", "bloatware_config.json");
+            _configPath = Path.Combine(ProgramDataGuard.Root, "bloatware_config.json");
             Load();
         }
 

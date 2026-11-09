@@ -39,7 +39,7 @@ namespace AutoCommand.Helpers
             public int LiveCount { get; set; }
         }
 
-        private static readonly string BaselinePath = Path.Combine(@"C:\ProgramData\AutoCommand", "firewall_baseline.json");
+        private static readonly string BaselinePath = Path.Combine(ProgramDataGuard.Root, "firewall_baseline.json");
         private static BaselineFile _cache;
 
         public static bool HasBaseline => GetCachedBaseline() != null;

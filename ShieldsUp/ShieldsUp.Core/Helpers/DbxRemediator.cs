@@ -61,7 +61,11 @@ namespace ShieldsUp.Core.Helpers
                 var psCommand = GetInstallCommand(path);
                 var psi = new ProcessStartInfo
                 {
-                    FileName = "powershell",
+                    // Pinned to System32 — the host app runs elevated from a
+                    // portable folder, so an unqualified "powershell" would
+                    // resolve through the app/CWD first (both user-writable).
+                    FileName = System.IO.Path.Combine(
+                        Environment.GetFolderPath(Environment.SpecialFolder.System), "powershell.exe"),
                     Arguments = $"-Command \"{psCommand}\"",
                     UseShellExecute = true,
                     CreateNoWindow = true,

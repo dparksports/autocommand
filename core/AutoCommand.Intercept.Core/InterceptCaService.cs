@@ -2,6 +2,7 @@ using System;
 using System.Collections.Generic;
 using System.IO;
 using System.Net;
+using System.Runtime.InteropServices;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
 
@@ -16,9 +17,12 @@ namespace AutoCommand.Intercept.Core
     /// are minted per hostname, cached briefly — a session never generates
     /// hundreds of keys.
     ///
-    /// Nothing here ever touches LSASS or Schannel internals: the CA is the
-    /// standard, user-visible mechanism, auditable in certmgr as "AutoCommand
-    /// Intercept CA" whenever it is trusted.
+    /// The persisted PFX is DPAPI-encrypted (current user): the key backs a
+    /// CA that is trusted machine-wide during sessions, so the file at rest
+    /// must not be raw-exportable key material any same-user process could
+    /// lift and reuse. Nothing here ever touches LSASS or Schannel
+    /// internals: the CA is the standard, user-visible mechanism, auditable
+    /// in certmgr as "AutoCommand Intercept CA" whenever it is trusted.
     /// </summary>
     internal static class InterceptCaService
     {
@@ -45,6 +49,79 @@ namespace AutoCommand.Intercept.Core
         private static readonly Dictionary<string, (X509Certificate2 Cert, DateTime MintedUtc)> _leafCache =
             new(StringComparer.OrdinalIgnoreCase);
 
+        // ── DPAPI (crypt32) ───────────────────────────────────────────────
+        // Raw P/Invoke rather than the ProtectedData package: this assembly
+        // deliberately carries no NuGet dependencies, and the codebase
+        // already uses wininet/setupapi P/Invokes the same way.
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct DATA_BLOB
+        {
+            public int cbData;
+            public IntPtr pbData;
+        }
+
+        [DllImport("crypt32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        private static extern bool CryptProtectData(
+            ref DATA_BLOB pDataIn, string szDataDescr, IntPtr pOptionalEntropy,
+            IntPtr pvReserved, IntPtr pPromptStruct, int dwFlags, ref DATA_BLOB pDataOut);
+
+        [DllImport("crypt32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        private static extern bool CryptUnprotectData(
+            ref DATA_BLOB pDataIn, IntPtr ppszDataDescr, IntPtr pOptionalEntropy,
+            IntPtr pvReserved, IntPtr pPromptStruct, int dwFlags, ref DATA_BLOB pDataOut);
+
+        [DllImport("kernel32.dll")]
+        private static extern IntPtr LocalFree(IntPtr hMem);
+
+        private const int CRYPTPROTECT_UI_FORBIDDEN = 0x1;
+
+        private static byte[] Protect(byte[] plain)
+        {
+            var inBlob = new DATA_BLOB();
+            var outBlob = new DATA_BLOB();
+            inBlob.pbData = Marshal.AllocHGlobal(plain.Length);
+            try
+            {
+                Marshal.Copy(plain, 0, inBlob.pbData, plain.Length);
+                inBlob.cbData = plain.Length;
+                if (!CryptProtectData(ref inBlob, "AutoCommand intercept CA", IntPtr.Zero,
+                        IntPtr.Zero, IntPtr.Zero, CRYPTPROTECT_UI_FORBIDDEN, ref outBlob))
+                    throw new CryptographicException("CryptProtectData failed");
+                try
+                {
+                    var cipher = new byte[outBlob.cbData];
+                    Marshal.Copy(outBlob.pbData, cipher, 0, outBlob.cbData);
+                    return cipher;
+                }
+                finally { LocalFree(outBlob.pbData); }
+            }
+            finally { Marshal.FreeHGlobal(inBlob.pbData); }
+        }
+
+        private static byte[] Unprotect(byte[] cipher)
+        {
+            var inBlob = new DATA_BLOB();
+            var outBlob = new DATA_BLOB();
+            inBlob.pbData = Marshal.AllocHGlobal(cipher.Length);
+            try
+            {
+                Marshal.Copy(cipher, 0, inBlob.pbData, cipher.Length);
+                inBlob.cbData = cipher.Length;
+                if (!CryptUnprotectData(ref inBlob, IntPtr.Zero, IntPtr.Zero,
+                        IntPtr.Zero, IntPtr.Zero, CRYPTPROTECT_UI_FORBIDDEN, ref outBlob))
+                    throw new CryptographicException("CryptUnprotectData failed");
+                try
+                {
+                    var plain = new byte[outBlob.cbData];
+                    Marshal.Copy(outBlob.pbData, plain, 0, outBlob.cbData);
+                    return plain;
+                }
+                finally { LocalFree(outBlob.pbData); }
+            }
+            finally { Marshal.FreeHGlobal(inBlob.pbData); }
+        }
+
         /// <summary>The CA, creating and persisting it on first use.</summary>
         internal static X509Certificate2 GetOrCreateCa()
         {
@@ -56,7 +133,19 @@ namespace AutoCommand.Intercept.Core
                     try
                     {
                         if (File.Exists(CaPath))
-                            _ca = X509CertificateLoader.LoadPkcs12FromFile(CaPath, null);
+                        {
+                            byte[] raw = File.ReadAllBytes(CaPath);
+                            // DPAPI first; a legacy plaintext PFX (pre-DPAPI
+                            // install) still loads and is upgraded in place.
+                            byte[] pfx;
+                            try { pfx = Unprotect(raw); }
+                            catch (CryptographicException)
+                            {
+                                pfx = raw;
+                                File.WriteAllBytes(CaPath, Protect(raw)); // upgrade at rest
+                            }
+                            _ca = X509CertificateLoader.LoadPkcs12(pfx, null);
+                        }
                     }
                     catch { /* unreadable pfx — regenerate below */ }
                 }
@@ -75,11 +164,40 @@ namespace AutoCommand.Intercept.Core
                     _ca = request.CreateSelfSigned(DateTime.UtcNow.AddDays(-1), DateTime.UtcNow.AddYears(2));
 
                     Directory.CreateDirectory(Dir);
-                    File.WriteAllBytes(CaPath, _ca.Export(X509ContentType.Pfx));
+                    File.WriteAllBytes(CaPath, Protect(_ca.Export(X509ContentType.Pfx)));
                 }
                 return _ca;
             }
         }
+
+        /// <summary>The persisted CA's thumbprint WITHOUT creating one — the
+        /// startup repair sweep asks "is our CA on disk?" before deciding
+        /// whether machine trust is stranded; GetOrCreateCa would mint a new
+        /// CA as a side effect, which is exactly what the sweep must not do.
+        /// Null when nothing is persisted.</summary>
+        internal static string TryGetPersistedThumbprint()
+        {
+            lock (Gate)
+            {
+                if (_ca != null) return _ca.Thumbprint;
+                try
+                {
+                    if (!File.Exists(CaPath)) return null;
+                    byte[] raw = File.ReadAllBytes(CaPath);
+                    byte[] pfx;
+                    try { pfx = Unprotect(raw); }
+                    catch (CryptographicException) { pfx = raw; }
+                    using var cert = X509CertificateLoader.LoadPkcs12(pfx, null);
+                    return cert.Thumbprint;
+                }
+                catch { return null; }
+            }
+        }
+
+        /// <summary>Our exact CA subject, for the repair sweep's stranded-trust
+        /// scan (older installs' CA files may be gone while the Root entry
+        /// survives).</summary>
+        internal static string CaSubjectForRepair => CaSubject;
 
         // ── Root store lifecycle ──────────────────────────────────────────
 
@@ -94,20 +212,26 @@ namespace AutoCommand.Intercept.Core
             if (existing.Count == 0) store.Add(ca);
         }
 
-        /// <summary>Removes exactly our CA (by thumbprint) — never a blanket
-        /// store cleanup.</summary>
-        internal static void RemoveFromRoot(string thumbprint = null)
+        /// <summary>
+        /// Removes exactly our CA (by thumbprint) — never a blanket store
+        /// cleanup. Returns true when no cert with that thumbprint remains in
+        /// the store (including "was never installed"); false means the
+        /// removal must be retried — callers keep the undo journal so the
+        /// next app start's RecoverAfterCrash tries again.
+        /// </summary>
+        internal static bool RemoveFromRoot(string thumbprint = null)
         {
             string tp = thumbprint ?? GetOrCreateCa().Thumbprint;
             try
             {
                 using var store = new X509Store(StoreName.Root, StoreLocation.LocalMachine);
                 store.Open(OpenFlags.ReadWrite);
-                foreach (var cert in store.Certificates.Find(
-                             X509FindType.FindByThumbprint, tp, validOnly: false))
+                var matches = store.Certificates.Find(X509FindType.FindByThumbprint, tp, validOnly: false);
+                foreach (var cert in matches)
                     store.Remove(cert);
+                return store.Certificates.Find(X509FindType.FindByThumbprint, tp, validOnly: false).Count == 0;
             }
-            catch { /* best-effort removal; RecoverAfterCrash retries at next app start */ }
+            catch { return false; /* RecoverAfterCrash retries at next app start */ }
         }
 
         // ── leaf minting ──────────────────────────────────────────────────
@@ -140,8 +264,14 @@ namespace AutoCommand.Intercept.Core
                 else sanBuilder.AddDnsName(host);
                 request.CertificateExtensions.Add(sanBuilder.Build());
 
+                // Fresh random serial per leaf — RFC 5280 requires per-CA
+                // uniqueness; reusing the CA's own serial (the old behavior)
+                // breaks revocation semantics for every leaf. High bit is
+                // cleared: the serial is a positive big-endian integer.
+                var serial = RandomNumberGenerator.GetBytes(16);
+                serial[0] &= 0x7F;
                 var leaf = request.Create(ca, DateTime.UtcNow.AddMinutes(-5),
-                    DateTime.UtcNow.AddDays(7), ca.GetSerialNumber());
+                    DateTime.UtcNow.AddDays(7), serial);
                 // CopyWithPrivateKey returns the cert WITH its private key —
                 // the chain to the CA is built by clients via the Root store.
                 var leafWithKey = leaf.CopyWithPrivateKey(rsa);

@@ -569,23 +569,34 @@ type AgentBridgeService (identity: AppIdentity, tools: IAgentTools,
         lock sessionToolsLock (fun () -> sessionAllowedTools.Contains(grantKey))
 
     /// <summary>What a "for this session" grant actually covers. Gate tools
-    /// grant PER TARGET — "allow gates for this address/host" never widens
-    /// to other blocked services; every new target asks again. Other
-    /// mutating tools grant per-target too when their args carry an
-    /// obvious target (ip / pid / task_path — AutoScope's block_ip,
-    /// unblock_ip, kill_process, disable_task run on this shared engine):
-    /// "always allow kill_process" must never widen to every process for
-    /// the rest of the session. Tools with no target-shaped argument fall
-    /// back to per-tool.</summary>
+    /// grant PER TARGET AND PER DURATION — the confirmation dialog quotes
+    /// the exact gate length ("Open a 1-minute block gate?"), so a grant
+    /// must never silently cover a longer one for the same target. Other
+    /// mutating tools grant per-target when their args carry an obvious
+    /// target (ip / pid / task_path — AutoScope's block_ip, unblock_ip,
+    /// kill_process, disable_task run on this shared engine — plus the
+    /// ShieldsUp tools' door / rule_id / preset shapes): "always allow
+    /// kill_process" must never widen to every process for the rest of the
+    /// session, and "always close the sstp door" must never cover the VPN
+    /// doors. Tools with no target-shaped argument fall back to
+    /// per-tool.</summary>
     static member private GrantKey (toolName: string, args: JsonObject) : string =
         if toolName = "open_gate" || toolName = "close_gate" then
-            match args["target"] with
-            | null -> toolName
-            | t -> toolName + "|" + t.ToString().Trim().ToLowerInvariant()
+            let target =
+                match args["target"] with
+                | null -> ""
+                | t -> "|" + t.ToString().Trim().ToLowerInvariant()
+
+            let minutes =
+                match args["minutes"] with
+                | null -> ""
+                | m -> "|" + m.ToString().Trim()
+
+            toolName + target + minutes
         else
             // per-target when the tool's scope is a specific object
             let scoped =
-                [ "ip"; "pid"; "task_path" ]
+                [ "ip"; "pid"; "task_path"; "door"; "rule_id"; "preset" ]
                 |> List.tryPick (fun k ->
                     match args[k] with
                     | null -> None

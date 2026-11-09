@@ -111,6 +111,10 @@ void LogProxy(string what, string detail)
 }
 
 var stdout = new StreamWriter(Console.OpenStandardOutput(), new UTF8Encoding(false)) { AutoFlush = true };
+// MCP-over-stdio is UTF-8 by spec; without pinning, an attached console
+// decodes stdin with the OEM code page and non-ASCII tool arguments (paths,
+// hostnames, reason strings) get mangled before they are forwarded.
+try { Console.InputEncoding = Encoding.UTF8; } catch { /* detached stdin keeps default */ }
 var http = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
 
 (int Port, string Token, long Pid)? ReadSession()
@@ -207,10 +211,52 @@ static bool PidAlive(long pid)
     {
         using var p = Process.GetProcessById((int)pid);
         // name guard: a reused pid from an unrelated process is not a session
-        return p.ProcessName.StartsWith("AutoCommand", StringComparison.OrdinalIgnoreCase);
+        if (!p.ProcessName.StartsWith("AutoCommand", StringComparison.OrdinalIgnoreCase))
+            return false;
+
+        // Path guard: a same-named impostor ("AutoCommandEvil.exe" with its
+        // own session.json) must not capture the forwarded channel. The real
+        // app ships next to this proxy's parent folder. QueryFullProcessImageName
+        // (not Process.MainModule) so this also works while the app runs
+        // elevated and the proxy does not.
+        string sessionExe = QueryProcessImagePath((int)pid);
+        if (sessionExe.Length > 0)
+        {
+            string appDir = Path.GetDirectoryName(AppExePath());
+            if (!string.IsNullOrEmpty(appDir)
+                && !string.Equals(Path.GetDirectoryName(sessionExe), appDir, StringComparison.OrdinalIgnoreCase))
+            {
+                return false;
+            }
+        }
+        return true;
     }
     catch { return false; }
 }
+
+static string QueryProcessImagePath(int pid)
+{
+    // PROCESS_QUERY_LIMITED_INFORMATION: readable across elevation boundaries
+    const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+    IntPtr h = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, pid);
+    if (h == IntPtr.Zero) return "";
+    try
+    {
+        var sb = new System.Text.StringBuilder(1024);
+        uint size = (uint)sb.Capacity;
+        return QueryFullProcessImageName(h, 0, sb, ref size) ? sb.ToString() : "";
+    }
+    finally { CloseHandle(h); }
+}
+
+[System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+static extern IntPtr OpenProcess(uint desiredAccess, bool inheritHandle, int processId);
+
+[System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
+static extern bool QueryFullProcessImageName(IntPtr process, uint flags, System.Text.StringBuilder exeName, ref uint size);
+
+[System.Runtime.InteropServices.DllImport("kernel32.dll")]
+static extern bool CloseHandle(IntPtr handle);
 
 static bool InteractiveAppRunning()
 {

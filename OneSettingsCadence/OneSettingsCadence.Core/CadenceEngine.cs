@@ -1,4 +1,6 @@
+using System;
 using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Text.Json;
@@ -471,6 +473,7 @@ namespace AutoCommand.OneSettingsCadence
         /// </summary>
         public void InstallWatchdog(string exePath, string arguments)
         {
+            EnsureElevatedLocationForSystemTask(exePath);
             string xml =
                 $"""
                 <?xml version="1.0" encoding="UTF-16"?>
@@ -521,6 +524,45 @@ namespace AutoCommand.OneSettingsCadence
             }
             folder.RegisterTask("OneSettingsCadenceWatchdog", xml, 6 /* TASK_CREATE_OR_UPDATE */,
                                 "SYSTEM", null, 2 /* TASK_LOGON_SERVICE_ACCOUNT */, null);
+        }
+
+        /// <summary>
+        /// The watchdog runs as SYSTEM (S-1-5-18) daily and at logon — the
+        /// strongest persistence this repo creates, so the binary it points
+        /// at must not live somewhere a standard-user process can replace
+        /// (Downloads, Desktop, any user profile path). An exe under a
+        /// user-writable root means "replace the exe, own SYSTEM": refuse
+        /// and tell the user to move the install (Program Files, ProgramData
+        /// with admin ACLs, or %SystemRoot%) and retry.
+        /// </summary>
+        private static void EnsureElevatedLocationForSystemTask(string exePath)
+        {
+            if (string.IsNullOrWhiteSpace(exePath) || !File.Exists(exePath))
+                throw new InvalidOperationException(
+                    $"Watchdog target '{exePath}' does not exist; nothing registered.");
+
+            string full = Path.GetFullPath(exePath);
+
+            string[] protectedRoots =
+            {
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonProgramFiles),
+                Environment.GetFolderPath(Environment.SpecialFolder.Windows),
+                Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+            };
+
+            bool inProtectedRoot = protectedRoots
+                .Where(r => !string.IsNullOrEmpty(r))
+                .Any(r => full.StartsWith(
+                    r.TrimEnd('\\') + Path.DirectorySeparatorChar,
+                    StringComparison.OrdinalIgnoreCase));
+
+            if (!inProtectedRoot)
+                throw new InvalidOperationException(
+                    $"Refusing to register a SYSTEM task for '{full}': the location is user-writable, " +
+                    "so replacing that file would mean SYSTEM execution of attacker code. " +
+                    "Move the install under Program Files (or another admin-writable location) and retry.");
         }
 
         public void RemoveWatchdog()

@@ -71,7 +71,12 @@ namespace AutoCommand.Intercept.Core
 
         private static string RunNetsh(string arguments)
         {
-            var psi = new ProcessStartInfo("netsh", arguments)
+            // Pinned to System32: the app runs elevated from a portable
+            // folder, and an unqualified "netsh" would resolve through the
+            // app directory / CWD first (both user-writable).
+            var psi = new ProcessStartInfo(
+                System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "netsh.exe"),
+                arguments)
             {
                 CreateNoWindow = true,
                 UseShellExecute = false,
@@ -79,8 +84,16 @@ namespace AutoCommand.Intercept.Core
                 RedirectStandardError = true,
             };
             using var process = Process.Start(psi);
+            // Drain stderr concurrently — netsh never writes much, but a
+            // blocked pipe must not be able to wedge the read.
+            var stderrTask = process.StandardError.ReadToEndAsync();
             string output = process.StandardOutput.ReadToEnd();
-            process.WaitForExit(10000);
+            if (!process.WaitForExit(10000))
+            {
+                try { process.Kill(); } catch { }
+                process.WaitForExit();
+            }
+            _ = stderrTask.Result;
             return output;
         }
 
@@ -106,10 +119,21 @@ namespace AutoCommand.Intercept.Core
 
         internal static string InstallWinHttpProxy(int port)
         {
+            string before = CaptureWinHttpProxy();
+            ApplyWinHttpProxy(port);
+            return before;
+        }
+
+        /// <summary>Snapshot half of InstallWinHttpProxy: the proxy line to
+        /// restore afterwards (null = direct), before anything changes.</summary>
+        internal static string CaptureWinHttpProxy()
+        {
             var (before, wasDirect) = CurrentWinHttpProxy();
-            RunNetsh($"winhttp set proxy 127.0.0.1:{port} \"<local>\"");
             return wasDirect ? null : before;
         }
+
+        private static void ApplyWinHttpProxy(int port) =>
+            RunNetsh($"winhttp set proxy 127.0.0.1:{port} \"<local>\"");
 
         internal static void RestoreWinHttpProxy(string before)
         {
@@ -130,21 +154,39 @@ namespace AutoCommand.Intercept.Core
 
         internal static (int? EnableBefore, string ServerBefore) InstallWininetProxy(int port)
         {
+            var (enableBefore, serverBefore) = CaptureWininetProxy();
+            ApplyWininetProxy(port);
+            return (enableBefore, serverBefore);
+        }
+
+        /// <summary>Snapshot half of InstallWininetProxy, before anything changes.</summary>
+        internal static (int? EnableBefore, string ServerBefore) CaptureWininetProxy()
+        {
             int? enableBefore = null;
             string serverBefore = null;
-            using (var key = Registry.CurrentUser.OpenSubKey(InternetSettingsKey, writable: true))
+            using (var key = Registry.CurrentUser.OpenSubKey(InternetSettingsKey, writable: false))
             {
                 if (key != null)
                 {
                     if (key.GetValue("ProxyEnable") is int enable) enableBefore = enable;
                     serverBefore = key.GetValue("ProxyServer") as string;
+                }
+            }
+            return (enableBefore, serverBefore);
+        }
+
+        private static void ApplyWininetProxy(int port)
+        {
+            using (var key = Registry.CurrentUser.OpenSubKey(InternetSettingsKey, writable: true))
+            {
+                if (key != null)
+                {
                     key.SetValue("ProxyEnable", 1, RegistryValueKind.DWord);
                     key.SetValue("ProxyServer", $"127.0.0.1:{port}", RegistryValueKind.String);
                 }
             }
             InternetSetOption(IntPtr.Zero, INTERNET_OPTION_SETTINGS_CHANGED, IntPtr.Zero, 0);
             InternetSetOption(IntPtr.Zero, INTERNET_OPTION_REFRESH, IntPtr.Zero, 0);
-            return (enableBefore, serverBefore);
         }
 
         internal static void RestoreWininetProxy(int? enableBefore, string serverBefore)
@@ -181,39 +223,113 @@ namespace AutoCommand.Intercept.Core
         internal static void RemoveRule(string ruleName) =>
             RunNetsh($"advfirewall firewall delete rule name=\"{ruleName}\"");
 
+        // ── inspection seams for the startup repair sweep ─────────────────
+
+        /// <summary>The current WinHTTP proxy server line (null = direct),
+        /// read-only.</summary>
+        internal static string InspectWinHttpProxy() => CaptureWinHttpProxy();
+
+        internal static void ResetWinHttpProxyForRepair() => RunNetsh("winhttp reset proxy");
+
+        /// <summary>Current per-user WinINET proxy values, read-only.</summary>
+        internal static (int? EnableBefore, string ServerBefore) InspectWininetProxy()
+        {
+            int? enable = null;
+            string server = null;
+            using (var key = Registry.CurrentUser.OpenSubKey(InternetSettingsKey, writable: false))
+            {
+                if (key != null)
+                {
+                    if (key.GetValue("ProxyEnable") is int e) enable = e;
+                    server = key.GetValue("ProxyServer") as string;
+                }
+            }
+            return (enable, server);
+        }
+
+        /// <summary>Clears the per-user proxy (used only by the repair sweep
+        /// for a dead loopback value we installed) and broadcasts the refresh
+        /// so running apps pick the change up.</summary>
+        internal static void ClearWininetProxyForRepair()
+        {
+            using (var key = Registry.CurrentUser.OpenSubKey(InternetSettingsKey, writable: true))
+            {
+                if (key != null)
+                {
+                    key.DeleteValue("ProxyEnable", throwOnMissingValue: false);
+                    key.DeleteValue("ProxyServer", throwOnMissingValue: false);
+                }
+            }
+            InternetSetOption(IntPtr.Zero, INTERNET_OPTION_SETTINGS_CHANGED, IntPtr.Zero, 0);
+            InternetSetOption(IntPtr.Zero, INTERNET_OPTION_REFRESH, IntPtr.Zero, 0);
+        }
+
+        /// <summary>The journal path the repair sweep checks (absent journal +
+        /// no live session = nothing owns today's trust/proxy state).</summary>
+        internal static string JournalPathForRepair => JournalPath;
+
         // ── session open/close + crash recovery ───────────────────────────
 
-        /// <summary>Installs all three hooks, journaling the undo data
-        /// first. Returns the journal the caller keeps for StopSession.</summary>
+        /// <summary>
+        /// Installs all three hooks under the journal-ahead contract: the
+        /// journal is on disk BEFORE the first system mutation (the crash
+        /// guarantee this class is named for). The QUIC rule name is
+        /// deterministic, so it is journaled before the rule exists (deleting
+        /// a not-yet-created rule is a no-op), and each proxy's "before"
+        /// values are journaled in the gap between reading and overwriting
+        /// them — at every instant the journal describes everything changed
+        /// so far. Returns the journal the caller keeps for StopSession.
+        /// </summary>
         internal static Journal InstallAll(int port, int pid, string image, string caThumbprint)
         {
-            var (wininetEnable, wininetServer) = InstallWininetProxy(port);
-            string winHttpBefore = InstallWinHttpProxy(port);
-            string rule = AddQuicBlock(image, pid);
-
+            string rule = $"{FirewallRulePrefix} ({pid})";
             var journal = new Journal
             {
                 ProxyPort = port,
                 CaThumbprint = caThumbprint,
-                WinHttpProxyBefore = winHttpBefore,
-                WininetEnableBefore = wininetEnable,
-                WininetServerBefore = wininetServer,
                 FirewallRules = new[] { rule },
             };
             WriteJournal(journal);
+
+            var (wininetEnable, wininetServer) = CaptureWininetProxy();
+            journal.WininetEnableBefore = wininetEnable;
+            journal.WininetServerBefore = wininetServer;
+            WriteJournal(journal);
+            ApplyWininetProxy(port);
+
+            journal.WinHttpProxyBefore = CaptureWinHttpProxy();
+            WriteJournal(journal);
+            ApplyWinHttpProxy(port);
+
+            AddQuicBlock(image, pid); // installs the rule name journaled above
             return journal;
         }
 
-        internal static void UndoAll(Journal journal)
+        /// <summary>
+        /// Removes Ca-only or all journaled state. removeCa=false is for a
+        /// StopSession that lost a race with a new session using the same CA:
+        /// the proxies/rules being torn down are the OLD session's, but the
+        /// CA under the new session must stay trusted.
+        /// The journal may only be deleted once the CA is confirmed out of
+        /// the Root store (or was never installed / not ours to remove);
+        /// otherwise it stays on disk so the next app start's
+        /// RecoverAfterCrash retries instead of silently stranding a
+        /// machine-trusted CA.
+        /// </summary>
+        internal static void UndoAll(Journal journal, bool removeCa = true)
         {
             if (journal == null) return;
             foreach (var rule in journal.FirewallRules ?? Array.Empty<string>())
                 RemoveRule(rule);
             RestoreWinHttpProxy(journal.WinHttpProxyBefore);
             RestoreWininetProxy(journal.WininetEnableBefore, journal.WininetServerBefore);
-            if (!string.IsNullOrEmpty(journal.CaThumbprint))
-                InterceptCaService.RemoveFromRoot(journal.CaThumbprint);
-            try { File.Delete(JournalPath); } catch { }
+
+            bool caClean = true;
+            if (removeCa && !string.IsNullOrEmpty(journal.CaThumbprint))
+                caClean = InterceptCaService.RemoveFromRoot(journal.CaThumbprint);
+
+            if (caClean)
+                try { File.Delete(JournalPath); } catch { }
         }
 
         /// <summary>

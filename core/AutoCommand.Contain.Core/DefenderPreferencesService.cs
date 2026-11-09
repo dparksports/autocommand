@@ -213,7 +213,11 @@ $viaPolicy = $false
         private static async Task<T> RunScriptAsync<T>(string script, Func<JsonElement?, T> parse)
         {
             string encoded = Convert.ToBase64String(Encoding.Unicode.GetBytes(script));
-            var psi = new ProcessStartInfo("powershell.exe",
+            // Pin PowerShell to System32 — the app runs elevated from a
+            // portable folder, so an unqualified "powershell.exe" would
+            // resolve through the app/CWD first (both user-writable).
+            var psi = new ProcessStartInfo(
+                System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "powershell.exe"),
                 $"-NoProfile -NonInteractive -ExecutionPolicy Bypass -EncodedCommand {encoded}")
             {
                 CreateNoWindow = true,

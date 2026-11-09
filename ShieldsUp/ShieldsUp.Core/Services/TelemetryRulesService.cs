@@ -343,6 +343,7 @@ namespace ShieldsUp.Core.Services
                     case "json":
                     {
                         string path = Expand(rule.OptOut.Path);
+                        EnsureJsonPathAllowed(path);
                         if (!File.Exists(path))
                             await File.WriteAllTextAsync(path, "{}");
                         string previous = ReadJsonKey(path, rule.OptOut.Key)?.ToJsonString();
@@ -651,8 +652,58 @@ namespace ShieldsUp.Core.Services
             return key?.GetValue(name)?.ToString();
         }
 
+        // The rules file ships beside the exe — on a user-writable install
+        // that means a tampered file could steer this ELEVATED writer
+        // anywhere. The DNS probe (CheckRecentDnsLookupAsync) already treats
+        // the file as untrusted; the mutation paths get the same treatment:
+        // telemetry opt-outs are POLICY keys, so registry writes are
+        // confined to a prefix allow-list and json writes to config-file
+        // locations. Anything else is refused, not executed.
+        private static readonly string[] RegistryWriteAllowList =
+        {
+            @"HKLM\SOFTWARE\Policies\",
+            @"HKLM\SOFTWARE\WOW6432Node\Policies\",
+            @"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\",
+            @"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Sensor\",
+            @"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Sensor\",
+        };
+
+        private static void EnsureRegistryWriteAllowed(string regKey)
+        {
+            string normalized = (regKey ?? "").Trim().Replace('/', '\\');
+            if (normalized.Length == 0) throw new InvalidOperationException("Empty registry key.");
+            if (!normalized.EndsWith('\\')) normalized += "\\";
+            bool allowed = RegistryWriteAllowList.Any(p =>
+                normalized.StartsWith(p, StringComparison.OrdinalIgnoreCase));
+            if (!allowed)
+                throw new InvalidOperationException(
+                    $"Registry key '{regKey}' is outside the telemetry opt-out allow-list; write refused.");
+        }
+
+        private static void EnsureJsonPathAllowed(string path)
+        {
+            static bool UnderRoot(string candidate, Environment.SpecialFolder root)
+            {
+                string rooted = Path.GetFullPath(candidate);
+                string baseDir = Path.GetFullPath(
+                    Environment.GetFolderPath(root) + Path.DirectorySeparatorChar);
+                return rooted.StartsWith(baseDir, StringComparison.OrdinalIgnoreCase);
+            }
+
+            if (string.IsNullOrWhiteSpace(path))
+                throw new InvalidOperationException("Empty JSON path.");
+            bool allowed = UnderRoot(path, Environment.SpecialFolder.LocalApplicationData)
+                        || UnderRoot(path, Environment.SpecialFolder.ApplicationData)
+                        || UnderRoot(path, Environment.SpecialFolder.CommonApplicationData)
+                        || UnderRoot(path, Environment.SpecialFolder.UserProfile);
+            if (!allowed)
+                throw new InvalidOperationException(
+                    $"JSON path '{path}' is outside user/program config locations; write refused.");
+        }
+
         private static void WriteRegistry(string regKey, string name, string value, bool dword)
         {
+            EnsureRegistryWriteAllowed(regKey);
             using var key = Microsoft.Win32.Registry.LocalMachine.CreateSubKey(StripHklm(regKey));
             if (dword && int.TryParse(value, out int number))
                 key.SetValue(name, number, Microsoft.Win32.RegistryValueKind.DWord);
@@ -662,6 +713,7 @@ namespace ShieldsUp.Core.Services
 
         private static void DeleteRegistryValue(string regKey, string name)
         {
+            EnsureRegistryWriteAllowed(regKey);
             using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(StripHklm(regKey), writable: true);
             key?.DeleteValue(name, throwOnMissingValue: false);
         }

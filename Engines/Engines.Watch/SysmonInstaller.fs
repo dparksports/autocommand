@@ -77,11 +77,55 @@ type SysmonInstallerService() =
         else
             value.Replace("\u0000", "")
 
+    // The Sysmon64.exe cache lives in user-writable %TEMP% while this
+    // installer runs elevated, so a pre-planted exe would be executed with
+    // admin rights. Only a Microsoft-signed binary may ever be run: the
+    // signer certificate must chain to a trusted root and pin to
+    // Microsoft Corporation. (Unsigned or foreign-signed files throw /
+    // fail the subject pin and return false.)
+    static let verifyMicrosoftSigned (exePath: string) : bool =
+        try
+            // CreateFromSignedFile returns the base X509Certificate; chain
+            // building needs the X509Certificate2 wrapper.
+            let signed =
+                System.Security.Cryptography.X509Certificates.X509Certificate.CreateFromSignedFile(exePath)
+
+            use cert =
+                new System.Security.Cryptography.X509Certificates.X509Certificate2(signed)
+
+            use chain =
+                new System.Security.Cryptography.X509Certificates.X509Chain()
+
+            chain.ChainPolicy.RevocationMode <-
+                System.Security.Cryptography.X509Certificates.X509RevocationMode.NoCheck
+
+            let chainOk = chain.Build(cert)
+            let subject = cert.Subject
+
+            let isMicrosoft =
+                subject.IndexOf("Microsoft Corporation", StringComparison.OrdinalIgnoreCase) >= 0
+
+            chainOk && isMicrosoft
+        with _ ->
+            false
+
     static let runWithDetails (fileName: string) (arguments: string) : struct (string * string * int) =
+        // Inbox tools (sc.exe, wevtutil.exe, reg.exe) are pinned to System32:
+        // the app runs elevated from a portable folder, so a bare name would
+        // otherwise resolve through the app directory / CWD first (both
+        // user-writable). Paths with a directory component pass through.
+        let resolveTool (name: string) =
+            if String.IsNullOrEmpty name || name.IndexOfAny([| '/'; '\\' |]) >= 0 then
+                name
+            else
+                let pinned = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), name)
+
+                if File.Exists pinned then pinned else name
+
         let proc_ =
             new Process(
                 StartInfo = ProcessStartInfo(
-                    FileName = fileName,
+                    FileName = resolveTool fileName,
                     Arguments = arguments,
                     RedirectStandardOutput = true,
                     RedirectStandardError = true,
@@ -91,9 +135,21 @@ type SysmonInstallerService() =
             )
 
         proc_.Start() |> ignore
+
+        // Drain both pipes concurrently: reading stdout to EOF before
+        // touching stderr deadlocks against a child that fills its stderr
+        // pipe (wsl.exe and Sysinternals tools do), and vice versa.
+        let errorTask = proc_.StandardError.ReadToEndAsync()
         let output = proc_.StandardOutput.ReadToEnd()
-        let error = proc_.StandardError.ReadToEnd()
-        proc_.WaitForExit()
+
+        // A hung child (e.g. a stuck installer) must not hang the caller
+        // forever; 120 s is far beyond any legitimate sc/wevtutil/Sysmon
+        // invocation this service makes.
+        if not (proc_.WaitForExit(120_000)) then
+            try proc_.Kill() with _ -> ()
+            proc_.WaitForExit()
+
+        let error = errorTask.Result
         struct (stripNullChars output, stripNullChars error, proc_.ExitCode)
 
     static let runWithDetailsAsync (fileName: string) (arguments: string) : Task<ValueTuple<string, string, int>> =
@@ -237,12 +293,33 @@ type SysmonInstallerService() =
 
             let exePath = Path.Combine(tempDir (), SysmonExeName)
 
-            if not (File.Exists exePath) then
+            // Verify-or-refetch: the cache is only trusted when the file is
+            // plausibly sized AND Microsoft-signed. Anything else (missing,
+            // tampered, foreign-signed plant) is replaced by a fresh HTTPS
+            // download, and the download itself must verify before the path
+            // is handed to the elevated install path.
+            let cachedIsTrusted =
+                File.Exists exePath
+                && (try (FileInfo exePath).Length > 1_000_000L with _ -> false)
+                && verifyMicrosoftSigned exePath
+
+            if not cachedIsTrusted then
                 use client = new HttpClient()
                 let! data = client.GetByteArrayAsync(SysmonDownloadUrl)
                 do! File.WriteAllBytesAsync(exePath, data)
 
-            return exePath
+                if not (verifyMicrosoftSigned exePath) then
+                    File.Delete exePath
+                    return!
+                        Task.FromException<string>(
+                            InvalidOperationException(
+                                "Downloaded Sysmon64.exe failed Microsoft-signature verification."
+                            )
+                        )
+                else
+                    return exePath
+            else
+                return exePath
         }
 
     static member private writeConfig () : Task<string> =

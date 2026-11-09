@@ -1,6 +1,7 @@
 using System;
 using AutoCommand.NetWatch.Core;
 using System.Diagnostics;
+using System.IO;
 using System.Text;
 using System.Threading.Tasks;
 
@@ -12,6 +13,33 @@ namespace AutoCommand.NetWatch.Core
     /// </summary>
     public static class ProcessRunner
     {
+        // Inbox tools are pinned to System32: this app ships as a portable
+        // folder and runs elevated, so a bare name would otherwise be resolved
+        // through the app directory and current directory (both user-writable)
+        // before System32 — a planted netsh.exe/bcdedit.exe next to the app
+        // would execute with admin rights. Names that already carry a path
+        // component are used as-is; unknown names fall back to the legacy
+        // PATH search so custom tools keep working.
+        private static string ResolveTool(string fileName)
+        {
+            if (string.IsNullOrEmpty(fileName) || fileName.IndexOfAny(new[] { '/', '\\' }) >= 0)
+                return fileName;
+            try
+            {
+                string pinned = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), fileName);
+                return File.Exists(pinned) ? pinned : fileName;
+            }
+            catch
+            {
+                return fileName;
+            }
+        }
+
+        // No legitimate caller of this class runs a child longer than a
+        // couple of seconds (netsh/bcdedit/wsl listings/schtasks/icacls);
+        // a hard ceiling keeps a hung child from hanging the app forever.
+        private const int ExitTimeoutMs = 120_000;
+
         public static string Run(string fileName, string arguments)
         {
             return Run(fileName, arguments, null);
@@ -24,6 +52,7 @@ namespace AutoCommand.NetWatch.Core
         /// </summary>
         public static string Run(string fileName, string arguments, Encoding outputEncoding)
         {
+            fileName = ResolveTool(fileName);
             var proc = new Process
             {
                 StartInfo = new ProcessStartInfo
@@ -39,13 +68,22 @@ namespace AutoCommand.NetWatch.Core
             if (outputEncoding != null)
                 proc.StartInfo.StandardOutputEncoding = outputEncoding;
             proc.Start();
+            // Drain stderr concurrently: reading stdout to EOF first deadlocks
+            // against a child that fills its stderr pipe (wsl.exe and
+            // Sysinternals tools do).
+            var stderrTask = proc.StandardError.ReadToEndAsync();
             string output = proc.StandardOutput.ReadToEnd();
-            proc.WaitForExit();
+            if (!proc.WaitForExit(ExitTimeoutMs))
+            {
+                try { proc.Kill(); } catch { }
+                proc.WaitForExit();
+            }
             return StripNullChars(output);
         }
 
         public static (string Output, string Error, int ExitCode) RunWithDetails(string fileName, string arguments)
         {
+            fileName = ResolveTool(fileName);
             var proc = new Process
             {
                 StartInfo = new ProcessStartInfo
@@ -59,9 +97,15 @@ namespace AutoCommand.NetWatch.Core
                 }
             };
             proc.Start();
+            // Drain stderr concurrently (see Run above).
+            var stderrTask = proc.StandardError.ReadToEndAsync();
             string output = proc.StandardOutput.ReadToEnd();
-            string error = proc.StandardError.ReadToEnd();
-            proc.WaitForExit();
+            if (!proc.WaitForExit(ExitTimeoutMs))
+            {
+                try { proc.Kill(); } catch { }
+                proc.WaitForExit();
+            }
+            string error = stderrTask.Result;
             return (StripNullChars(output), StripNullChars(error), proc.ExitCode);
         }
 
@@ -89,13 +133,13 @@ namespace AutoCommand.NetWatch.Core
             {
                 var psi = new ProcessStartInfo
                 {
-                    FileName = fileName,
+                    FileName = ResolveTool(fileName),
                     Arguments = arguments,
                     CreateNoWindow = true,
                     UseShellExecute = false,
                     WindowStyle = ProcessWindowStyle.Hidden
                 };
-                Process.Start(psi)?.WaitForExit();
+                Process.Start(psi)?.Dispose();
             }
             catch (Exception ex)
             {

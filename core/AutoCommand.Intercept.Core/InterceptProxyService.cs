@@ -6,6 +6,7 @@ using System.Net;
 using System.Net.Security;
 using System.Net.Sockets;
 using System.Security.Authentication;
+using System.Security.Cryptography.X509Certificates;
 using System.Text;
 using System.Threading;
 using System.Threading.Tasks;
@@ -81,9 +82,10 @@ namespace AutoCommand.Intercept.Core
                 if (_running)
                     return "An intercept session is already active — stop it first.";
 
+                X509Certificate2 ca = null;
                 try
                 {
-                    var ca = InterceptCaService.GetOrCreateCa();
+                    ca = InterceptCaService.GetOrCreateCa();
                     InterceptCaService.InstallToRoot();
 
                     _listener = new TcpListener(IPAddress.Loopback, 0);
@@ -100,6 +102,7 @@ namespace AutoCommand.Intercept.Core
 
                     var journal = InterceptSystemHooks.InstallAll(_port, pid, image, ca.Thumbprint);
                     Volatile.Write(ref _journal, journal);
+                    _generation++;
 
                     _ttl = new System.Timers.Timer((ttl ?? DefaultTtl).TotalMilliseconds) { AutoReset = false };
                     _ttl.Elapsed += (_, _) => StopSession("time-box expired");
@@ -112,12 +115,19 @@ namespace AutoCommand.Intercept.Core
                 catch (Exception ex)
                 {
                     StopSession("startup failed");
+                    // StopSession can only undo what was journaled; if the
+                    // failure landed between InstallToRoot and InstallAll
+                    // there is no journal yet, so the CA must be un-trusted
+                    // explicitly or it stays machine-trusted with no undo.
+                    if (ca != null && Volatile.Read(ref _journal) == null)
+                        InterceptCaService.RemoveFromRoot(ca.Thumbprint);
                     return $"Intercept session could not start: {ex.Message}";
                 }
             }
         }
 
         private InterceptSystemHooks.Journal _journal;
+        private int _generation;
 
         public void StopSession(string reason)
         {
@@ -126,6 +136,7 @@ namespace AutoCommand.Intercept.Core
             List<Socket> sockets;
             CancellationTokenSource cts;
             InterceptSystemHooks.Journal journal;
+            int generation;
 
             lock (_gate)
             {
@@ -135,6 +146,7 @@ namespace AutoCommand.Intercept.Core
                 sockets = new List<Socket>(_liveSockets);
                 cts = _cts;
                 journal = Volatile.Read(ref _journal);
+                generation = _generation;
 
                 _listener = null;
                 _ttl = null;
@@ -155,8 +167,12 @@ namespace AutoCommand.Intercept.Core
             }
 
             // Hooks and CA come out AFTER the listener stops, so no client
-            // is mid-handshake against a CA that is about to vanish.
-            try { InterceptSystemHooks.UndoAll(journal); }
+            // is mid-handshake against a CA that is about to vanish. If a
+            // new session started while this teardown ran, the same CA is
+            // trusted for it — its removal is skipped (the journal's proxy
+            // and rule undo still applies; those are the old session's).
+            bool newSessionStarted = Volatile.Read(ref _generation) != generation;
+            try { InterceptSystemHooks.UndoAll(journal, removeCa: !newSessionStarted); }
             catch (Exception ex) { OnStatus?.Invoke($"Intercept teardown warning: {ex.Message}"); }
 
             OnSessionEnded?.Invoke(reason);

@@ -25,7 +25,7 @@ namespace AutoCommand.Helpers
 
         public FirewallConfigManager()
         {
-            _configPath = Path.Combine(@"C:\ProgramData\AutoCommand", "firewall_config.json");
+            _configPath = Path.Combine(ProgramDataGuard.Root, "firewall_config.json");
             Load();
         }
 
