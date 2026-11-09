@@ -1,4 +1,7 @@
 using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
 using System.Runtime.InteropServices;
 using System.ServiceProcess;
 using System.Diagnostics;
@@ -95,15 +98,29 @@ namespace ShieldsUp.Core.Helpers
                 }
             }
             catch { }
+            string before = GetStartMode(serviceName);
+            if (before.Equals("Auto", StringComparison.OrdinalIgnoreCase)
+                || before.Equals("Manual", StringComparison.OrdinalIgnoreCase))
+            {
+                RecordStartType(serviceName, before);
+            }
             SetStartupType(serviceName, SERVICE_DISABLED);
         }
 
         /// <summary>
-        /// Enable (manual) and start a service.
+        /// Re-enable and start a service, restoring the start type it had
+        /// before StopAndDisable recorded it (Manual when no record exists —
+        /// e.g. services disabled by an older build). "Re-enable" used to
+        /// hardcode Manual, silently breaking Automatic services across
+        /// reboots.
         /// </summary>
         public static void EnableAndStart(string serviceName)
         {
-            SetStartupType(serviceName, SERVICE_DEMAND_START);
+            string restore = TakeRecordedStartType(serviceName);
+            uint startType = restore.Equals("Auto", StringComparison.OrdinalIgnoreCase)
+                ? SERVICE_AUTO_START
+                : SERVICE_DEMAND_START;
+            SetStartupType(serviceName, startType);
             try
             {
                 using (var sc = new ServiceController(serviceName))
@@ -115,6 +132,71 @@ namespace ShieldsUp.Core.Helpers
                 }
             }
             catch { }
+        }
+
+        // ── pre-disable start type ledger ────────────────────────────────
+
+        private static string BackupDir => Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData), "ShieldsUp");
+
+        private static string BackupPath => Path.Combine(BackupDir, "service_start_backup.txt");
+
+        private static readonly object BackupLock = new();
+
+        private static void RecordStartType(string serviceName, string startMode)
+        {
+            lock (BackupLock)
+            {
+                try
+                {
+                    var map = ReadBackupMap();
+                    // First disable wins: a double disable must not overwrite
+                    // the true pre-disable state with the intermediate one.
+                    if (map.ContainsKey(serviceName)) return;
+                    map[serviceName] = startMode;
+                    Directory.CreateDirectory(BackupDir);
+                    File.WriteAllLines(BackupPath, map.Select(kv => kv.Key + "=" + kv.Value));
+                }
+                catch { /* best-effort: re-enable falls back to Manual */ }
+            }
+        }
+
+        private static string TakeRecordedStartType(string serviceName)
+        {
+            lock (BackupLock)
+            {
+                try
+                {
+                    var map = ReadBackupMap();
+                    if (!map.TryGetValue(serviceName, out string mode)) return null;
+                    map.Remove(serviceName);
+                    File.WriteAllLines(BackupPath, map.Select(kv => kv.Key + "=" + kv.Value));
+                    return mode;
+                }
+                catch
+                {
+                    return null;
+                }
+            }
+        }
+
+        private static Dictionary<string, string> ReadBackupMap()
+        {
+            var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            try
+            {
+                if (File.Exists(BackupPath))
+                {
+                    foreach (var line in File.ReadAllLines(BackupPath))
+                    {
+                        int eq = line.IndexOf('=');
+                        if (eq > 0 && line.Length > eq + 1)
+                            map[line[..eq].Trim()] = line[(eq + 1)..].Trim();
+                    }
+                }
+            }
+            catch { }
+            return map;
         }
 
         /// <summary>

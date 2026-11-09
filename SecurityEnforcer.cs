@@ -52,6 +52,12 @@ namespace AutoCommand
         public const string SstpPrefPath = "allowed_sstp.txt";
         public const string KdnetPrefPath = "allowed_kerneldebug.txt";
 
+        /// <summary>Persisted privileged-task whitelist — the UI promises
+        /// "permanently", so the set must survive restarts (it used to be
+        /// memory-only and the same task alerted again after every
+        /// relaunch).</summary>
+        public const string WhitelistedTasksPath = "whitelisted_tasks.txt";
+
         private static volatile bool _isSstpAllowed = false;
         public static bool IsSstpAllowed
         {
@@ -165,6 +171,15 @@ namespace AutoCommand
 
                 if (System.IO.File.Exists("auto_mitigate_adapters.txt"))
                     _autoMitigateAdapters = System.IO.File.ReadAllText("auto_mitigate_adapters.txt").Trim() == "True";
+
+                if (System.IO.File.Exists(WhitelistedTasksPath))
+                {
+                    foreach (string line in System.IO.File.ReadAllLines(WhitelistedTasksPath))
+                    {
+                        string task = line.Trim();
+                        if (task.Length > 0) _whitelistedTasks.Add(task);
+                    }
+                }
             }
             catch { }
         }
@@ -178,7 +193,13 @@ namespace AutoCommand
         {
             lock (_whitelistedTasks)
             {
-                _whitelistedTasks.Add(taskName);
+                if (!_whitelistedTasks.Add(taskName)) return;
+                try
+                {
+                    System.IO.File.AppendAllText(WhitelistedTasksPath,
+                        taskName + Environment.NewLine);
+                }
+                catch { /* best-effort: in-memory whitelist still applies */ }
             }
         }
 
@@ -221,7 +242,9 @@ namespace AutoCommand
                 MaxSeconds = 60,
                 Callback = EnforceOnceAsync,
             });
-            InstrumentMetronome.Instance.SetEnabled("security-enforcer", true);
+            // Register() restores the user's persisted enabled/cadence state;
+            // forcing enabled=true here would silently re-arm (and persist!)
+            // an instrument the user explicitly turned Off in Settings.
             InstrumentMetronome.Instance.Start();
         }
 
@@ -230,7 +253,11 @@ namespace AutoCommand
             _isRunning = false;
             _adapterWatcher?.Dispose();
             _adapterWatcher = null;
-            InstrumentMetronome.Instance.SetEnabled("security-enforcer", false);
+            // Deliberately NOT SetEnabled(false): that persists "off" in the
+            // metronome store and would fight the user's Settings choice on
+            // the next launch (the old force-enable/disable pair silently
+            // flipped both directions). The instrument stays registered and
+            // simply no-ops via the _isRunning check in EnforceOnceAsync.
         }
 
         /// <summary>One metronome tick: the old RunLoop body without its
@@ -568,11 +595,7 @@ namespace AutoCommand
             {
                 bool debugOn = false;
                 string bcdOutput = ProcessRunner.Run("bcdedit", "/enum {current}");
-                if (!string.IsNullOrEmpty(bcdOutput))
-                {
-                    debugOn = bcdOutput.IndexOf("debug", StringComparison.OrdinalIgnoreCase) >= 0
-                           && bcdOutput.IndexOf("yes", StringComparison.OrdinalIgnoreCase) >= 0;
-                }
+                debugOn = Helpers.BcdEdit.ParseDebugOn(bcdOutput);
 
                 bool kdnicActive = IsKdnicAdapterActive();
 

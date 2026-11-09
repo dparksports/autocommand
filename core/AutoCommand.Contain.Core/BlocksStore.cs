@@ -107,7 +107,16 @@ namespace AutoCommand.Contain.Core
                     if (File.Exists(StorePath))
                         LoadFrom(StorePath);
                 }
-                catch { /* unreadable store — start empty, rules are the truth */ }
+                catch
+                {
+                    // Unreadable ≠ absent (AV lock, transient share violation).
+                    // Starting empty here used to mean the next Save() wiped
+                    // the only copy — preserve it as a sidecar first, then
+                    // start empty; the firewall rules remain the source of
+                    // truth and reconcile re-derives the live set.
+                    try { File.Copy(StorePath, StorePath + ".unreadable", overwrite: true); }
+                    catch { }
+                }
 
                 // One-time import of legacy monitor files: our own CWD-relative
                 // blocked.txt plus any prior install's copy discovered in its
@@ -224,8 +233,13 @@ namespace AutoCommand.Contain.Core
         {
             string cwd = Environment.CurrentDirectory;
             string baseDir = AppDomain.CurrentDomain.BaseDirectory;
-            return path.StartsWith(cwd, StringComparison.OrdinalIgnoreCase) ||
-                   path.StartsWith(baseDir, StringComparison.OrdinalIgnoreCase);
+            // Prefix-anchored with a separator: the bare StartsWith matched
+            // sibling directories too (C:\x2 for C:\x) and renamed files
+            // that were not ours to touch.
+            static bool Under(string candidate, string root) =>
+                candidate.Length > root.Length &&
+                candidate.StartsWith(root.TrimEnd('\\') + "\\", StringComparison.OrdinalIgnoreCase);
+            return Under(path, cwd) || Under(path, baseDir);
         }
 
         /// <summary>
@@ -586,7 +600,14 @@ namespace AutoCommand.Contain.Core
                 }
                 else
                 {
-                    File.WriteAllText(StorePath, sb.ToString());
+                    // Atomic replace: a plain WriteAllText truncated by a
+                    // crash mid-write took the whole ledger with it.
+                    string tmp = StorePath + ".tmp";
+                    File.WriteAllText(tmp, sb.ToString());
+                    if (File.Exists(StorePath))
+                        File.Replace(tmp, StorePath, destinationBackupFileName: null);
+                    else
+                        File.Move(tmp, StorePath);
                 }
             }
             catch { /* best-effort: the firewall rules are the source of truth */ }

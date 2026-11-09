@@ -112,6 +112,29 @@ namespace AutoCommand
             // them (proxy, firewall rule, CA) before anything else runs.
             AutoCommand.Intercept.Core.InterceptSystemHooks.RecoverAfterCrash();
 
+            // Unjournaled stragglers (a crash between trust/proxy changes that
+            // the journal did not cover): stranded machine-trusted CA, dead
+            // loopback proxy. Runs only when no session is live; every repair
+            // is surfaced to the user, never silent.
+            try
+            {
+                var repairs = AutoCommand.Intercept.Core.InterceptStartupRepair.RepairIfNeeded();
+                foreach (string repair in repairs)
+                {
+                    System.Diagnostics.Debug.WriteLine($"startup repair: {repair}");
+                    StartupRepairLog(repair);
+                }
+                if (repairs.Count > 0)
+                {
+                    MessageBox.Show(
+                        "AutoCommand repaired leftover network settings from an earlier session that ended abruptly:\n\n  · "
+                        + string.Join("\n  · ", repairs) +
+                        "\n\nNo action is needed — connectivity and machine trust are back to normal.",
+                        "Startup repair", MessageBoxButton.OK, MessageBoxImage.Information);
+                }
+            }
+            catch { /* repair is best-effort; never block startup */ }
+
             var args = e.Args ?? System.Array.Empty<string>();
             // ── headless OneSettings watchdog path (no UI) ──────────────
             // The \AutoCommand\OneSettingsCadenceWatchdog SYSTEM task (installed
@@ -310,6 +333,26 @@ namespace AutoCommand
             Shutdown();
         }
 
+        /// <summary>Append-only audit line for the startup repair sweep, next
+        /// to the crash log — the MessageBox informs, this records.</summary>
+        private static void StartupRepairLog(string line)
+        {
+            try
+            {
+                string path = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "AutoCommand", "startup-repair.jsonl");
+                System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(path));
+                System.IO.File.AppendAllText(path,
+                    System.Text.Json.JsonSerializer.Serialize(new
+                    {
+                        t = DateTime.Now.ToString("o"),
+                        repair = line
+                    }) + System.Environment.NewLine);
+            }
+            catch { /* best-effort audit trail */ }
+        }
+
         protected override void OnExit(ExitEventArgs e)
         {
             // Clean-exit marker: removing the beat is what tells the next
@@ -319,7 +362,19 @@ namespace AutoCommand
             // a live session must never outlive the app: the session file is
             // what grants access, so it dies here even on a crash-next-launch
             AgentBridgeService.Instance.Stop();
-            Agent.Core.BlockGateService.Instance.CloseAllAsync("gate-exit").GetAwaiter().GetResult();
+            // Gate close runs on the thread pool: awaiting it inline on the
+            // dispatcher thread can deadlock if any continuation tries to
+            // resume on the UI SynchronizationContext, and the 10 s ceiling
+            // keeps a stuck close from hanging shutdown outright (gates also
+            // self-expire and are reconciled at next startup).
+            try
+            {
+                System.Threading.Tasks.Task.Run(() =>
+                    Agent.Core.BlockGateService.Instance.CloseAllAsync("gate-exit"))
+                    .WaitAsync(TimeSpan.FromSeconds(10))
+                    .GetAwaiter().GetResult();
+            }
+            catch { /* timeout/first-chance failure: startup reconcile re-arms */ }
             BufferedAppender.FlushAll();
             BlocksStore.FlushPending();
             InstrumentMetronome.Instance.Stop();

@@ -44,6 +44,7 @@ namespace AutoCommand.Services
         public long Runs;
         public string Note = "";
         public bool Paused;           // runtime pause (e.g. hidden tab) — not persisted
+        public bool Running;          // in-flight guard: a still-running callback is never re-dispatched
     }
 
     /// <summary>
@@ -226,6 +227,15 @@ namespace AutoCommand.Services
                     foreach (var s in _byId.Values)
                     {
                         if (!s.Enabled || s.Paused || now < s.NextRunUtc) continue;
+                        if (s.Running)
+                        {
+                            // still in flight from a previous tick — the
+                            // callback advances NextRunUtc only in its
+                            // finally, so without this guard a slow (or
+                            // hung) instrument would be re-dispatched every
+                            // 500 ms and overlap itself indefinitely.
+                            continue;
+                        }
                         if (s.Spec.Cost == InstrumentCost.Heavy &&
                             (now - _lastHeavyStartUtc).TotalSeconds < 1)
                         {
@@ -247,8 +257,12 @@ namespace AutoCommand.Services
         {
             var start = DateTime.UtcNow;
             lock (_gate)
+            {
+                if (s.Running) return; // lost a race with the dispatch loop's guard
+                s.Running = true;
                 if (s.Spec.Cost == InstrumentCost.Heavy)
                     _lastHeavyStartUtc = start;
+            }
 
             var sw = System.Diagnostics.Stopwatch.StartNew();
             try
@@ -287,6 +301,7 @@ namespace AutoCommand.Services
                     }
 
                     s.NextRunUtc = s.LastRunUtc.AddSeconds(Math.Max(1, s.Seconds));
+                    s.Running = false;
                 }
             }
         }

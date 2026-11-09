@@ -769,13 +769,24 @@ type DnsResolutionService() as this =
 
                                 let label = if String.IsNullOrEmpty code then org else $"{org} · {code}"
 
-                                geoBackoff <- geoApiThrottle
-                                geoCache.[prefix] <- GeoCacheEntry((if String.IsNullOrEmpty label then "" else label), DateTime.UtcNow, String.IsNullOrEmpty label)
+                                // ip-api.com's free tier serves plain-text HTTP,
+                                // so the answer is forgeable by anyone on the
+                                // network path — a C2 endpoint could present as
+                                // "Microsoft · US". Carried into every label as
+                                // an explicit unverified marker; RDAP fallback
+                                // labels arrive over HTTPS and keep their clean
+                                // name. Cached entries age out within 14 days.
+                                let marked =
+                                    if String.IsNullOrEmpty label then ""
+                                    else label + " · unverified"
 
-                                if String.IsNullOrEmpty label then
+                                geoBackoff <- geoApiThrottle
+                                geoCache.[prefix] <- GeoCacheEntry((if String.IsNullOrEmpty marked then "" else marked), DateTime.UtcNow, String.IsNullOrEmpty marked)
+
+                                if String.IsNullOrEmpty marked then
                                     return! this.RdapFallbackOrAsync(ip, GeoNoData, ct)
                                 else
-                                    return GeoOk label
+                                    return GeoOk marked
                         with
                         | :? OperationCanceledException -> return! Task.FromException<GeoOutcome>(OperationCanceledException ct)
                         | _ ->

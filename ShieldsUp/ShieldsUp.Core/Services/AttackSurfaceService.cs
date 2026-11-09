@@ -84,7 +84,22 @@ public static class AttackSurfaceService
     public static bool IsKernelDebugOn()
     {
         string output = ProcessRunner.Run("bcdedit", "/enum {current}");
-        return output.Contains("debug") && output.Contains("Yes");
+        // Anchored on the value name: the old substring test
+        // ("contains 'debug' and 'Yes'") matched `recoveryenabled Yes` plus
+        // `debug No`/`hypervisordebug Off` — a permanent false positive.
+        if (string.IsNullOrEmpty(output)) return false;
+        foreach (var raw in output.Split('\n'))
+        {
+            string line = raw.Trim();
+            if (!line.StartsWith("debug", StringComparison.OrdinalIgnoreCase))
+                continue;
+            string value = line["debug".Length..].Trim();
+            if (value.StartsWith("yes", StringComparison.OrdinalIgnoreCase)
+                || value.StartsWith("true", StringComparison.OrdinalIgnoreCase)
+                || value.StartsWith("on", StringComparison.OrdinalIgnoreCase))
+                return true;
+        }
+        return false;
     }
 
     /// <summary>Turning debug ON is the risky direction — the caller confirms

@@ -90,9 +90,7 @@ namespace AutoCommand.Services
 
                                     bool debugOn = false;
                                     string bcd = ProcessRunner.Run("bcdedit", "/enum {current}");
-                                    if (!string.IsNullOrEmpty(bcd))
-                                        debugOn = bcd.IndexOf("debug", StringComparison.OrdinalIgnoreCase) >= 0
-                                               && bcd.IndexOf("yes", StringComparison.OrdinalIgnoreCase) >= 0;
+                                    debugOn = Helpers.BcdEdit.ParseDebugOn(bcd);
 
                                     if (present == 0 && !debugOn)
                                         return (true, "no WAN Miniport / KDNIC devices present; kernel debug off");

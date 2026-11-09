@@ -455,21 +455,31 @@ namespace AutoCommand
 
                 // A stale DNS cache keeps sites dead even after the block is
                 // lifted — flush it automatically so recovery is one click.
+                // Pinned to System32 and run off the UI thread so a slow
+                // ipconfig can never freeze the window (the app runs
+                // elevated from a portable folder; a bare "ipconfig" would
+                // resolve through the app/CWD first — both user-writable).
                 string dnsNote;
                 try
                 {
-                    var psi = new System.Diagnostics.ProcessStartInfo("ipconfig", "/flushdns")
+                    var flush = await Task.Run(() =>
                     {
-                        CreateNoWindow = true,
-                        UseShellExecute = false,
-                        RedirectStandardOutput = true
-                    };
-                    using var p = System.Diagnostics.Process.Start(psi);
-                    p.StandardOutput.ReadToEnd();
-                    p.WaitForExit(5000);
-                    dnsNote = p.ExitCode == 0
+                        var psi = new System.Diagnostics.ProcessStartInfo(
+                            System.IO.Path.Combine(
+                                Environment.GetFolderPath(Environment.SpecialFolder.System), "ipconfig.exe"),
+                            "/flushdns")
+                        {
+                            CreateNoWindow = true,
+                            UseShellExecute = false,
+                            RedirectStandardOutput = true
+                        };
+                        using var p = System.Diagnostics.Process.Start(psi);
+                        p.StandardOutput.ReadToEnd();
+                        return p.WaitForExit(5000) ? p.ExitCode : -1;
+                    });
+                    dnsNote = flush == 0
                         ? "The DNS cache was flushed automatically — no further steps needed."
-                        : $"ipconfig /flushdns returned exit code {p.ExitCode}; run it manually if sites still fail.";
+                        : $"ipconfig /flushdns did not complete cleanly (exit {flush}); run it manually if sites still fail.";
                 }
                 catch (Exception ex)
                 {

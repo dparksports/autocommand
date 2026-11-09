@@ -371,6 +371,14 @@ type HttpStreamDecoder private () =
     /// caps a direction at 8 MB wire anyway; this is the belt to that.</summary>
     static let MaxDecodeBytes = 16 * 1024 * 1024
 
+    /// <summary>Decompression bombs: a 16 MB gzip/brotli member can expand
+    /// to gigabytes, and the decode runs inside the elevated app for every
+    /// peeked HTTPS response. The compressed-size cap alone does not bound
+    /// the OUTPUT — this budget does. An over-budget body throws inside
+    /// DecodeBody's catch and is shown compressed/flagged, like any
+    /// undecodable body, instead of OOM-ing the app.</summary>
+    static let MaxDecodedBytes = 64 * 1024 * 1024
+
     /// <summary>
     /// Parses a whole direction. A direction that does not start like
     /// HTTP yields a single non-HTTP message carrying the raw bytes, so
@@ -464,6 +472,18 @@ type HttpStreamDecoder private () =
 
     // ── body decoding ────────────────────────────────────────────────
 
+    /// <summary>CopyTo with a hard output ceiling (see MaxDecodedBytes).</summary>
+    static member private BoundedCopyTo(src: Stream, dst: MemoryStream) =
+        let buf = Array.zeroCreate<byte> 8192
+        let mutable total = 0
+        let mutable n = src.Read(buf, 0, buf.Length)
+        while n > 0 do
+            total <- total + n
+            if total > MaxDecodedBytes then
+                raise(InvalidOperationException("decoded body exceeds the decompression budget"))
+            dst.Write(buf, 0, n)
+            n <- src.Read(buf, 0, buf.Length)
+
     static member private DecodeBody(body: byte[], contentEncoding: string) : byte[] =
         if body.Length = 0 || body.Length > MaxDecodeBytes then null
         else
@@ -478,7 +498,7 @@ type HttpStreamDecoder private () =
                 while offset + 2 <= body.Length && body[offset] = 0x1Fuy && body[offset + 1] = 0x8Buy && members < 64 do
                     use input = new MemoryStream(body, offset, body.Length - offset, false)
                     use gz = new GZipStream(input, CompressionMode.Decompress)
-                    gz.CopyTo output
+                    HttpStreamDecoder.BoundedCopyTo(gz, output)
                     offset <- int input.Position
                     members <- members + 1
                 if members > 0 then output.ToArray() else null
@@ -486,7 +506,7 @@ type HttpStreamDecoder private () =
                 use input = new MemoryStream(body)
                 use br = new BrotliStream(input, CompressionMode.Decompress)
                 use output = new MemoryStream()
-                br.CopyTo output
+                HttpStreamDecoder.BoundedCopyTo(br, output)
                 output.ToArray()
             elif ce = "deflate" then
                 // "deflate" means zlib (RFC 1950), but half the internet
@@ -495,13 +515,13 @@ type HttpStreamDecoder private () =
                     use input = new MemoryStream(body)
                     use zlib = new ZLibStream(input, CompressionMode.Decompress)
                     use output = new MemoryStream()
-                    zlib.CopyTo output
+                    HttpStreamDecoder.BoundedCopyTo(zlib, output)
                     output.ToArray()
                 with _ ->
                     use input2 = new MemoryStream(body)
                     use raw = new DeflateStream(input2, CompressionMode.Decompress)
                     use output2 = new MemoryStream()
-                    raw.CopyTo output2
+                    HttpStreamDecoder.BoundedCopyTo(raw, output2)
                     output2.ToArray()
             else null
         with _ ->

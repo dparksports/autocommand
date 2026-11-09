@@ -32,8 +32,17 @@ namespace AutoCommand.Contain.Core
     /// </summary>
     public class UpdateFreezeService
     {
-        private const string StateFile = "update_freeze.json";
-        private const string BackupDir = "freeze_backups";
+        // Absolute under the app's data root — the old CWD-relative files
+        // were orphaned by every version-folder change (and by schtasks
+        // launches, whose CWD is System32), leaving deny ACEs that ThawAsync
+        // could no longer find the state or backups for.
+        private static readonly string Root = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "AutoCommand", "update-freeze");
+        private static string StateFile => Path.Combine(Root, "update_freeze.json");
+        private static string BackupDir => Path.Combine(Root, "freeze_backups");
+        private const string LegacyStateFile = "update_freeze.json";
+        private const string LegacyBackupDir = "freeze_backups";
 
         // Self-update backups like "agy.exe.1791616910661016200.old": an exe
         // renamed away by its own updater before writing the replacement
@@ -205,17 +214,11 @@ namespace AutoCommand.Contain.Core
             if (saveCode != 0)
                 return (false, $"ACL snapshot failed (icacls /save exit {saveCode}). {saveErr}");
 
-            string user = Environment.UserName;
-            var (_, denyErr, denyCode) = await ProcessRunner.RunWithDetailsAsync("icacls.exe",
-                $"\"{exePath}\" /deny \"{user}:(DE,WD,AD)\"");
-            if (denyCode != 0)
-                return (false, $"Deny ACE failed (icacls /deny exit {denyCode}). {denyErr}");
-
-            // Trust but verify: the deny must actually be on the file now
-            var (listOut, _, _) = await ProcessRunner.RunWithDetailsAsync("icacls.exe", $"\"{exePath}\"");
-            if (!(listOut ?? string.Empty).Contains("(DENY)", StringComparison.OrdinalIgnoreCase))
-                return (false, "Deny ACE did not stick — aborting (state unchanged, backup kept).");
-
+            // State lands on disk BEFORE the deny is applied (the same
+            // journal-ahead contract the intercept hooks use): a crash in
+            // the deny/verify window used to leave the deny ACE in place
+            // with no state entry — IsFrozen() false, Thaw refusing — an
+            // app the user cannot unfreeze through the UI.
             _state[exePath] = new FrozenEntry
             {
                 ExePath = exePath,
@@ -223,6 +226,27 @@ namespace AutoCommand.Contain.Core
                 FrozenAt = DateTime.Now,
                 BackupFile = backupFile
             };
+            SaveState();
+
+            string user = Environment.UserName;
+            var (_, denyErr, denyCode) = await ProcessRunner.RunWithDetailsAsync("icacls.exe",
+                $"\"{exePath}\" /deny \"{user}:(DE,WD,AD)\"");
+            if (denyCode != 0)
+            {
+                _state.Remove(exePath);
+                SaveState();
+                return (false, $"Deny ACE failed (icacls /deny exit {denyCode}). {denyErr}");
+            }
+
+            // Trust but verify: the deny must actually be on the file now
+            var (listOut, _, _) = await ProcessRunner.RunWithDetailsAsync("icacls.exe", $"\"{exePath}\"");
+            if (!(listOut ?? string.Empty).Contains("(DENY)", StringComparison.OrdinalIgnoreCase))
+            {
+                _state.Remove(exePath);
+                SaveState();
+                return (false, "Deny ACE did not stick — aborting (state unchanged, backup kept).");
+            }
+
             SaveState();
             return (true, $"{Path.GetFileName(exePath)} frozen: delete/write denied for {user}, read+execute untouched.");
         }
@@ -260,7 +284,11 @@ namespace AutoCommand.Contain.Core
         {
             try
             {
-                if (!File.Exists(StateFile)) return;
+                if (!File.Exists(StateFile))
+                {
+                    MigrateLegacyState();
+                    return;
+                }
                 var entries = JsonSerializer.Deserialize<List<FrozenEntry>>(File.ReadAllText(StateFile));
                 if (entries == null) return;
                 foreach (var entry in entries)
@@ -270,12 +298,58 @@ namespace AutoCommand.Contain.Core
             catch { /* unreadable state — start empty; frozen ACLs stay frozen */ }
         }
 
+        /// <summary>One-time adoption of the old CWD-relative state file: its
+        /// entries and ACL backups move under the absolute root so a freeze
+        /// made by an older build (or a different working directory) stays
+        /// thaweable. Backup files referenced by relative paths are copied
+        /// into the new backup dir and the entries repointed at them.</summary>
+        private void MigrateLegacyState()
+        {
+            try
+            {
+                string legacyPath = Path.Combine(Environment.CurrentDirectory, LegacyStateFile);
+                if (!File.Exists(legacyPath)) return;
+
+                var entries = JsonSerializer.Deserialize<List<FrozenEntry>>(File.ReadAllText(legacyPath));
+                if (entries == null || entries.Count == 0) return;
+
+                Directory.CreateDirectory(BackupDir);
+                string legacyBackupDir = Path.Combine(Environment.CurrentDirectory, LegacyBackupDir);
+                foreach (var entry in entries)
+                {
+                    if (string.IsNullOrEmpty(entry.ExePath)) continue;
+                    if (entry.BackupFile != null && !Path.IsPathRooted(entry.BackupFile))
+                    {
+                        string old = Path.Combine(legacyBackupDir, entry.BackupFile);
+                        if (File.Exists(old))
+                        {
+                            string newBackup = Path.Combine(BackupDir, Path.GetFileName(entry.BackupFile));
+                            File.Copy(old, newBackup, overwrite: true);
+                            entry.BackupFile = newBackup;
+                        }
+                    }
+                    _state[entry.ExePath] = entry;
+                }
+                SaveState();
+            }
+            catch { /* best-effort migration — old files stay in place */ }
+        }
+
         private void SaveState()
         {
             try
             {
-                File.WriteAllText(StateFile, JsonSerializer.Serialize(_state.Values.ToList(),
+                Directory.CreateDirectory(Root);
+                // Atomic replace: the journal-ahead ordering in FreezeAsync
+                // leans on this file; a truncated write must not lose a
+                // pending freeze entry.
+                string tmp = StateFile + ".tmp";
+                File.WriteAllText(tmp, JsonSerializer.Serialize(_state.Values.ToList(),
                     new JsonSerializerOptions { WriteIndented = true }));
+                if (File.Exists(StateFile))
+                    File.Replace(tmp, StateFile, null);
+                else
+                    File.Move(tmp, StateFile);
             }
             catch { /* best-effort: the ACL deny is the real enforcement */ }
         }
