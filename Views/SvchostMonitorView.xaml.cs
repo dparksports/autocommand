@@ -35,7 +35,12 @@ namespace AutoCommand.Views
         private bool _isMonitoring = false;
         private DispatcherTimer _saveTimer;
         private DispatcherTimer _lastSeenRefreshTimer;
-        private readonly string _csvPath = "ultimate_autopilot_stats.csv";
+        // absolute on purpose: a relative path resolves against the CWD,
+        // which is System32 under the schtasks launch — user-writable
+        // app-data instead, beside the rest of AutoCommand's stores
+        private readonly string _csvPath = Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "AutoCommand", "svchost-watch", "ultimate_autopilot_stats.csv");
 
         // Firewall blocks created from this monitor live in BlocksStore (v3
         // blocks.txt under %LOCALAPPDATA%\AutoCommand) — service identity is
@@ -1865,17 +1870,32 @@ namespace AutoCommand.Views
         {
             try
             {
+                // rolling, not append-forever: the hourly tick appends the
+                // whole live table, so the file grows O(rows × hours) — past
+                // ~5 MB rotate once to a single ".1" and start fresh
+                Directory.CreateDirectory(Path.GetDirectoryName(_csvPath));
+                if (File.Exists(_csvPath) && new FileInfo(_csvPath).Length > 5 * 1024 * 1024)
+                {
+                    string backup = _csvPath + ".1";
+                    if (File.Exists(backup)) File.Delete(backup);
+                    File.Move(_csvPath, backup);
+                }
+
                 bool writeHeader = !File.Exists(_csvPath);
                 using var writer = new StreamWriter(_csvPath, true);
-                
+
                 if (writeHeader)
                 {
                     writer.WriteLine("Timestamp,PID,ProcessName,RemoteIP,Host,RxPackets,TxPackets,RxBytes,TxBytes,LastSeen");
                 }
 
                 string ts = DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss");
-                var snap = _trackedIps.Values.ToList();
-                
+                // cap the window: rows not seen for 7 days stopped being
+                // signal long ago — never-seen rows (default LastSeen) drop
+                // out on the same comparison
+                var cutoff = DateTime.UtcNow.AddDays(-7);
+                var snap = _trackedIps.Values.Where(i => i.LastSeen >= cutoff).ToList();
+
                 foreach (var item in snap)
                 {
                     writer.WriteLine($"{ts},{item.ProcessId},{item.ProcessName},{item.RemoteIp},{item.Hostname},{item.RxPackets},{item.TxPackets},{item.RxBytes},{item.TxBytes},{item.LastSeen:u}");

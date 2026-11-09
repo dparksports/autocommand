@@ -78,10 +78,15 @@ namespace AutoCommand.Views
         private void StartAgentRefresh()
         {
             RefreshAgentUi();
-            _agentRefresh.Tick -= (_, _) => RefreshAgentUi();
-            _agentRefresh.Tick += (_, _) => RefreshAgentUi();
+            // named handler or nothing unwires: a lambda -= creates a NEW
+            // delegate, removes nothing — every tab re-load stacked another
+            // 2-second refresh on the same timer
+            _agentRefresh.Tick -= OnAgentRefreshTick;
+            _agentRefresh.Tick += OnAgentRefreshTick;
             _agentRefresh.Start();
         }
+
+        private void OnAgentRefreshTick(object sender, EventArgs e) => RefreshAgentUi();
 
         private void RefreshAgentUi()
         {

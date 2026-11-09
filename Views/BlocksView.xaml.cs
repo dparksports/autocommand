@@ -174,7 +174,10 @@ namespace AutoCommand.Views
         }
 
         private bool _loading;
-        private readonly Dictionary<string, (DateTime utc, string source)?> _trafficCache =
+        // written from inside Task.Run (the archive pass below) while the UI
+        // thread reads after awaits — a plain Dictionary corrupts under that;
+        // concurrent covers indexer-set / TryGetValue / TryRemove
+        private readonly System.Collections.Concurrent.ConcurrentDictionary<string, (DateTime utc, string source)?> _trafficCache =
             new(StringComparer.OrdinalIgnoreCase);
 
         // Restore-guide state: the symptom the user picked and its matched
@@ -1438,7 +1441,8 @@ $"\nBlocking returns ON automatically at {gate.ExpiresUtc.ToLocalTime():HH:mm}."
                 BlocksStore.Remove(vm.Record.Kind, vm.Record.Key, "blocks-tab");
             else
                 BlocksStore.RemoveForExeName(System.IO.Path.GetFileName(vm.Record.Key), "blocks-tab");
-            _trafficCache.Remove(vm.Record.Kind + vm.Record.Key);
+            // ConcurrentDictionary has no one-arg Remove — TryRemove is the drop-in
+            _trafficCache.TryRemove(vm.Record.Kind + vm.Record.Key, out _);
             await ReloadAsync();
         }
 

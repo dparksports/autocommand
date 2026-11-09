@@ -78,17 +78,27 @@ namespace AutoCommand.Views
             Closed += (_, _) => _hitsTimer.Stop();
             Loaded += async (_, _) =>
             {
-                // auto-migrate legacy-name rules on open — lossless (provenance
-                // carries over, protection unchanged), so users never have to
-                // know or care about the old naming scheme
-                int legacy = await FirewallService.Instance.CountLegacyBlocksAsync();
-                if (legacy > 0)
+                // async-void — an unhandled throw here takes the app down;
+                // same non-modal failure rule as the tick below
+                try
                 {
-                    StatusText.Text = $"Migrating {legacy} legacy firewall rule(s) to the current naming scheme…";
-                    var (targets, removedInbound, migratedOutbound) = await FirewallService.Instance.ConsolidateLegacyIpBlocksAsync();
-                    _migrationNote = $"Auto-migrated {migratedOutbound} legacy rule(s) ({removedInbound} redundant inbound rules removed) across {targets} target(s). ";
+                    // auto-migrate legacy-name rules on open — lossless (provenance
+                    // carries over, protection unchanged), so users never have to
+                    // know or care about the old naming scheme
+                    int legacy = await FirewallService.Instance.CountLegacyBlocksAsync();
+                    if (legacy > 0)
+                    {
+                        StatusText.Text = $"Migrating {legacy} legacy firewall rule(s) to the current naming scheme…";
+                        var (targets, removedInbound, migratedOutbound) = await FirewallService.Instance.ConsolidateLegacyIpBlocksAsync();
+                        _migrationNote = $"Auto-migrated {migratedOutbound} legacy rule(s) ({removedInbound} redundant inbound rules removed) across {targets} target(s). ";
+                    }
+                    await ReloadAsync();
                 }
-                await ReloadAsync();
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"[BlockedRulesWindow] load failed: {ex.Message}");
+                    StatusText.Text = $"load failed: {ex.Message}";
+                }
             };
         }
 
@@ -138,31 +148,42 @@ namespace AutoCommand.Views
         /// <summary>Refreshes both hit surfaces without rebuilding the rules grid.</summary>
         private async Task RefreshHitsAsync()
         {
-            try { BlockHitFeedService.Instance.Start(); } catch { }
-            var feed = BlockHitFeedService.Instance;
-            var hits = await Task.Run(() => CollectHitsLastHour());
-
-            foreach (var row in _rows)
-                if (row.Kind == "ip" && hits.TryGetValue(row.Ip, out int v))
-                    row.Hits = v;
-
-            HitsGrid.ItemsSource = feed.Aggregates(60, 200).Select(x => new HitRow
+            // the 15 s tick lands here — one service hiccup must never become
+            // a recurring modal dialog, so failures surface in the status
+            // line only
+            try
             {
-                Process = x.Process,
-                Pid = x.Pid,
-                Destination = $"{x.DestIp}:{x.DestPort}",
-                Match = x.MatchKind == "ip" ? "IP block" : "app block",
-                Attempts = x.Count,
-                FirstSeen = x.FirstUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
-                LastSeen = x.LastUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
-                Image = x.Image,
-            }).ToList();
+                try { BlockHitFeedService.Instance.Start(); } catch { }
+                var feed = BlockHitFeedService.Instance;
+                var hits = await Task.Run(() => CollectHitsLastHour());
 
-            int liveCount = hits.Values.Sum();
-            _feedStatus = feed.IsRunning
-                ? $"live feed: {liveCount} blocked connect(s) in the last hour"
-                : "live feed starting…";
-            if (feed.WatcherError != null) _feedStatus += $" — {feed.WatcherError}";
+                foreach (var row in _rows)
+                    if (row.Kind == "ip" && hits.TryGetValue(row.Ip, out int v))
+                        row.Hits = v;
+
+                HitsGrid.ItemsSource = feed.Aggregates(60, 200).Select(x => new HitRow
+                {
+                    Process = x.Process,
+                    Pid = x.Pid,
+                    Destination = $"{x.DestIp}:{x.DestPort}",
+                    Match = x.MatchKind == "ip" ? "IP block" : "app block",
+                    Attempts = x.Count,
+                    FirstSeen = x.FirstUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
+                    LastSeen = x.LastUtc.ToLocalTime().ToString("yyyy-MM-dd HH:mm:ss"),
+                    Image = x.Image,
+                }).ToList();
+
+                int liveCount = hits.Values.Sum();
+                _feedStatus = feed.IsRunning
+                    ? $"live feed: {liveCount} blocked connect(s) in the last hour"
+                    : "live feed starting…";
+                if (feed.WatcherError != null) _feedStatus += $" — {feed.WatcherError}";
+            }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BlockedRulesWindow] hit refresh failed: {ex.Message}");
+                _feedStatus = $"hit refresh failed: {ex.Message}";
+            }
             UpdateStatusText();
         }
 
@@ -233,7 +254,16 @@ namespace AutoCommand.Views
             await ReloadAsync();
         }
 
-        private async void RefreshBtn_Click(object sender, RoutedEventArgs e) => await ReloadAsync();
+        private async void RefreshBtn_Click(object sender, RoutedEventArgs e)
+        {
+            // async-void click — same non-modal failure rule as the tick
+            try { await ReloadAsync(); }
+            catch (Exception ex)
+            {
+                System.Diagnostics.Debug.WriteLine($"[BlockedRulesWindow] refresh failed: {ex.Message}");
+                StatusText.Text = $"refresh failed: {ex.Message}";
+            }
+        }
 
         private async void UnblockSelectedBtn_Click(object sender, RoutedEventArgs e)
         {
@@ -351,6 +381,14 @@ namespace AutoCommand.Views
             await ReloadAsync();
         }
 
+        // RFC-4180 minimal: quote a field holding a comma, quote or newline,
+        // doubling internal quotes. Targets and descriptions come from
+        // firewall data, not from us — they can contain anything.
+        private static string CsvEscape(string value) =>
+            value.Contains(',') || value.Contains('"') || value.Contains('\n') || value.Contains('\r')
+                ? $"\"{value.Replace("\"", "\"\"")}\""
+                : value;
+
         private void ExportBtn_Click(object sender, RoutedEventArgs e)
         {
             var dlg = new Microsoft.Win32.SaveFileDialog
@@ -361,8 +399,8 @@ namespace AutoCommand.Views
             if (dlg.ShowDialog() != true) return;
             var lines = new List<string> { "Target,Kind,Class,Rules,Enabled,Created,Hits10m,Description" };
             foreach (var r in _rows)
-                lines.Add($"{r.Target},{r.Kind},\"{r.Class}\",{r.Rules},{r.EnabledRules}," +
-                          $"\"{r.CreatedDisplay}\",{r.Hits},\"{(r.Description ?? "").Replace("\"", "'")}\"");
+                lines.Add($"{CsvEscape(r.Target)},{CsvEscape(r.Kind)},{CsvEscape(r.Class)},{r.Rules},{r.EnabledRules}," +
+                          $"{CsvEscape(r.CreatedDisplay)},{r.Hits},{CsvEscape(r.Description ?? "")}");
             File.WriteAllLines(dlg.FileName, lines);
             StatusText.Text = $"Exported {_rows.Count} rows → {dlg.FileName}";
         }
