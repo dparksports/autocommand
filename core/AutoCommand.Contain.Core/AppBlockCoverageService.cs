@@ -25,6 +25,11 @@ namespace AutoCommand.Contain.Core
     ///     path is added immediately, at the moment the new binary first runs;
     ///   · sweeps running processes at startup (covers processes created before
     ///     the watcher started);
+    ///   · sweeps the DISK on a cadence — for every name-blocked exe, copies
+    ///     that exist but have not run (sibling version folders of covered
+    ///     paths, plus the binary's other documented install roots) get
+    ///     covered before their first packet. This is the leg that holds
+    ///     when Sysmon is absent: nothing has to spawn for coverage to hold.
     ///   · periodically retires dead-path rules once a live sibling exists
     ///     (FirewallService.RetireDeadAppBlockRulesAsync — never the last rule
     ///     of a target).
@@ -44,12 +49,13 @@ namespace AutoCommand.Contain.Core
         private static readonly TimeSpan InventoryRefresh = TimeSpan.FromSeconds(30);
         private static readonly TimeSpan FirstSweepDelay = TimeSpan.FromMinutes(1);
         private static readonly TimeSpan GcInterval = TimeSpan.FromHours(6);
+        private static readonly TimeSpan DiskSweepInterval = TimeSpan.FromHours(1);
 
         /// <summary>One coverage extension / retirement, also persisted as JSONL.</summary>
         public sealed class CoverageEvent
         {
             public string TimeUtc { get; set; }
-            public string Action { get; set; }      // "extended" | "retired" | "startup-sweep-extended"
+            public string Action { get; set; }      // "extended" | "retired" | "startup-sweep-extended" | "disk-sweep-extended"
             public string Exe { get; set; }
             public string Path { get; set; }
             public string RuleName { get; set; }
@@ -61,7 +67,7 @@ namespace AutoCommand.Contain.Core
         private HashSet<string> _coveredPaths = new(StringComparer.OrdinalIgnoreCase);
         private readonly List<CoverageEvent> _history = new();
         private EventLogWatcher _watcher;
-        private Timer _refreshTimer, _gcTimer;
+        private Timer _refreshTimer, _gcTimer, _sweepTimer;
         private bool _running, _dirty;
 
         public string WatcherError { get; private set; }
@@ -111,6 +117,9 @@ namespace AutoCommand.Contain.Core
                 InventoryRefresh, InventoryRefresh);
             _gcTimer = new Timer(_ => _ = RunRetirePassAsync(), null,
                 FirstSweepDelay + TimeSpan.FromSeconds(30), GcInterval);
+            // first disk sweep shortly after the cache has filled; hourly after
+            _sweepTimer = new Timer(_ => _ = ProactiveSweepAsync(), null,
+                FirstSweepDelay + TimeSpan.FromSeconds(15), DiskSweepInterval);
         }
 
         public void Stop()
@@ -121,6 +130,7 @@ namespace AutoCommand.Contain.Core
                 _running = false;
                 _refreshTimer?.Dispose(); _refreshTimer = null;
                 _gcTimer?.Dispose(); _gcTimer = null;
+                _sweepTimer?.Dispose(); _sweepTimer = null;
             }
             _watcher?.Dispose();
             _watcher = null;
@@ -143,12 +153,18 @@ namespace AutoCommand.Contain.Core
                     if (!string.IsNullOrEmpty(t.AppPath))
                         paths.Add(t.AppPath.ToLowerInvariant());
                 }
+                string[] newNames;
                 lock (_gate)
                 {
+                    newNames = names.Except(_blockedNames).ToArray();   // both sets ignore case
                     _blockedNames = names;
                     _coveredPaths = paths;
                     LastRefreshUtc = DateTime.UtcNow;
                 }
+                // A name that just entered the block list gets its on-disk
+                // copies covered immediately — a fresh block should not wait
+                // for the hourly sweep to become multi-path.
+                if (newNames.Length > 0) _ = ProactiveSweepAsync(newNames);
             }
             catch { /* cache stays at last good snapshot; next tick retries */ }
         }
@@ -206,6 +222,119 @@ namespace AutoCommand.Contain.Core
         }
 
         /// <summary>
+        /// Binaries Microsoft ships in more than one install root, so a name
+        /// block must cover every documented location, not just the path that
+        /// was seen. WebView2 is the case that bit in the wild: a versioned
+        /// folder under EdgeWebView\Application (deleted on every runtime
+        /// update) plus a second copy under System32\Microsoft-Edge-WebView.
+        /// Extend by exe name as new multi-root binaries are confirmed.
+        /// </summary>
+        private static readonly Dictionary<string, string[]> KnownMultiRootExes = new(StringComparer.OrdinalIgnoreCase)
+        {
+            ["msedgewebview2.exe"] = new[]
+            {
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "Microsoft-Edge-WebView"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86), @"Microsoft\EdgeWebView\Application"),
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), @"Microsoft\EdgeWebView\Application"),
+            },
+        };
+
+        /// <summary>
+        /// Pure enumeration: every on-disk copy of the exe worth covering,
+        /// given the paths already covered. Two sources: sibling version
+        /// folders of each covered path (the Application\157.0.4341.42 →
+        /// Application\* pattern — only when the parent folder is
+        /// version-named, so a blocked C:\Tools\upd.exe never sweeps the
+        /// whole drive), and the documented extra roots of known multi-root
+        /// binaries (one wildcard level for versioned layouts). Extra roots
+        /// are injectable so the offline self-test can point at a temp tree.
+        /// </summary>
+        public static List<string> EnumerateDiskCopies(string exe, IEnumerable<string> coveredPaths,
+            IEnumerable<string> extraRoots = null)
+        {
+            var covered = new HashSet<string>(coveredPaths ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+            var results = new List<string>();
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+
+            void Consider(string candidate)
+            {
+                try
+                {
+                    if (string.IsNullOrEmpty(candidate)) return;
+                    string path = Path.GetFullPath(candidate);
+                    if (!seen.Add(path)) return;
+                    if (covered.Contains(path)) return;
+                    if (File.Exists(path)) results.Add(path);
+                }
+                catch { /* unmappable path (drive letter gone) — skip */ }
+            }
+
+            foreach (string coveredPath in covered)
+            {
+                try
+                {
+                    // the version folder the covered binary sits in
+                    string versionDir = Path.GetDirectoryName(coveredPath.TrimEnd('\\'));
+                    string versionName = string.IsNullOrEmpty(versionDir) ? "" : Path.GetFileName(versionDir);
+                    if (versionName.Length == 0 || !char.IsDigit(versionName[0])) continue;
+                    string appRoot = Path.GetDirectoryName(versionDir);   // e.g. ...\EdgeWebView\Application
+                    if (string.IsNullOrEmpty(appRoot)) continue;
+                    foreach (string dir in Directory.EnumerateDirectories(appRoot))
+                        Consider(Path.Combine(dir, exe));
+                }
+                catch { /* unreadable anchor — skip it */ }
+            }
+
+            var roots = new List<string>();
+            if (KnownMultiRootExes.TryGetValue(exe, out string[] known)) roots.AddRange(known);
+            if (extraRoots != null) roots.AddRange(extraRoots);
+            foreach (string root in roots)
+            {
+                try
+                {
+                    if (string.IsNullOrEmpty(root)) continue;
+                    Consider(Path.Combine(root, exe));
+                    foreach (string dir in Directory.EnumerateDirectories(root))
+                        Consider(Path.Combine(dir, exe));
+                }
+                catch { /* root absent — skip */ }
+            }
+
+            return results;
+        }
+
+        /// <summary>
+        /// The Sysmon-less leg: cover what exists on disk, not just what has
+        /// run. Snapshots the cache under the gate, enumerates, then reuses
+        /// EnsureCoveredAsync so the add/dedupe/record path stays
+        /// single-tracked. Failures are swallowed per the service contract —
+        /// the next cadence retries.
+        /// </summary>
+        private async Task ProactiveSweepAsync(IEnumerable<string> onlyNames = null)
+        {
+            try
+            {
+                string[] names;
+                HashSet<string> paths;
+                lock (_gate)
+                {
+                    names = _blockedNames.ToArray();
+                    paths = new HashSet<string>(_coveredPaths, StringComparer.OrdinalIgnoreCase);
+                }
+                HashSet<string> filter = onlyNames == null
+                    ? null
+                    : new HashSet<string>(onlyNames, StringComparer.OrdinalIgnoreCase);
+                foreach (string name in names)
+                {
+                    if (filter != null && !filter.Contains(name)) continue;
+                    foreach (string copy in EnumerateDiskCopies(name, paths))
+                        await EnsureCoveredAsync(copy, "disk sweep", null);
+                }
+            }
+            catch { /* sweep is best-effort; the next cadence retries */ }
+        }
+
+        /// <summary>
         /// The shared decision: exe name blocked, this path not covered → add a
         /// sibling rule with full provenance. Cheap two-set lookup when nothing
         /// matches, so it is safe to call for every process create.
@@ -234,7 +363,12 @@ namespace AutoCommand.Contain.Core
                     Record(new CoverageEvent
                     {
                         TimeUtc = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"),
-                        Action = trigger == "startup sweep" ? "startup-sweep-extended" : "extended",
+                        Action = trigger switch
+                        {
+                            "startup sweep" => "startup-sweep-extended",
+                            "disk sweep" => "disk-sweep-extended",
+                            _ => "extended",
+                        },
                         Exe = exe,
                         Path = imagePath,
                         RuleName = ruleName ?? "",

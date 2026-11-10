@@ -453,6 +453,52 @@ Check("dup: mixed identities sum per-identity redundants",
       D("n", "n", "m", "m", "m") == 3);
 Check("dup: empty input is clean", D(Array.Empty<string>()) == 0);
 
+// ─────────────────────────────────────────────────────────────────────
+// 9. AppBlockCoverageService.EnumerateDiskCopies — the proactive disk
+//    sweep's pure half: which on-disk copies of a name-blocked exe
+//    deserve a sibling rule before anything spawns. Real firewall
+//    untouched; roots injected so everything stays inside a temp tree
+//    ("upd.exe" is not in the known-multi-root map).
+// ─────────────────────────────────────────────────────────────────────
+string sweepDir = Path.Combine(Path.GetTempPath(), "contain-selftest-" + Guid.NewGuid().ToString("N"));
+try
+{
+    // versioned layout: Application\157.0.4341.42 covered, 158.0.9999.1 not yet
+    string appRoot = Path.Combine(sweepDir, "Application");
+    string v157 = Path.Combine(appRoot, "157.0.4341.42");
+    string v158 = Path.Combine(appRoot, "158.0.9999.1");
+    Directory.CreateDirectory(v157);
+    Directory.CreateDirectory(v158);
+    File.WriteAllText(Path.Combine(v157, "upd.exe"), "x");
+    File.WriteAllText(Path.Combine(v158, "upd.exe"), "x");
+
+    // a second install root: a flat copy plus a one-level (versioned) copy
+    string altRoot = Path.Combine(sweepDir, "AltRoot");
+    Directory.CreateDirectory(Path.Combine(altRoot, "embedded"));
+    File.WriteAllText(Path.Combine(altRoot, "upd.exe"), "x");
+    File.WriteAllText(Path.Combine(altRoot, "embedded", "upd.exe"), "x");
+
+    string covered = Path.Combine(v157, "upd.exe");
+    var copies = AppBlockCoverageService.EnumerateDiskCopies("upd.exe", new[] { covered }, new[] { altRoot });
+    Check("sweep: next version folder found before it ever runs",
+          copies.Contains(Path.Combine(v158, "upd.exe")), string.Join("; ", copies));
+    Check("sweep: second-root direct copy found",
+          copies.Contains(Path.Combine(altRoot, "upd.exe")));
+    Check("sweep: second-root one-level copy found",
+          copies.Contains(Path.Combine(altRoot, "embedded", "upd.exe")));
+    Check("sweep: already-covered path not re-proposed", !copies.Contains(covered));
+
+    // a non-version anchor must never fan out to sibling folders
+    string toolsDir = Path.Combine(sweepDir, "Tools");
+    Directory.CreateDirectory(toolsDir);
+    File.WriteAllText(Path.Combine(toolsDir, "upd.exe"), "x");
+    var nonVersion = AppBlockCoverageService.EnumerateDiskCopies(
+        "upd.exe", new[] { Path.Combine(toolsDir, "upd.exe") }, Array.Empty<string>());
+    Check("sweep: non-version anchor scans nothing drive-wide", nonVersion.Count == 0,
+          string.Join("; ", nonVersion));
+}
+finally { try { Directory.Delete(sweepDir, true); } catch { } }
+
 Console.WriteLine();
 Console.WriteLine(failures == 0 ? "ALL CONTAIN SELF-TESTS PASSED" : $"{failures} CHECK(S) FAILED");
 return failures == 0 ? 0 : 1;
