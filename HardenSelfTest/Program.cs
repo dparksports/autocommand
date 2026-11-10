@@ -128,6 +128,26 @@ try
           rules.All(r => r.StateProbe != null && r.OptOut != null));
     Check("6d every rule carries a plain-language vendor name",
           rules.All(r => !string.IsNullOrWhiteSpace(r.AppName)));
+    Check("6e Windows-search feature rules shipped (the SearchHost talker)",
+          new[] { "win-search-bing-suggestions", "win-search-cloud-content", "win-search-web-results" }
+              .All(id => rules.Any(r => r.Id == id)),
+          $"got: {string.Join(", ", rules.Select(r => r.Id))}");
+    Check("6f every registry opt-out/probe stays inside the write allow-list",
+          rules.Where(r => r.OptOut?.Type == "registry" || r.StateProbe?.Type == "registry")
+               .All(r => TelemetryRulesService.IsRegistryWriteAllowed(r.OptOut.RegKey) &&
+                         TelemetryRulesService.IsRegistryWriteAllowed(r.StateProbe.RegKey)));
+    Check("6g feature rules never pose as telemetry — category says feature, talker named",
+          rules.Where(r => r.IsFeatureToggle)
+               .All(r => r.Category?.IndexOf("feature", StringComparison.OrdinalIgnoreCase) >= 0 &&
+                         !string.IsNullOrWhiteSpace(r.TrafficProcess)));
+    Check("6h feature state text says 'at the source', never a stop claim",
+          new TelemetryRuleStatus { Rule = rules.First(r => r.IsFeatureToggle), State = TelemetryState.Off }
+              .StateText == "Off at the source" &&
+          new TelemetryRuleStatus { Rule = rules.First(r => r.IsFeatureToggle), State = TelemetryState.On }
+              .StateText == "Feature on — still fetching");
+    Check("6i telemetry rules keep the classic wording (null SwitchKind = telemetry)",
+          new TelemetryRuleStatus { Rule = rules.First(r => !r.IsFeatureToggle), State = TelemetryState.Off }
+              .StateText == "Opted out");
 }
 catch (Exception ex)
 {

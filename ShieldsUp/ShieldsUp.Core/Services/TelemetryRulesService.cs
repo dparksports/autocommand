@@ -24,6 +24,28 @@ namespace ShieldsUp.Core.Services
         public string Scope { get; set; }
         public string RiskNote { get; set; }
         public List<string> WatchDomains { get; set; } = new();
+
+        /// <summary>
+        /// "feature" marks a rule that disables a network-fetching FEATURE at
+        /// its source (e.g. the Bing-in-Search polling) rather than diagnostic
+        /// telemetry. Drives the honest state wording — such a rule REDUCES
+        /// traffic at the source; it is never "network-stopped" (only a
+        /// firewall block, verified by containment, proves zero bytes).
+        /// Null/absent = an ordinary telemetry opt-out.
+        /// </summary>
+        public string SwitchKind { get; set; }
+
+        /// <summary>
+        /// The process whose connect rate this rule is expected to lower
+        /// (e.g. "msedgewebview2.exe" for the Windows-search rules). Opt-out
+        /// results measure it at flip time so the follow-up "did the rate
+        /// actually drop?" has its baseline.
+        /// </summary>
+        public string TrafficProcess { get; set; }
+
+        public bool IsFeatureToggle =>
+            string.Equals(SwitchKind?.Trim(), "feature", StringComparison.OrdinalIgnoreCase);
+
         public DetectionSpec Detection { get; set; }
         public ProbeSpec StateProbe { get; set; }
         public OptOutSpec OptOut { get; set; }
@@ -97,8 +119,8 @@ namespace ShieldsUp.Core.Services
         public TelemetryState State { get; set; }
         public string StateText => State switch
         {
-            TelemetryState.On => "Telemetry on",
-            TelemetryState.Off => "Opted out",
+            TelemetryState.On => Rule != null && Rule.IsFeatureToggle ? "Feature on — still fetching" : "Telemetry on",
+            TelemetryState.Off => Rule != null && Rule.IsFeatureToggle ? "Off at the source" : "Opted out",
             TelemetryState.Ineffective => "Opt-out not honored",
             _ => "Unknown"
         };
@@ -646,9 +668,20 @@ namespace ShieldsUp.Core.Services
             File.WriteAllText(path, root.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
         }
 
+        // Registry primitives route on the hive prefix: HKCU\ goes to
+        // CurrentUser (the search-box settings key is user scope), everything
+        // else to LocalMachine. The write allow-list confines both hives.
+        private static (Microsoft.Win32.RegistryKey Hive, string SubKey) SplitHive(string regKey)
+        {
+            if (regKey.StartsWith("HKCU\\", StringComparison.OrdinalIgnoreCase))
+                return (Microsoft.Win32.Registry.CurrentUser, regKey[5..]);
+            return (Microsoft.Win32.Registry.LocalMachine, StripHklm(regKey));
+        }
+
         private static string ReadRegistry(string regKey, string name)
         {
-            using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(StripHklm(regKey));
+            var (hive, subKey) = SplitHive(regKey);
+            using var key = hive.OpenSubKey(subKey);
             return key?.GetValue(name)?.ToString();
         }
 
@@ -666,6 +699,10 @@ namespace ShieldsUp.Core.Services
             @"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Policies\",
             @"HKLM\SOFTWARE\Microsoft\Windows\CurrentVersion\Sensor\",
             @"HKLM\SOFTWARE\Microsoft\Windows NT\CurrentVersion\Sensor\",
+            // The one user-scope location a feature rule needs: the search
+            // box's own settings key. Scopes exactly like the HKLM policy
+            // prefixes above — nothing else under HKCU is ever writable.
+            @"HKCU\SOFTWARE\Microsoft\Windows\CurrentVersion\SearchSettings\",
         };
 
         private static void EnsureRegistryWriteAllowed(string regKey)
@@ -678,6 +715,15 @@ namespace ShieldsUp.Core.Services
             if (!allowed)
                 throw new InvalidOperationException(
                     $"Registry key '{regKey}' is outside the telemetry opt-out allow-list; write refused.");
+        }
+
+        /// <summary>Offline-checkable twin of the write guard — the self-test
+        /// replays it over every shipped rule so a hand-edited rules file can
+        /// never widen the real writer's reach.</summary>
+        public static bool IsRegistryWriteAllowed(string regKey)
+        {
+            try { EnsureRegistryWriteAllowed(regKey); return true; }
+            catch { return false; }
         }
 
         private static void EnsureJsonPathAllowed(string path)
@@ -704,7 +750,8 @@ namespace ShieldsUp.Core.Services
         private static void WriteRegistry(string regKey, string name, string value, bool dword)
         {
             EnsureRegistryWriteAllowed(regKey);
-            using var key = Microsoft.Win32.Registry.LocalMachine.CreateSubKey(StripHklm(regKey));
+            var (hive, subKey) = SplitHive(regKey);
+            using var key = hive.CreateSubKey(subKey);
             if (dword && int.TryParse(value, out int number))
                 key.SetValue(name, number, Microsoft.Win32.RegistryValueKind.DWord);
             else
@@ -714,7 +761,8 @@ namespace ShieldsUp.Core.Services
         private static void DeleteRegistryValue(string regKey, string name)
         {
             EnsureRegistryWriteAllowed(regKey);
-            using var key = Microsoft.Win32.Registry.LocalMachine.OpenSubKey(StripHklm(regKey), writable: true);
+            var (hive, subKey) = SplitHive(regKey);
+            using var key = hive.OpenSubKey(subKey, writable: true);
             key?.DeleteValue(name, throwOnMissingValue: false);
         }
 

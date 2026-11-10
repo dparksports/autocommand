@@ -413,9 +413,12 @@ namespace AutoCommand.Agent.Core
             new Tool(
                 "opt_out_telemetry",
                 "Flip one vendor's OWN official opt-out switch (Shields Up tab's vendor table: dotnet CLI, " +
-                "PowerShell 7, VS Code, Windows diagnostic data, Edge, Chrome, ultralytics). The previous " +
-                "setting is saved first, the flip is verified by re-reading, and revert=true restores the " +
-                "previous value exactly. Asks the user for every call.",
+                "PowerShell 7, VS Code, Windows diagnostic data, Edge, Chrome, ultralytics, Windows search " +
+                "features). The previous setting is saved first, the flip is verified by re-reading, and " +
+                "revert=true restores the previous value exactly. Rules marked switch_kind=feature disable a " +
+                "network-fetching FEATURE at its source — honest effect: 'reduced', not network-stopped; only " +
+                "verify_block_containment proves zero bytes. Rules with a traffic_process return a connects/hr " +
+                "baseline at flip time for the before/after check. Asks the user for every call.",
                 Schema(("rule_id", "Rule id from get_shieldsup_status (e.g. 'vscode-telemetry')", true),
                        ("revert", "true = restore the previous setting instead of opting out", false)),
                 true,
@@ -1907,7 +1910,10 @@ namespace AutoCommand.Agent.Core
                         ["evidence"] = s.Evidence,
                     });
                 o["telemetry_rules"] = rows;
-                o["telemetry_note"] = "pass rule_id to opt_out_telemetry (revert=true to restore the saved previous setting).";
+                o["telemetry_note"] = "pass rule_id to opt_out_telemetry (revert=true to restore the saved previous " +
+                                  "setting). switch_kind=feature rules turn the fetching off at the source — " +
+                                  "expect 'reduced', not network-stopped; only verify_block_containment proves " +
+                                  "zero bytes.";
             }
             catch (Exception ex) { o["telemetry_rules"] = Err(ex); }
 
@@ -2011,13 +2017,42 @@ namespace AutoCommand.Agent.Core
                 var svc = new TelemetryRulesService();
                 var (ok, message) = revert ? svc.RevertAsync(status.Rule).GetAwaiter().GetResult()
                                            : svc.ApplyOptOutAsync(status.Rule).GetAwaiter().GetResult();
-                return ToJson(new JsonObject
+                var result = new JsonObject
                 {
                     ["rule_id"] = ruleId,
                     ["action"] = revert ? "revert" : "opt_out",
                     ["success"] = ok,
                     ["message"] = message,
-                });
+                    ["switch_kind"] = status.Rule.IsFeatureToggle ? "feature" : "telemetry",
+                };
+                // Verify-after-opt-out: measure the affected talker's rate at
+                // flip time so the follow-up ("did it actually slow down?")
+                // has its baseline. Honest by construction — this is the
+                // BEFORE number; the switch lands when the feature's host
+                // restarts, and the note says exactly that.
+                if (ok && !revert && !string.IsNullOrEmpty(status.Rule.TrafficProcess))
+                {
+                    try
+                    {
+                        var snap = TraceMetricsService.Compute(
+                            TraceMetricsService.Match.ForProcess(status.Rule.TrafficProcess));
+                        result["traffic_check"] = new JsonObject
+                        {
+                            ["process"] = status.Rule.TrafficProcess,
+                            ["connects_last_1h"] = snap.ConnectsLast1H,
+                            ["connects_per_hour_24h_basis"] = snap.ConnectsPerHour,
+                            ["note"] =
+                                "Baseline measured at flip time — the BEFORE number. The switch takes effect " +
+                                "when the feature's host restarts (SearchHost respawns on its own; sign out/in " +
+                                "is certain). Re-check with get_phonehome_cards or run_trace afterwards: the " +
+                                "rate should fall toward the functional-traffic floor, not to zero. " +
+                                "'Reduced at the source' — only a firewall block proves zero bytes " +
+                                "(verify_block_containment).",
+                        };
+                    }
+                    catch { /* measurement is best-effort; the opt-out result stands on its own */ }
+                }
+                return ToJson(result);
             }
             catch (Exception ex)
             {
@@ -2031,7 +2066,8 @@ namespace AutoCommand.Agent.Core
             bool revert = a["revert"] is JsonNode rb && rb.GetValue<bool>();
             return revert
                 ? $"Restore the previously-saved setting for telemetry rule '{ruleId}'?"
-                : $"Opt out of '{ruleId}' telemetry using the vendor's own official switch? The previous setting is saved first.";
+                : $"Apply '{ruleId}' via the vendor's own official switch? Feature rules turn the fetching off " +
+                  $"at the source ('reduced', not network-stopped); the previous setting is saved first.";
         }
 
         private static string ApplyShieldsUpPreset(JsonObject a)

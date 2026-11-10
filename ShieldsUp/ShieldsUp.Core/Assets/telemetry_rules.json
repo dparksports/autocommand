@@ -96,6 +96,48 @@
       "detection": { "type": "file", "path": "%ProgramFiles%\\Google\\Chrome\\Application\\chrome.exe" },
       "stateProbe": { "type": "registry", "regKey": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome", "regName": "MetricsReportingEnabled", "offValues": [ "0" ] },
       "optOut": { "type": "registry", "regKey": "HKLM\\SOFTWARE\\Policies\\Google\\Chrome", "regName": "MetricsReportingEnabled", "value": "0", "kind": "dword" }
+    },
+    {
+      "id": "win-search-bing-suggestions",
+      "appName": "Windows search — Bing suggestions & highlights",
+      "category": "Windows feature",
+      "switchKind": "feature",
+      "trafficProcess": "msedgewebview2.exe",
+      "mechanism": "The Start/search box (SearchHost.exe hosting an Edge WebView2) polls Bing endpoints for web-search suggestions and search-highlight content and fetches its configuration over Akamai-fronted CDNs. This is FEATURE traffic, not diagnostic data — telemetry opt-outs do not touch it. The DisableSearchBoxSuggestions policy turns the web-suggestion feature itself off, removing the polling at the source.",
+      "scope": "Machine (policy) — every user",
+      "riskNote": "Web suggestions and search highlights disappear from the search box; local file and app search are unaffected. An already-open search flyout keeps the old behavior until SearchHost restarts.",
+      "watchDomains": [ "bing.com" ],
+      "detection": { "type": "os" },
+      "stateProbe": { "type": "registry", "regKey": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Explorer", "regName": "DisableSearchBoxSuggestions", "offValues": [ "1" ] },
+      "optOut": { "type": "registry", "regKey": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\Explorer", "regName": "DisableSearchBoxSuggestions", "value": "1", "kind": "dword" }
+    },
+    {
+      "id": "win-search-cloud-content",
+      "appName": "Windows search — cloud content (highlights, tips)",
+      "category": "Windows feature",
+      "switchKind": "feature",
+      "trafficProcess": "msedgewebview2.exe",
+      "mechanism": "Windows fetches 'cloud optimized content' — search highlights, tips and suggested content — over the same CDN paths the search UI already uses. The DisableCloudOptimizedContent policy stops these fetches by disabling the content pipeline itself; a feature switch, not a telemetry opt-out.",
+      "scope": "Machine (policy) — every user",
+      "riskNote": "Search highlights, tips and some suggested content disappear. Local search unaffected.",
+      "watchDomains": [ "bing.com" ],
+      "detection": { "type": "os" },
+      "stateProbe": { "type": "registry", "regKey": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\CloudContent", "regName": "DisableCloudOptimizedContent", "offValues": [ "1" ] },
+      "optOut": { "type": "registry", "regKey": "HKLM\\SOFTWARE\\Policies\\Microsoft\\Windows\\CloudContent", "regName": "DisableCloudOptimizedContent", "value": "1", "kind": "dword" }
+    },
+    {
+      "id": "win-search-web-results",
+      "appName": "Windows search — web results in the search box",
+      "category": "Windows feature",
+      "switchKind": "feature",
+      "trafficProcess": "msedgewebview2.exe",
+      "mechanism": "IsDynamicSearchBoxEnabled=0 turns off the dynamic (web-powered) search box for the current user — the search UI stops issuing zero-input Bing queries (trending, suggestions, highlights feeds) every time the box opens. A user-scope preference the search UI reads fresh.",
+      "scope": "User — current user only",
+      "riskNote": "The search box shows only local results (files, apps, settings); web results and suggestions are gone until reverted.",
+      "watchDomains": [ "bing.com" ],
+      "detection": { "type": "os" },
+      "stateProbe": { "type": "registry", "regKey": "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\SearchSettings", "regName": "IsDynamicSearchBoxEnabled", "offValues": [ "0" ] },
+      "optOut": { "type": "registry", "regKey": "HKCU\\SOFTWARE\\Microsoft\\Windows\\CurrentVersion\\SearchSettings", "regName": "IsDynamicSearchBoxEnabled", "value": "0", "kind": "dword" }
     }
   ]
 }
