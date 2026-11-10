@@ -9,6 +9,99 @@
         <SolidColorBrush x:Key="WarnBrush" Color="#FBBF24"/>
         <SolidColorBrush x:Key="BadBrush" Color="#F87171"/>
 
+        <!-- ═══ HIG detail-panel kit: large title, summary pill, inset
+             groups, state rows, quiet action buttons. One vocabulary for
+             every subtab: the page answers "am I OK?" in one glance
+             (pill), rows lead with state, actions sit bottom-right,
+             chrome recedes. ═══ -->
+        <Style x:Key="LargeTitle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="21"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        </Style>
+        <Style x:Key="SubIntro" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+        <Style x:Key="GroupHeader" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="11"/>
+            <Setter Property="FontWeight" Value="Bold"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+            <Setter Property="Margin" Value="8,2,0,4"/>
+        </Style>
+        <Style x:Key="InsetGroup" TargetType="Border">
+            <Setter Property="CornerRadius" Value="10"/>
+            <Setter Property="Background" Value="{DynamicResource BackgroundBrush}"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="Padding" Value="4"/>
+            <Setter Property="Margin" Value="0,0,0,14"/>
+        </Style>
+        <!-- One card per item: quiet by default, responds to hover so the
+             row boundaries reveal themselves on contact (direct
+             manipulation), never in static chrome. -->
+        <Style x:Key="StatusRow" TargetType="Border">
+            <Setter Property="CornerRadius" Value="8"/>
+            <Setter Property="Padding" Value="12,8"/>
+            <Setter Property="Margin" Value="2,2"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="Transparent"/>
+            <Setter Property="Background" Value="Transparent"/>
+            <Style.Triggers>
+                <Trigger Property="IsMouseOver" Value="True">
+                    <Setter Property="Background" Value="{DynamicResource NavHoverBrush}"/>
+                    <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+                </Trigger>
+            </Style.Triggers>
+        </Style>
+        <Style x:Key="RowTitle" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="13"/>
+            <Setter Property="FontWeight" Value="SemiBold"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+        </Style>
+        <Style x:Key="RowEvidence" TargetType="TextBlock">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+            <Setter Property="TextWrapping" Value="Wrap"/>
+        </Style>
+        <!-- Quiet action: same control for the same action class on every
+             subtab. Rounds, borders, dims when disabled, tints on hover. -->
+        <Style x:Key="QuietBtn" TargetType="Button">
+            <Setter Property="FontSize" Value="12"/>
+            <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+            <Setter Property="Cursor" Value="Hand"/>
+            <Setter Property="Padding" Value="14,7"/>
+            <Setter Property="Template">
+                <Setter.Value>
+                    <ControlTemplate TargetType="Button">
+                        <Border x:Name="chrome" CornerRadius="6" BorderThickness="1"
+                                BorderBrush="{DynamicResource BorderBrush}" Background="Transparent"
+                                Padding="{TemplateBinding Padding}">
+                            <ContentPresenter HorizontalAlignment="Center" VerticalAlignment="Center"/>
+                        </Border>
+                        <ControlTemplate.Triggers>
+                            <Trigger Property="IsMouseOver" Value="True">
+                                <Setter TargetName="chrome" Property="Background" Value="{DynamicResource NavHoverBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsEnabled" Value="False">
+                                <Setter Property="Opacity" Value="0.45"/>
+                            </Trigger>
+                        </ControlTemplate.Triggers>
+                    </ControlTemplate>
+                </Setter.Value>
+            </Setter>
+        </Style>
+        <!-- Summary pill: the page's whole verdict in one glance. -->
+        <Style x:Key="Pill" TargetType="Border">
+            <Setter Property="CornerRadius" Value="999"/>
+            <Setter Property="BorderThickness" Value="1"/>
+            <Setter Property="BorderBrush" Value="{DynamicResource BorderBrush}"/>
+            <Setter Property="Padding" Value="10,4"/>
+            <Setter Property="Background" Value="{DynamicResource BackgroundBrush}"/>
+            <Setter Property="VerticalAlignment" Value="Center"/>
+        </Style>
+
         <!-- Rail nav row: the checklist + the four rituals, one question per
              row. Mirrors the app-wide sidebar TabItem (indicator bar, nav
              brushes) sized for the inner rail. The header's Grid pins the
@@ -194,7 +287,7 @@
                     </Grid>
                 </TabItem.Header>
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <StackPanel MaxWidth="880" HorizontalAlignment="Left" Margin="4,14,4,8">
+                    <StackPanel MaxWidth="880" HorizontalAlignment="Left" Margin="4,10,4,8">
 
                         <!-- ── migration banner (visible only when the standalone app left state) ── -->
                         <Border x:Name="MigrationBanner" Visibility="Collapsed" CornerRadius="12"
@@ -211,38 +304,56 @@
                             </StackPanel>
                         </Border>
 
+                        <Grid Margin="0,0,0,6">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource LargeTitle}" Text="Quick Scan"/>
+                                <TextBlock Style="{StaticResource SubIntro}" Margin="0,4,0,0"
+                                           Text="The whole ritual as one checklist — reads your machine first, then finishes the rest in order."/>
+                            </StackPanel>
+                            <Border Style="{StaticResource Pill}" Grid.Column="1">
+                                <StackPanel Orientation="Horizontal">
+                                    <Ellipse x:Name="QuickScanPillDot" Width="8" Height="8" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="QuickScanPillText" FontSize="12" Margin="7,0,0,0"
+                                               Foreground="{DynamicResource TextSecondaryBrush}" Text="Not checked yet"/>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+
                         <Border Style="{DynamicResource Card}">
                             <StackPanel>
-                                <TextBlock Style="{DynamicResource SectionHeader}" Text="QUICK SCAN"/>
-                                <TextBlock Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,0,0,10"
-                                           Text="The whole ritual as one checklist. It reads your machine's current state first — what is already done shows in green — and finishes the rest in order, with one master confirmation. Each step's manual control lives in its own sub-tab."/>
-                                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
                                     <Button x:Name="QuickScanBtn" Style="{DynamicResource PrimaryButton}"
                                             Content="Run Quick Scan" Click="QuickScanBtn_Click"/>
-                                    <Button x:Name="QuickScanCheckBtn" Content="Re-check status" Margin="12,0,0,0"
-                                            Padding="14,8" Click="QuickScanCheckBtn_Click"/>
+                                    <Button x:Name="QuickScanCheckBtn" Style="{StaticResource QuietBtn}" Content="Re-check status" Margin="10,0,0,0"
+                                            Click="QuickScanCheckBtn_Click"/>
                                 </StackPanel>
                                 <ItemsControl x:Name="QuickScanList">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
-                                            <Grid Margin="0,5">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="26"/>
-                                                    <ColumnDefinition Width="260"/>
-                                                    <ColumnDefinition Width="*"/>
-                                                </Grid.ColumnDefinitions>
-                                                <TextBlock Text="{Binding Chip}" FontSize="13" VerticalAlignment="Top"
-                                                           Foreground="{Binding ChipBrush}"/>
-                                                <TextBlock Grid.Column="1" Text="{Binding Title}" FontWeight="SemiBold"
-                                                           TextWrapping="Wrap" VerticalAlignment="Top"/>
-                                                <TextBlock Grid.Column="2" Text="{Binding Detail}" Foreground="{DynamicResource TextSecondaryBrush}"
-                                                           TextWrapping="Wrap" VerticalAlignment="Top"/>
-                                            </Grid>
+                                            <Border Style="{StaticResource StatusRow}">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="30"/>
+                                                        <ColumnDefinition Width="300"/>
+                                                        <ColumnDefinition Width="*"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <TextBlock Text="{Binding Chip}" FontSize="13" VerticalAlignment="Top"
+                                                               Foreground="{Binding ChipBrush}"/>
+                                                    <TextBlock Grid.Column="1" Text="{Binding Title}" Style="{StaticResource RowTitle}"
+                                                               TextWrapping="Wrap" VerticalAlignment="Top"/>
+                                                    <TextBlock Grid.Column="2" Text="{Binding Detail}" Style="{StaticResource RowEvidence}"
+                                                               VerticalAlignment="Top"/>
+                                                </Grid>
+                                            </Border>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
                                 <TextBlock x:Name="QuickScanProgress" Foreground="{DynamicResource TextSecondaryBrush}"
-                                           Visibility="Collapsed" Margin="0,8,0,0" TextWrapping="Wrap"/>
+                                           Visibility="Collapsed" Margin="8,8,0,0" TextWrapping="Wrap"/>
                             </StackPanel>
                         </Border>
                     </StackPanel>
@@ -264,110 +375,169 @@
                     </Grid>
                 </TabItem.Header>
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <StackPanel MaxWidth="880" HorizontalAlignment="Left" Margin="4,14,4,8">
-                        <Border Style="{DynamicResource Card}">
+                    <StackPanel MaxWidth="880" HorizontalAlignment="Left" Margin="4,10,4,8">
+
+                        <Grid Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
                             <StackPanel>
-                                <TextBlock Style="{DynamicResource SectionHeader}" Text="CLOSE THE DOORS"/>
-                                <TextBlock Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,0,0,10"
-                                           Text="Built-in remote-access plumbing most people never use. Re-checked live every time this tab opens."/>
-                                <Button x:Name="DoorsRefreshBtn" Content="Re-check doors" Padding="12,5" Margin="0,0,0,10"
+                                <TextBlock Style="{StaticResource LargeTitle}" Text="Doors"/>
+                                <TextBlock Style="{StaticResource SubIntro}" Margin="0,4,0,0"
+                                           Text="Entry points Windows leaves open by default. Every action asks first; every action reverses."/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
+                                <Border Style="{StaticResource Pill}" Margin="0,0,10,0">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Ellipse x:Name="DoorsPillDot" Width="8" Height="8" VerticalAlignment="Center"/>
+                                        <TextBlock x:Name="DoorsPillText" FontSize="12" Margin="7,0,0,0"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}" Text="Not checked yet"/>
+                                    </StackPanel>
+                                </Border>
+                                <Button x:Name="DoorsRefreshBtn" Style="{StaticResource QuietBtn}" Content="⟳ Re-check" VerticalAlignment="Center"
                                         Click="DoorsRefreshBtn_Click"/>
+                            </StackPanel>
+                        </Grid>
 
-                                <TextBlock Text="SSTP VPN service &amp; miniports" FontWeight="SemiBold" Margin="0,4,0,2"/>
-                                <Grid Margin="0,0,0,8">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock x:Name="SstpStatusText" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap"/>
-                                    <Button x:Name="SstpToggleBtn" Grid.Column="1" Content="Disable + neuter miniports"
-                                            Padding="12,5" Margin="12,0,0,0" Click="SstpToggleBtn_Click"/>
-                                </Grid>
+                        <TextBlock Style="{StaticResource GroupHeader}" Text="REMOTE ACCESS"/>
+                        <Border Style="{StaticResource InsetGroup}">
+                            <StackPanel>
+                                <Border Style="{StaticResource StatusRow}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Style="{StaticResource RowTitle}" Text="SSTP VPN service &amp; miniports"/>
+                                            <TextBlock x:Name="SstpStatusText" Style="{StaticResource RowEvidence}" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                        <Button x:Name="SstpToggleBtn" Grid.Column="1" Style="{StaticResource QuietBtn}" Content="Disable + neuter miniports"
+                                                VerticalAlignment="Center" Margin="12,0,0,0" Click="SstpToggleBtn_Click"/>
+                                    </Grid>
+                                </Border>
 
-                                <TextBlock Text="Wi-Fi Direct ghost hotspot" FontWeight="SemiBold" Margin="0,4,0,2"/>
-                                <Grid Margin="0,0,0,4">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock x:Name="HostedNetworkStatusText" Foreground="{DynamicResource TextSecondaryBrush}"/>
-                                    <StackPanel Grid.Column="1" Orientation="Horizontal">
-                                        <Button x:Name="HostedStopBtn" Content="Stop &amp; disallow" Padding="12,5"
-                                                Margin="12,0,0,0" Click="HostedStopBtn_Click"/>
-                                        <Button x:Name="WifiDirectRemoveBtn" Content="Remove adapter(s)" Padding="12,5"
-                                                Margin="8,0,0,0" Click="WifiDirectRemoveBtn_Click"/>
-                                    </StackPanel>
-                                </Grid>
+                                <Border Style="{StaticResource StatusRow}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Style="{StaticResource RowTitle}" Text="Wi-Fi Direct ghost hotspot"/>
+                                            <TextBlock x:Name="HostedNetworkStatusText" Style="{StaticResource RowEvidence}" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Button x:Name="HostedStopBtn" Style="{StaticResource QuietBtn}" Content="Stop &amp; disallow"
+                                                    Margin="12,0,0,0" Click="HostedStopBtn_Click"/>
+                                            <Button x:Name="WifiDirectRemoveBtn" Style="{StaticResource QuietBtn}" Content="Remove adapter(s)" Margin="8,0,0,0"
+                                                    Click="WifiDirectRemoveBtn_Click"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
 
-                                <TextBlock Text="Kernel debug (KDNET)" FontWeight="SemiBold" Margin="0,4,0,2"/>
-                                <Grid Margin="0,0,0,8">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock x:Name="KdnetStatusText" Foreground="{DynamicResource TextSecondaryBrush}"/>
-                                    <Button x:Name="KdnetToggleBtn" Grid.Column="1" Content="Turn debug off"
-                                            Padding="12,5" Margin="12,0,0,0" Click="KdnetToggleBtn_Click"/>
-                                </Grid>
+                                <Border Style="{StaticResource StatusRow}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Style="{StaticResource RowTitle}" Text="Kernel debug (KDNET)"/>
+                                            <TextBlock x:Name="KdnetStatusText" Style="{StaticResource RowEvidence}" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                        <Button x:Name="KdnetToggleBtn" Grid.Column="1" Style="{StaticResource QuietBtn}" Content="Turn debug off"
+                                                VerticalAlignment="Center" Margin="12,0,0,0" Click="KdnetToggleBtn_Click"/>
+                                    </Grid>
+                                </Border>
 
-                                <TextBlock Text="Windows VPN services (RasMan, IKEEXT, PolicyAgent, RemoteAccess)" FontWeight="SemiBold" Margin="0,4,0,2"/>
-                                <Grid Margin="0,0,0,4">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock x:Name="VpnStatusText" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap"/>
-                                    <StackPanel Grid.Column="1" Orientation="Horizontal">
-                                        <Button x:Name="VpnDisableBtn" Content="Disable all" Padding="12,5"
-                                                Margin="12,0,0,0" Click="VpnDisableBtn_Click"/>
-                                        <Button x:Name="VpnEnableBtn" Content="Re-enable" Padding="12,5"
-                                                Margin="8,0,0,0" Click="VpnEnableBtn_Click"/>
-                                    </StackPanel>
-                                </Grid>
+                                <Border Style="{StaticResource StatusRow}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Style="{StaticResource RowTitle}" Text="Windows VPN services (RasMan, IKEEXT, PolicyAgent, RemoteAccess)"/>
+                                            <TextBlock x:Name="VpnStatusText" Style="{StaticResource RowEvidence}" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                        <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                            <Button x:Name="VpnDisableBtn" Style="{StaticResource QuietBtn}" Content="Disable all"
+                                                    Margin="12,0,0,0" Click="VpnDisableBtn_Click"/>
+                                            <Button x:Name="VpnEnableBtn" Style="{StaticResource QuietBtn}" Content="Re-enable" Margin="8,0,0,0"
+                                                    Click="VpnEnableBtn_Click"/>
+                                        </StackPanel>
+                                    </Grid>
+                                </Border>
 
-                                <TextBlock Text="WAN Miniport adapters" FontWeight="SemiBold" Margin="0,4,0,2"/>
-                                <Grid Margin="0,0,0,8">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock x:Name="MiniportStatusText" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap"/>
-                                    <Button x:Name="MiniportRemoveBtn" Grid.Column="1" Content="Remove all" Padding="12,5"
-                                            Margin="12,0,0,0" Click="MiniportRemoveBtn_Click"/>
-                                </Grid>
-
-                                <TextBlock Text="Legacy name resolution (LLMNR · NetBIOS · mDNS)" FontWeight="SemiBold" Margin="0,10,0,2"/>
-                                <Grid Margin="0,0,0,4">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock x:Name="LlmnrStatusText" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap"/>
-                                    <Button x:Name="LlmnrToggleBtn" Grid.Column="1" Content="Disable LLMNR" Padding="12,5"
-                                            Margin="12,0,0,0" Click="LlmnrToggleBtn_Click"/>
-                                </Grid>
-                                <Grid Margin="0,0,0,4">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock x:Name="NbnsStatusText" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap"/>
-                                    <Button x:Name="NbnsToggleBtn" Grid.Column="1" Content="Disable NetBIOS" Padding="12,5"
-                                            Margin="12,0,0,0" Click="NbnsToggleBtn_Click"/>
-                                </Grid>
-                                <Grid Margin="0,0,0,8">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock x:Name="MdnsStatusText" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap"/>
-                                    <Button x:Name="MdnsToggleBtn" Grid.Column="1" Content="Block mDNS" Padding="12,5"
-                                            Margin="12,0,0,0" Click="MdnsToggleBtn_Click"/>
-                                </Grid>
-                                <TextBlock x:Name="DoorActionResult" Foreground="{DynamicResource TextSecondaryBrush}"
-                                           TextWrapping="Wrap" Visibility="Collapsed"/>
+                                <Border Style="{StaticResource StatusRow}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Style="{StaticResource RowTitle}" Text="WAN Miniport adapters"/>
+                                            <TextBlock x:Name="MiniportStatusText" Style="{StaticResource RowEvidence}" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                        <Button x:Name="MiniportRemoveBtn" Grid.Column="1" Style="{StaticResource QuietBtn}" Content="Remove all"
+                                                VerticalAlignment="Center" Margin="12,0,0,0" Click="MiniportRemoveBtn_Click"/>
+                                    </Grid>
+                                </Border>
                             </StackPanel>
                         </Border>
+
+                        <TextBlock Style="{StaticResource GroupHeader}" Text="LEGACY NAME RESOLUTION"/>
+                        <Border Style="{StaticResource InsetGroup}">
+                            <StackPanel>
+                                <Border Style="{StaticResource StatusRow}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Style="{StaticResource RowTitle}" Text="LLMNR · UDP 5355"/>
+                                            <TextBlock x:Name="LlmnrStatusText" Style="{StaticResource RowEvidence}" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                        <Button x:Name="LlmnrToggleBtn" Grid.Column="1" Style="{StaticResource QuietBtn}" Content="Disable LLMNR"
+                                                VerticalAlignment="Center" Margin="12,0,0,0" Click="LlmnrToggleBtn_Click"/>
+                                    </Grid>
+                                </Border>
+                                <Border Style="{StaticResource StatusRow}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Style="{StaticResource RowTitle}" Text="NetBIOS name resolution · UDP 137"/>
+                                            <TextBlock x:Name="NbnsStatusText" Style="{StaticResource RowEvidence}" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                        <Button x:Name="NbnsToggleBtn" Grid.Column="1" Style="{StaticResource QuietBtn}" Content="Disable NetBIOS"
+                                                VerticalAlignment="Center" Margin="12,0,0,0" Click="NbnsToggleBtn_Click"/>
+                                    </Grid>
+                                </Border>
+                                <Border Style="{StaticResource StatusRow}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Style="{StaticResource RowTitle}" Text="mDNS · UDP 5353"/>
+                                            <TextBlock x:Name="MdnsStatusText" Style="{StaticResource RowEvidence}" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                        <Button x:Name="MdnsToggleBtn" Grid.Column="1" Style="{StaticResource QuietBtn}" Content="Block mDNS"
+                                                VerticalAlignment="Center" Margin="12,0,0,0" Click="MdnsToggleBtn_Click"/>
+                                    </Grid>
+                                </Border>
+                            </StackPanel>
+                        </Border>
+
+                        <TextBlock x:Name="DoorActionResult" Foreground="{DynamicResource TextSecondaryBrush}"
+                                   TextWrapping="Wrap" Visibility="Collapsed" Margin="8,0,0,0"/>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>
@@ -380,52 +550,74 @@
                             <ColumnDefinition Width="Auto"/>
                             <ColumnDefinition Width="*"/>
                         </Grid.ColumnDefinitions>
-                        <TextBlock Text="📵" FontSize="14" VerticalAlignment="Center"/>
+                        <TextBlock Text="🔕" FontSize="14" VerticalAlignment="Center"/>
                         <TextBlock Grid.Column="1" Text="Privacy" Margin="9,0,0,0" Style="{StaticResource RailLabel}"/>
                         <Ellipse x:Name="PrivacyDot" Grid.Column="1" Width="8" Height="8" HorizontalAlignment="Right"
                                  VerticalAlignment="Center" Fill="Gray" ToolTip="Not checked yet"/>
                     </Grid>
                 </TabItem.Header>
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <StackPanel MaxWidth="880" HorizontalAlignment="Left" Margin="4,14,4,8">
+                    <StackPanel MaxWidth="880" HorizontalAlignment="Left" Margin="4,10,4,8">
+
+                        <Grid Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource LargeTitle}" Text="Privacy"/>
+                                <TextBlock Style="{StaticResource SubIntro}" Margin="0,4,0,0"
+                                           Text="Each vendor's own opt-out switch, saved and reversible. Feature rules reduce at the source — only a firewall block proves zero bytes."/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
+                                <Border Style="{StaticResource Pill}" Margin="0,0,10,0">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Ellipse x:Name="PrivacyPillDot" Width="8" Height="8" VerticalAlignment="Center"/>
+                                        <TextBlock x:Name="PrivacyPillText" FontSize="12" Margin="7,0,0,0"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}" Text="Not checked yet"/>
+                                    </StackPanel>
+                                </Border>
+                                <Button x:Name="TelemetryRefreshBtn" Style="{StaticResource QuietBtn}" Content="⟳ Re-check" VerticalAlignment="Center"
+                                        Click="TelemetryRefreshBtn_Click"/>
+                            </StackPanel>
+                        </Grid>
+
                         <Border Style="{DynamicResource Card}">
                             <StackPanel>
-                                <TextBlock Style="{DynamicResource SectionHeader}" Text="SILENCE THE PHONE-HOME"/>
-                                <TextBlock Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,0,0,10"
-                                           Text="Flips each vendor's own official opt-out switch, saves the previous setting, then checks the app actually stopped. One click reverts exactly. Optional: pin the domains in the hosts file as a backstop — attempts then land in AutoCommand's sinkhole log."/>
-                                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                                    <Button x:Name="TelemetryRefreshBtn" Content="Re-check vendors" Padding="12,5"
-                                            Click="TelemetryRefreshBtn_Click"/>
-                                    <Button x:Name="TelemetryEnforceAllBtn" Content="Pin remaining (hosts backstop)" Padding="12,5"
-                                            Margin="8,0,0,0" Click="TelemetryEnforceAllBtn_Click"/>
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                    <Button x:Name="TelemetryEnforceAllBtn" Style="{StaticResource QuietBtn}" Content="Pin remaining (hosts backstop)"
+                                            Click="TelemetryEnforceAllBtn_Click"/>
                                 </StackPanel>
                                 <ItemsControl x:Name="TelemetryList">
                                     <ItemsControl.ItemTemplate>
                                         <DataTemplate>
-                                            <Grid Margin="0,5">
-                                                <Grid.ColumnDefinitions>
-                                                    <ColumnDefinition Width="220"/>
-                                                    <ColumnDefinition Width="150"/>
-                                                    <ColumnDefinition Width="*"/>
-                                                    <ColumnDefinition Width="Auto"/>
-                                                </Grid.ColumnDefinitions>
-                                                <TextBlock Text="{Binding AppName}" FontWeight="SemiBold" TextWrapping="Wrap"/>
-                                                <TextBlock Grid.Column="1" Text="{Binding StateText}" Foreground="{Binding StateBrush}"
-                                                           TextWrapping="Wrap"/>
-                                                <TextBlock Grid.Column="2" Text="{Binding Evidence}" Foreground="{DynamicResource TextSecondaryBrush}"
-                                                           TextWrapping="Wrap"/>
-                                                <StackPanel Grid.Column="3" Orientation="Horizontal">
-                                                    <Button Content="Opt out" Padding="10,4" Visibility="{Binding OptOutVis}"
-                                                            Click="TelemetryOptOut_Click" Tag="{Binding}"/>
-                                                    <Button Content="Revert" Padding="10,4" Margin="6,0,0,0" Visibility="{Binding RevertVis}"
-                                                            Click="TelemetryRevert_Click" Tag="{Binding}"/>
-                                                </StackPanel>
-                                            </Grid>
+                                            <Border Style="{StaticResource StatusRow}">
+                                                <Grid>
+                                                    <Grid.ColumnDefinitions>
+                                                        <ColumnDefinition Width="*"/>
+                                                        <ColumnDefinition Width="Auto"/>
+                                                    </Grid.ColumnDefinitions>
+                                                    <StackPanel>
+                                                        <StackPanel Orientation="Horizontal">
+                                                            <TextBlock Text="{Binding AppName}" Style="{StaticResource RowTitle}"/>
+                                                            <TextBlock Text="{Binding StateText}" FontSize="12" Margin="10,0,0,0"
+                                                                       Foreground="{Binding StateBrush}" VerticalAlignment="Center"/>
+                                                        </StackPanel>
+                                                        <TextBlock Text="{Binding Evidence}" Style="{StaticResource RowEvidence}" Margin="0,2,0,0"/>
+                                                    </StackPanel>
+                                                    <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Center">
+                                                        <Button Style="{StaticResource QuietBtn}" Content="Opt out" Visibility="{Binding OptOutVis}"
+                                                                Click="TelemetryOptOut_Click" Tag="{Binding}"/>
+                                                        <Button Style="{StaticResource QuietBtn}" Content="Revert" Margin="8,0,0,0" Visibility="{Binding RevertVis}"
+                                                                Click="TelemetryRevert_Click" Tag="{Binding}"/>
+                                                    </StackPanel>
+                                                </Grid>
+                                            </Border>
                                         </DataTemplate>
                                     </ItemsControl.ItemTemplate>
                                 </ItemsControl>
                                 <TextBlock x:Name="TelemetryResultText" Foreground="{DynamicResource TextSecondaryBrush}"
-                                           Margin="0,8,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
+                                           Margin="8,8,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
                             </StackPanel>
                         </Border>
                     </StackPanel>
@@ -447,22 +639,38 @@
                     </Grid>
                 </TabItem.Header>
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <StackPanel MaxWidth="880" HorizontalAlignment="Left" Margin="4,14,4,8">
+                    <StackPanel MaxWidth="880" HorizontalAlignment="Left" Margin="4,10,4,8">
+
+                        <Grid Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource LargeTitle}" Text="Junk"/>
+                                <TextBlock Style="{StaticResource SubIntro}" Margin="0,4,0,0"
+                                           Text="Preinstalled apps — games, trial apps, the ones that come back with the update. Nothing Windows needs is ever on the list."/>
+                            </StackPanel>
+                            <Border Style="{StaticResource Pill}" Grid.Column="1">
+                                <StackPanel Orientation="Horizontal">
+                                    <Ellipse x:Name="JunkPillDot" Width="8" Height="8" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="JunkPillText" FontSize="12" Margin="7,0,0,0"
+                                               Foreground="{DynamicResource TextSecondaryBrush}" Text="Not scanned yet"/>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
+
                         <Border Style="{DynamicResource Card}">
                             <StackPanel>
-                                <TextBlock Style="{DynamicResource SectionHeader}" Text="TAKE THE JUNK OUT"/>
-                                <TextBlock Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,0,0,10"
-                                           Text="Preinstalled apps — games, trial apps, the ones that come back with the update. Nothing Windows needs to run is ever on the list, and you can edit the list in the standalone Shields Up editor before running this."/>
-                                <StackPanel Orientation="Horizontal" Margin="0,0,0,8">
-                                    <Button x:Name="BloatRefreshBtn" Content="Scan for bloatware" Padding="12,5"
+                                <StackPanel Orientation="Horizontal" Margin="0,0,0,10">
+                                    <Button x:Name="BloatRefreshBtn" Style="{StaticResource QuietBtn}" Content="Scan for bloatware"
                                             Click="BloatRefreshBtn_Click"/>
-                                    <Button x:Name="BloatRemoveBtn" Content="Remove matched apps" Padding="12,5" Margin="8,0,0,0"
+                                    <Button x:Name="BloatRemoveBtn" Style="{StaticResource QuietBtn}" Content="Remove matched apps" Margin="10,0,0,0"
                                             Click="BloatRemoveBtn_Click"/>
                                 </StackPanel>
-                                <TextBlock x:Name="BloatListText" Foreground="{DynamicResource TextSecondaryBrush}"
-                                           TextWrapping="Wrap" Text="Not scanned yet."/>
+                                <TextBlock x:Name="BloatListText" Style="{StaticResource RowEvidence}" Text="Not scanned yet."/>
                                 <TextBlock x:Name="BloatResultText" Foreground="{DynamicResource TextSecondaryBrush}"
-                                           Margin="0,8,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
+                                           Margin="8,8,0,0" TextWrapping="Wrap" Visibility="Collapsed"/>
                             </StackPanel>
                         </Border>
                     </StackPanel>
@@ -484,60 +692,99 @@
                     </Grid>
                 </TabItem.Header>
                 <ScrollViewer VerticalScrollBarVisibility="Auto">
-                    <StackPanel MaxWidth="880" HorizontalAlignment="Left" Margin="4,14,4,8">
-                        <Border Style="{DynamicResource Card}">
+                    <StackPanel MaxWidth="880" HorizontalAlignment="Left" Margin="4,10,4,8">
+
+                        <Grid Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
                             <StackPanel>
-                                <TextBlock Style="{DynamicResource SectionHeader}" Text="OS HARDENING"/>
-                                <TextBlock Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" Margin="0,0,0,10"
-                                           Text="Registry-level switches, each reversible. Reboot after changing IPv6 or LSA."/>
+                                <TextBlock Style="{StaticResource LargeTitle}" Text="Hardening"/>
+                                <TextBlock Style="{StaticResource SubIntro}" Margin="0,4,0,0"
+                                           Text="Registry-level OS switches, each reversible. Reboot after changing IPv6 or LSA."/>
+                            </StackPanel>
+                            <Border Style="{StaticResource Pill}" Grid.Column="1">
+                                <StackPanel Orientation="Horizontal">
+                                    <Ellipse x:Name="HardeningPillDot" Width="8" Height="8" VerticalAlignment="Center"/>
+                                    <TextBlock x:Name="HardeningPillText" FontSize="12" Margin="7,0,0,0"
+                                               Foreground="{DynamicResource TextSecondaryBrush}" Text="Not checked yet"/>
+                                </StackPanel>
+                            </Border>
+                        </Grid>
 
-                                <TextBlock Text="IPv6 (global DisabledComponents)" FontWeight="SemiBold" Margin="0,4,0,2"/>
-                                <Grid Margin="0,0,0,8">
+                        <TextBlock Style="{StaticResource GroupHeader}" Text="NETWORK"/>
+                        <Border Style="{StaticResource InsetGroup}">
+                            <Border Style="{StaticResource StatusRow}">
+                                <Grid>
                                     <Grid.ColumnDefinitions>
                                         <ColumnDefinition Width="*"/>
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
-                                    <TextBlock x:Name="Ipv6StatusText" Foreground="{DynamicResource TextSecondaryBrush}"/>
-                                    <Button x:Name="Ipv6Btn" Grid.Column="1" Content="Disable" Padding="12,5"
-                                            Margin="12,0,0,0" Click="Ipv6Btn_Click"/>
+                                    <StackPanel>
+                                        <TextBlock Style="{StaticResource RowTitle}" Text="IPv6 (global DisabledComponents)"/>
+                                        <TextBlock x:Name="Ipv6StatusText" Style="{StaticResource RowEvidence}" Margin="0,2,0,0"/>
+                                    </StackPanel>
+                                    <Button x:Name="Ipv6Btn" Grid.Column="1" Style="{StaticResource QuietBtn}" Content="Disable"
+                                            VerticalAlignment="Center" Margin="12,0,0,0" Click="Ipv6Btn_Click"/>
                                 </Grid>
+                            </Border>
+                        </Border>
 
-                                <TextBlock Text="LSA Protection (RunAsPPL)" FontWeight="SemiBold" Margin="0,4,0,2"/>
-                                <Grid Margin="0,0,0,8">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock x:Name="LsaStatusText" Foreground="{DynamicResource TextSecondaryBrush}"/>
-                                    <Button x:Name="LsaBtn" Grid.Column="1" Content="Enable" Padding="12,5"
-                                            Margin="12,0,0,0" Click="LsaBtn_Click"/>
-                                </Grid>
-
-                                <TextBlock Text="UAC strictness" FontWeight="SemiBold" Margin="0,4,0,2"/>
-                                <Grid Margin="0,0,0,8">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock x:Name="UacStatusText" Foreground="{DynamicResource TextSecondaryBrush}"/>
-                                    <Button x:Name="UacBtn" Grid.Column="1" Content="Set maximum" Padding="12,5"
-                                            Margin="12,0,0,0" Click="UacBtn_Click"/>
-                                </Grid>
-
-                                <TextBlock Text="Hosts file" FontWeight="SemiBold" Margin="0,4,0,2"/>
-                                <Grid Margin="0,0,0,4">
-                                    <Grid.ColumnDefinitions>
-                                        <ColumnDefinition Width="*"/>
-                                        <ColumnDefinition Width="Auto"/>
-                                    </Grid.ColumnDefinitions>
-                                    <TextBlock x:Name="HostsStatusText" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap"/>
-                                    <Button x:Name="HostsResetBtn" Grid.Column="1" Content="Reset to default" Padding="12,5"
-                                            Margin="12,0,0,0" Click="HostsResetBtn_Click"/>
-                                </Grid>
-                                <TextBlock x:Name="HardeningActionResult" Foreground="{DynamicResource TextSecondaryBrush}"
-                                           TextWrapping="Wrap" Visibility="Collapsed"/>
+                        <TextBlock Style="{StaticResource GroupHeader}" Text="SIGN-IN"/>
+                        <Border Style="{StaticResource InsetGroup}">
+                            <StackPanel>
+                                <Border Style="{StaticResource StatusRow}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Style="{StaticResource RowTitle}" Text="LSA Protection (RunAsPPL)"/>
+                                            <TextBlock x:Name="LsaStatusText" Style="{StaticResource RowEvidence}" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                        <Button x:Name="LsaBtn" Grid.Column="1" Style="{StaticResource QuietBtn}" Content="Enable"
+                                                VerticalAlignment="Center" Margin="12,0,0,0" Click="LsaBtn_Click"/>
+                                    </Grid>
+                                </Border>
+                                <Border Style="{StaticResource StatusRow}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Style="{StaticResource RowTitle}" Text="UAC strictness"/>
+                                            <TextBlock x:Name="UacStatusText" Style="{StaticResource RowEvidence}" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                        <Button x:Name="UacBtn" Grid.Column="1" Style="{StaticResource QuietBtn}" Content="Set maximum"
+                                                VerticalAlignment="Center" Margin="12,0,0,0" Click="UacBtn_Click"/>
+                                    </Grid>
+                                </Border>
                             </StackPanel>
                         </Border>
+
+                        <TextBlock Style="{StaticResource GroupHeader}" Text="HOSTS FILE"/>
+                        <Border Style="{StaticResource InsetGroup}">
+                            <Border Style="{StaticResource StatusRow}">
+                                <Grid>
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <StackPanel>
+                                        <TextBlock Style="{StaticResource RowTitle}" Text="Hosts file"/>
+                                        <TextBlock x:Name="HostsStatusText" Style="{StaticResource RowEvidence}" Margin="0,2,0,0"/>
+                                    </StackPanel>
+                                    <Button x:Name="HostsResetBtn" Grid.Column="1" Style="{StaticResource QuietBtn}" Content="Reset to default"
+                                            VerticalAlignment="Center" Margin="12,0,0,0" Click="HostsResetBtn_Click"/>
+                                </Grid>
+                            </Border>
+                        </Border>
+
+                        <TextBlock x:Name="HardeningActionResult" Foreground="{DynamicResource TextSecondaryBrush}"
+                                   TextWrapping="Wrap" Visibility="Collapsed" Margin="8,0,0,0"/>
                     </StackPanel>
                 </ScrollViewer>
             </TabItem>

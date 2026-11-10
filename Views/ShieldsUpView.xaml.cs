@@ -264,9 +264,24 @@ public partial class ShieldsUpView : UserControl
             + (llmnr.Open ? 1 : 0)
             + (netbios.State is NameResolutionDoors.NbState.None or NameResolutionDoors.NbState.Partial ? 1 : 0)
             + (mdns.Open ? 1 : 0);
-        if (kdnet) SetDot(DoorsDot, BadBrush, "Kernel debug on — open Doors");
-        else if (openDoors > 0) SetDot(DoorsDot, WarnBrush, openDoors + " door(s) open — open Doors");
-        else SetDot(DoorsDot, OkBrush, "All doors closed");
+        // total = every counted row above: remote-access five + the three
+        // name-resolution doors
+        int totalDoors = 8;
+        if (kdnet)
+        {
+            SetDot(DoorsDot, BadBrush, "Kernel debug on — open Doors");
+            SetPill(DoorsPillDot, DoorsPillText, BadBrush, "Kernel debug on — attention");
+        }
+        else if (openDoors > 0)
+        {
+            SetDot(DoorsDot, WarnBrush, openDoors + " door(s) open — open Doors");
+            SetPill(DoorsPillDot, DoorsPillText, WarnBrush, openDoors + " of " + totalDoors + " open");
+        }
+        else
+        {
+            SetDot(DoorsDot, OkBrush, "All doors closed");
+            SetPill(DoorsPillDot, DoorsPillText, OkBrush, "All " + totalDoors + " doors closed");
+        }
 
         DoorActionResult.Visibility = Visibility.Collapsed;
     }
@@ -531,9 +546,35 @@ public partial class ShieldsUpView : UserControl
     {
         int open = _scanRows.Count(r => r.ChipBrush == WarnBrush);
         int failed = _scanRows.Count(r => r.ChipBrush == BadBrush);
-        if (failed > 0) SetDot(QuickScanDot, BadBrush, failed + " step(s) failed — open Quick Scan");
-        else if (open > 0) SetDot(QuickScanDot, WarnBrush, open + " step(s) open — open Quick Scan");
-        else SetDot(QuickScanDot, OkBrush, "All steps done");
+        if (failed > 0)
+        {
+            SetDot(QuickScanDot, BadBrush, failed + " step(s) failed — open Quick Scan");
+            SetPill(QuickScanPillDot, QuickScanPillText, BadBrush, failed + " step(s) failed");
+        }
+        else if (open > 0)
+        {
+            SetDot(QuickScanDot, WarnBrush, open + " step(s) open — open Quick Scan");
+            SetPill(QuickScanPillDot, QuickScanPillText, WarnBrush, open + " step(s) open");
+        }
+        else
+        {
+            SetDot(QuickScanDot, OkBrush, "All steps done");
+            SetPill(QuickScanPillDot, QuickScanPillText, OkBrush, "All steps done");
+        }
+    }
+
+    /// <summary>The HIG summary pill under each subtab's large title: the
+    /// page's whole verdict in one glance, driven from the same aggregate
+    /// the rail dot already computes — dot for the rail, pill for the page.</summary>
+    private void SetPill(System.Windows.Shapes.Ellipse dot, TextBlock text,
+        System.Windows.Media.Brush brush, string message)
+    {
+        try
+        {
+            dot.Fill = brush;
+            text.Text = message;
+        }
+        catch { /* the pill is advisory */ }
     }
 
     // ── rail collapse ───────────────────────────────────────────────────
@@ -662,9 +703,21 @@ public partial class ShieldsUpView : UserControl
             // vendors are off.
             int stillOn = statuses.Count(s => s.State != TelemetryState.Off);
             int ineffective = statuses.Count(s => s.State == TelemetryState.Ineffective);
-            if (ineffective > 0) SetDot(PrivacyDot, BadBrush, ineffective + " opt-out(s) ineffective — open Privacy");
-            else if (stillOn > 0) SetDot(PrivacyDot, WarnBrush, stillOn + " vendor(s) still reporting — open Privacy");
-            else SetDot(PrivacyDot, OkBrush, "All vendors opted out");
+            if (ineffective > 0)
+            {
+                SetDot(PrivacyDot, BadBrush, ineffective + " opt-out(s) ineffective — open Privacy");
+                SetPill(PrivacyPillDot, PrivacyPillText, BadBrush, ineffective + " opt-out(s) ineffective");
+            }
+            else if (stillOn > 0)
+            {
+                SetDot(PrivacyDot, WarnBrush, stillOn + " vendor(s) still reporting — open Privacy");
+                SetPill(PrivacyPillDot, PrivacyPillText, WarnBrush, stillOn + " vendor(s) still on");
+            }
+            else
+            {
+                SetDot(PrivacyDot, OkBrush, "All vendors opted out");
+                SetPill(PrivacyPillDot, PrivacyPillText, OkBrush, "All vendors opted out");
+            }
         }
         catch (Exception ex)
         {
@@ -776,8 +829,16 @@ public partial class ShieldsUpView : UserControl
                 : $"{_matchedBloat.Count} matched package(s):\n" +
                   string.Join("\n", _matchedBloat.Select(a => "• " + a.Name));
             BloatRemoveBtn.IsEnabled = _matchedBloat.Count > 0;
-            if (_matchedBloat.Count > 0) SetDot(JunkDot, WarnBrush, _matchedBloat.Count + " matched package(s) — open Junk");
-            else SetDot(JunkDot, OkBrush, "Nothing to remove");
+            if (_matchedBloat.Count > 0)
+            {
+                SetDot(JunkDot, WarnBrush, _matchedBloat.Count + " matched package(s) — open Junk");
+                SetPill(JunkPillDot, JunkPillText, WarnBrush, _matchedBloat.Count + " package(s) matched");
+            }
+            else
+            {
+                SetDot(JunkDot, OkBrush, "Nothing to remove");
+                SetPill(JunkPillDot, JunkPillText, OkBrush, "Nothing to remove");
+            }
         }
         catch (Exception ex)
         {
@@ -857,9 +918,21 @@ public partial class ShieldsUpView : UserControl
         // Rail dot: red on a hijacked hosts file, amber while switches are
         // not yet set, green when everything is in place.
         int unset = (ipv6 ? 0 : 1) + (lsa ? 0 : 1) + (uac ? 0 : 1);
-        if (hosts.Suspicious) SetDot(HardeningDot, BadBrush, "Hosts file may be hijacked — open Hardening");
-        else if (unset > 0) SetDot(HardeningDot, WarnBrush, unset + " switch(es) not set — open Hardening");
-        else SetDot(HardeningDot, OkBrush, "All switches set");
+        if (hosts.Suspicious)
+        {
+            SetDot(HardeningDot, BadBrush, "Hosts file may be hijacked — open Hardening");
+            SetPill(HardeningPillDot, HardeningPillText, BadBrush, "Hosts file may be hijacked");
+        }
+        else if (unset > 0)
+        {
+            SetDot(HardeningDot, WarnBrush, unset + " switch(es) not set — open Hardening");
+            SetPill(HardeningPillDot, HardeningPillText, WarnBrush, unset + " switch(es) not set");
+        }
+        else
+        {
+            SetDot(HardeningDot, OkBrush, "All switches set");
+            SetPill(HardeningPillDot, HardeningPillText, OkBrush, "All switches set");
+        }
     }
 
     private async void Ipv6Btn_Click(object sender, RoutedEventArgs e)
