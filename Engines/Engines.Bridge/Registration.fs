@@ -64,6 +64,14 @@ type StaleMcpRegistration() =
     /// <summary>True when the registered exe is missing entirely.</summary>
     member val Broken = false with get, set
 
+/// <summary>Per-client outcome of a bulk (auto-)registration pass.</summary>
+[<AllowNullLiteral>]
+type RegistrationOutcome() =
+    member val Id: string = null with get, set
+    member val DisplayName: string = null with get, set
+    member val Success = false with get, set
+    member val Message: string = null with get, set
+
 type McpClientCatalog (identity: AppIdentity, mcpId: string, proxyExeName: string) as this =
 
     // ── client catalog ────────────────────────────────────────────────
@@ -174,6 +182,58 @@ type McpClientCatalog (identity: AppIdentity, mcpId: string, proxyExeName: strin
 
     member _.Catalog = catalog
 
+    // ── stable 'current' junction ─────────────────────────────────────
+    // Registered client configs used to pin tools\v<version>\...exe, so
+    // EVERY app update stranded every registration (the stale-banner
+    // dance). The junction gives configs a path that never changes:
+    // tools\current → tools\v<latest>. A proxy already running keeps its
+    // real (old) path — a junction swap only affects future spawns.
+
+    /// <summary>
+    /// Points root\current at the given versioned install dir, atomically
+    /// enough for config purposes (a swap is delete+recreate of the link;
+    /// the gap is microseconds and MCP spawns are rare). Refuses to touch
+    /// a plain (non-junction) directory named 'current' — that is not
+    /// ours. True when root\current\proxyExeName resolves after the call.
+    /// </summary>
+    member internal _.EnsureCurrentJunction (root: string, targetDir: string) : bool =
+        try
+            if String.IsNullOrEmpty root || String.IsNullOrEmpty targetDir then false
+            else
+                let link = Path.Combine(root, "current")
+
+                let pointsAtTarget () =
+                    try
+                        if Directory.Exists(link) &&
+                           (File.GetAttributes(link) &&& FileAttributes.ReparsePoint) <> enum 0 then
+                            match Directory.ResolveLinkTarget(link, returnFinalTarget = false) with
+                            | null -> false
+                            | t -> String.Equals(t.FullName, targetDir, StringComparison.OrdinalIgnoreCase)
+                        else false
+                    with _ -> false
+
+                if pointsAtTarget () then true
+                else
+                    // remove a stale link — as a LINK, never recursing
+                    // through it; a plain directory named 'current' is not
+                    // ours and is left alone
+                    let mutable removed = true
+                    if Directory.Exists(link) then
+                        if (File.GetAttributes(link) &&& FileAttributes.ReparsePoint) <> enum 0 then
+                            try Directory.Delete(link) with _ -> removed <- false
+                        else removed <- false
+                    if not removed then false
+                    else
+                        let psi = ProcessStartInfo("cmd.exe",
+                            "/c mklink /J \"" + link + "\" \"" + targetDir + "\"")
+                        psi.CreateNoWindow <- true
+                        psi.UseShellExecute <- false
+                        use p = Process.Start(psi)
+                        if not <| p.WaitForExit(5000) then
+                            try p.Kill() with _ -> ()
+                        pointsAtTarget ()
+        with _ -> false
+
     // ── stale-registration detection (autocommand-ii; autoscope port
     //    predates it) — a client entry pointing at a dead or superseded
     //    proxy exe ─────────────────────────────────────────────────────
@@ -241,6 +301,77 @@ type McpClientCatalog (identity: AppIdentity, mcpId: string, proxyExeName: strin
 
     member _.IsDetected (client: McpClientRegistration) =
         Directory.Exists(client.DetectDir)
+
+    /// <summary>True when the client's config carries our entry (any
+    /// command). The cheap population check behind the consent dialog's
+    /// "which clients are not wired up yet" and the Remove button.</summary>
+    member _.IsRegistered (client: McpClientRegistration) : bool =
+        not (isNull (this.ReadRegisteredCommand client))
+
+    /// <summary>
+    /// Registers the proxy into EVERY detected client in one pass (the
+    /// consent-gated auto-registration path). Undetected clients are
+    /// skipped — nothing is ever written for apps that are not installed.
+    /// </summary>
+    member _.RegisterDetectedClients (proxyPath: string,
+                                      [<Optional; DefaultParameterValue(null: IEnumerable<McpClientRegistration>)>] clients: IEnumerable<McpClientRegistration>) : ResizeArray<RegistrationOutcome> =
+        let results = ResizeArray<RegistrationOutcome>()
+        let source =
+            if isNull (box clients) then this.Catalog :> IEnumerable<McpClientRegistration>
+            else clients
+        for client in source do
+            if this.IsDetected client then
+                let ok, msg = this.Register(client, proxyPath)
+                results.Add(RegistrationOutcome(Id = client.Id, DisplayName = client.DisplayName, Success = ok, Message = msg))
+        results
+
+    /// <summary>
+    /// Removes our entry from a client config — the first-class exit the
+    /// Register path never had. Same discipline as Register: backup before
+    /// write, touch only our key, verify by re-reading.
+    /// </summary>
+    member _.Unregister (client: McpClientRegistration) : bool * string =
+        try
+            if not (File.Exists client.ConfigPath) then
+                (false, client.DisplayName + " has no config file at:\n" + client.ConfigPath + "\n\nNothing to remove.")
+            else
+                let text = File.ReadAllText client.ConfigPath
+                match JsonNode.Parse text with
+                | :? JsonObject as root ->
+                    // walk to our level; a foreign shape is refused, never rewritten
+                    let mutable node: JsonNode = root
+                    let mutable walkOk = true
+                    for k in client.RootKeyPath.Split('/') do
+                        if walkOk then
+                            match node with
+                            | :? JsonObject as o -> node <- o.[k]
+                            | _ -> walkOk <- false
+                    match node with
+                    | :? JsonObject as servers when walkOk && servers.ContainsKey(mcpId) ->
+                        File.WriteAllText(client.ConfigPath + "." + mcpId + "-backup", text) // revert is a rename away
+                        servers.Remove(mcpId) |> ignore
+                        File.WriteAllText(client.ConfigPath, root.ToJsonString(JsonSerializerOptions(WriteIndented = true)))
+                        // verify: the re-read file must NOT carry our entry
+                        let mutable check: JsonNode = JsonNode.Parse(File.ReadAllText client.ConfigPath)
+                        for k in client.RootKeyPath.Split('/') do
+                            if not (isNull (box check)) then check <- check.[k]
+                        let gone =
+                            match check with
+                            | :? JsonObject as o -> not (o.ContainsKey mcpId)
+                            | _ -> true
+                        if gone then
+                            (true, "Removed the '" + mcpId + "' entry from " + client.DisplayName + " (user scope):\n" +
+                                   client.ConfigPath + "\n\nA backup of the previous config sits beside it.")
+                        else
+                            (false, "Wrote the config but the entry survived the re-read — check the file by hand:\n" +
+                                    client.ConfigPath)
+                    | _ ->
+                        (false, client.DisplayName + "'s config has no '" + mcpId + "' entry — nothing to remove.")
+                | _ ->
+                    (false, "The config is not a readable JSON object — not touching it:\n" + client.ConfigPath +
+                            "\n\nRemove the '" + mcpId + "' entry by hand.")
+        with ex ->
+            (false, "Could not update the " + client.DisplayName + " config:\n" + ex.Message)
 
     /// <summary>
     /// Writes the MCP entry into the client's config: parse the existing
@@ -366,8 +497,33 @@ type McpClientCatalog (identity: AppIdentity, mcpId: string, proxyExeName: strin
     /// reported, never silently registered.
     /// Core with injectable inputs so self-tests can drive it.
     /// </summary>
+    /// <summary>
+    /// Resolves the proxy and returns the path clients should be registered
+    /// at: the STABLE tools\current junction when one can be ensured (so a
+    /// registered config survives every future version bump), else the
+    /// versioned path with an honest note. Legacy flat layouts never get a
+    /// junction (their dir IS the root).
+    /// </summary>
     member internal _.ResolveAndInstallProxy (appVersion: string, root: string,
                                               sourceDirs: IEnumerable<string>) : string * string =
+        let versioned, note = this.ResolveVersionedProxy(appVersion, root, sourceDirs)
+        if isNull versioned then (versioned, note)
+        else
+            let targetDir = (Path.GetDirectoryName versioned).TrimEnd('\\')
+            let dirName = Path.GetFileName(targetDir)
+            let isVersionedChild =
+                dirName.StartsWith("v", StringComparison.Ordinal) &&
+                dirName <> "current" &&
+                String.Equals(Path.GetDirectoryName(targetDir), root.TrimEnd('\\'), StringComparison.OrdinalIgnoreCase)
+            if not isVersionedChild then (versioned, note)
+            elif this.EnsureCurrentJunction(root, targetDir) then
+                (Path.Combine(root, "current", proxyExeName),
+                 note + " · registered via the stable tools\\current junction")
+            else
+                (versioned, note + " · junction unavailable — versioned path; registrations will need a refresh after upgrades")
+
+    member private _.ResolveVersionedProxy (appVersion: string, root: string,
+                                            sourceDirs: IEnumerable<string>) : string * string =
         let target = Path.Combine(root, "v" + appVersion)
         let targetExe = Path.Combine(target, proxyExeName)
 

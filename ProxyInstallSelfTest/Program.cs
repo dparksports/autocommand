@@ -57,7 +57,12 @@ try
     string srcOld = Path.Combine(root, "src-old"); MakeSource(srcOld, "old");
     string srcNew = Path.Combine(root, "src-new"); MakeSource(srcNew, "new");
     var (p1, m1) = McpClientCatalog.ResolveAndInstallProxy("2026.10.16", tools, new[] { srcOld });
-    Check("1a upgrade installs new version", p1 == Path.Combine(tools, "v2026.10.16", "AutoCommand.AgentProxy.exe"), m1);
+    string canonical = Path.Combine(tools, "current", "AutoCommand.AgentProxy.exe");
+    Check("1a upgrade installs new version — at the STABLE junction path", p1 == canonical, m1);
+    Check("1a2 the junction exists and resolves into the versioned folder",
+          File.Exists(p1!) &&
+          Directory.ResolveLinkTarget(Path.Combine(tools, "current"), returnFinalTarget: false)!
+                  .FullName.EndsWith("v2026.10.16", StringComparison.OrdinalIgnoreCase), "");
     Check("1b new bits actually copied",
           File.ReadAllText(p1!).Contains("old"), "source content came from src-old");
     Check("1c marker written", File.Exists(Path.Combine(tools, "v2026.10.16", "proxy.installed")), "");
@@ -75,8 +80,11 @@ try
     using (var lockStream = new FileStream(lockedExe, FileMode.Open, FileAccess.Read, FileShare.Read))
     {
         var (p2, m2) = McpClientCatalog.ResolveAndInstallProxy("2026.10.17", tools, new[] { srcNew });
-        Check("2a next version installs alongside the locked one",
-              p2 == Path.Combine(tools, "v2026.10.17", "AutoCommand.AgentProxy.exe"), m2);
+        Check("2a version bump → canonical path UNCHANGED (configs never need rewrites)",
+              p2 == p1, m2 + " | p2=" + p2);
+        Check("2a2 junction retargets to the new versioned folder",
+              Directory.ResolveLinkTarget(Path.Combine(tools, "current"), returnFinalTarget: false)!
+                      .FullName.EndsWith("v2026.10.17", StringComparison.OrdinalIgnoreCase), "");
         Check("2b locked old folder survives for its running proxy", File.Exists(lockedExe), "");
         Check("2c new install carries new bits", File.ReadAllText(p2!).Contains("new"), "");
     }
@@ -84,6 +92,9 @@ try
     _ = McpClientCatalog.ResolveAndInstallProxy("2026.10.18", tools, new[] { srcNew });
     Check("2d stale folder cleaned once unlocked",
           !Directory.Exists(Path.Combine(tools, "v2026.10.17")), "");
+    Check("2d2 junction follows the cleanup to v2026.10.18",
+          Directory.ResolveLinkTarget(Path.Combine(tools, "current"), returnFinalTarget: false)!
+                  .FullName.EndsWith("v2026.10.18", StringComparison.OrdinalIgnoreCase), "");
 
     // ── 3. every source locked → keep the previously-good path ───────────
     string keepExe = Path.Combine(tools, "v2026.10.18", "AutoCommand.AgentProxy.exe");
@@ -91,7 +102,8 @@ try
                                         FileMode.Open, FileAccess.Read, FileShare.None)) // deny-all: a real lock
     {
         var (p3, m3) = McpClientCatalog.ResolveAndInstallProxy("2026.10.19", tools, new[] { srcNew });
-        Check("3a locked source → falls back to newest good install", p3 == keepExe, m3);
+        Check("3a locked source → falls back to newest good install — canonical path STILL unchanged",
+              p3 == p1, m3 + " | p3=" + p3);
         Check("3b failure is reported, not swallowed", m3.Contains("keeping"), m3);
     }
     Check("3c v2026.10.19 was not half-created", !Directory.Exists(Path.Combine(tools, "v2026.10.19")), "");
@@ -170,6 +182,59 @@ try
     Check("6f repaired config no longer flagged (only 'outdated' left)",
           after.Count == 1 && after[0].Client.Id == "outdated",
           "flagged: " + string.Join(",", after.Select(s => s.Client.Id)));
+
+    // ── 6g. first-class removal: Unregister takes out ONLY our entry ────
+    var regClient = clients.First(c => c.Id == "gone");      // repaired above → has our entry
+    string regPath = regClient.ConfigPath;
+    // a foreign sibling proves removal never touches the rest of the file
+    var withForeign = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(regPath));
+    withForeign["mcpServers"]["someothermcp"] = new System.Text.Json.Nodes.JsonObject
+    {
+        ["command"] = "other.exe",
+        ["args"] = new System.Text.Json.Nodes.JsonArray(),
+    };
+    File.WriteAllText(regPath, withForeign.ToJsonString());
+    Check("6g IsRegistered sees the entry", McpClientCatalog.IsRegistered(regClient), "");
+    var (unOk, unMsg) = McpClientCatalog.Unregister(regClient);
+    var afterUn = System.Text.Json.Nodes.JsonNode.Parse(File.ReadAllText(regPath));
+    Check("6h Unregister removes our entry, keeps the sibling",
+          unOk && !McpClientCatalog.IsRegistered(regClient) &&
+          afterUn["mcpServers"]?["someothermcp"]?["command"]?.GetValue<string>() == "other.exe",
+          unMsg ?? "");
+    string cleanDir = Path.Combine(root, "clients-clean");
+    Directory.CreateDirectory(cleanDir);
+    string cleanPath = Path.Combine(cleanDir, "mcp.json");
+    File.WriteAllText(cleanPath, "{\"mcpServers\":{\"other\":{\"command\":\"x\"}}}");
+    Check("6i Unregister on a config without our entry reports nothing to remove",
+          !McpClientCatalog.Unregister(Client("clean", cleanPath, "mcpServers")).Item1, "");
+
+    // ── 6j. bulk register touches ONLY detected clients ─────────────────
+    string detDir = Path.Combine(root, "bulk-det");    Directory.CreateDirectory(detDir);
+    string undetDir = Path.Combine(root, "bulk-undet"); // deliberately NOT created
+    var bulkDet = new McpClientRegistration
+    { Id = "bd", DisplayName = "BD", ConfigPath = Path.Combine(detDir, "mcp.json"), RootKeyPath = "mcp/servers", DetectDir = detDir };
+    var bulkUndet = new McpClientRegistration
+    { Id = "bu", DisplayName = "BU", ConfigPath = Path.Combine(undetDir, "mcp.json"), RootKeyPath = "mcpServers", DetectDir = undetDir };
+    var outcomes = McpClientCatalog.RegisterDetectedClients(canonical, new[] { bulkDet, bulkUndet });
+    Check("6j only the detected client is in the outcomes",
+          outcomes.Count == 1 && outcomes[0].Id == "bd" && outcomes[0].Success,
+          $"count={outcomes.Count}");
+    Check("6k detected client's config written at the canonical path",
+          McpClientCatalog.IsRegistered(bulkDet), "");
+    Check("6l undetected client untouched — no file created",
+          !File.Exists(bulkUndet.ConfigPath), "");
+
+    // ── 8. a plain 'current' directory is never touched ─────────────────
+    string tools9 = Path.Combine(root, "tools9");
+    string src9 = Path.Combine(root, "src9"); MakeSource(src9, "nine");
+    Directory.CreateDirectory(Path.Combine(tools9, "current"));   // a PLAIN dir — not our junction
+    File.WriteAllText(Path.Combine(tools9, "current", "keepme.txt"), "user data");
+    var (p9, m9) = McpClientCatalog.ResolveAndInstallProxy("2026.10.16", tools9, new[] { src9 });
+    Check("8a plain 'current' dir blocks the junction — versioned path returned",
+          p9 == Path.Combine(tools9, "v2026.10.16", "AutoCommand.AgentProxy.exe"), m9);
+    Check("8b the plain dir and its contents survive untouched",
+          File.ReadAllText(Path.Combine(tools9, "current", "keepme.txt")) == "user data" &&
+          (File.GetAttributes(Path.Combine(tools9, "current")) & System.IO.FileAttributes.ReparsePoint) == 0, "");
 
     // ── 7. offline stub drift tripwire ─────────────────────────────────
     // The AgentProxy's offline tool list must carry EVERY registered tool

@@ -442,6 +442,13 @@ namespace AutoCommand
                     // (startup sweep + retire pass need no event channel).
                     AppBlockCoverageService.Instance.Start();
 
+                    // MCP self-heal (only with the Be My Guest auto-register
+                    // consent): re-point client registrations whose proxy moved
+                    // or died at the stable tools\current path. Success reports
+                    // via the tab's status line + the registration-events log;
+                    // failure STAYS on the tab. Never a modal either way.
+                    _ = AutoCommand.Agent.Core.McpAutoRegistration.RunStartupRepair();
+
                     // drain the DNS backlog when the machine is quiet: no new
                     // Sysmon events for a while = traffic idle = re-ask the
                     // unresolved hostnames/orgs in small polite batches

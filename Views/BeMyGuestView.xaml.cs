@@ -101,6 +101,43 @@ namespace AutoCommand.Views
             AgentActivityList.ItemsSource = AgentBridgeService.Instance.RecentActivity(30)
                 .Select(l => l.Length > 160 ? l[..160] + "…" : l)
                 .ToList();
+
+            UpdateAutoRepairLine();
+        }
+
+        /// <summary>
+        /// The self-heal's quiet/loud notification line (see McpAutoRegistration):
+        /// success renders one plain sentence, failure renders a warning that
+        /// stays until fixed, nothing-to-say collapses. Refreshed by the same
+        /// 2s timer as the session status so a repair finishing moments after
+        /// startup appears without reopening the tab.
+        /// </summary>
+        private TextBlock _autoRepairLine;
+
+        private void UpdateAutoRepairLine()
+        {
+            try
+            {
+                string text = McpAutoRegistration.StatusLine();
+                if (text == null)
+                {
+                    if (_autoRepairLine != null) _autoRepairLine.Visibility = Visibility.Collapsed;
+                    return;
+                }
+                if (_autoRepairLine == null || !AgentClientsPanel.Children.Contains(_autoRepairLine))
+                {
+                    _autoRepairLine = new TextBlock
+                    {
+                        Margin = new Thickness(0, 0, 0, 8),
+                        MaxWidth = 560,
+                        TextWrapping = TextWrapping.Wrap,
+                    };
+                    AgentClientsPanel.Children.Insert(0, _autoRepairLine);
+                }
+                _autoRepairLine.Text = text;
+                _autoRepairLine.Visibility = Visibility.Visible;
+            }
+            catch { /* the status line is advisory */ }
         }
 
         private void StartAgentBtn_Click(object sender, RoutedEventArgs e)
@@ -125,6 +162,60 @@ namespace AutoCommand.Views
             var (ok, message) = AgentBridgeService.Instance.Start(allowMutating: true);
             if (!ok) MessageBox.Show(message, "Be My Guest", MessageBoxButton.OK, MessageBoxImage.Warning);
             RefreshAgentUi();
+            if (ok) OfferAutoRegistration();
+        }
+
+        /// <summary>
+        /// The one-time auto-registration consent (mode "ask"): a session
+        /// just started and some detected AI client on this PC still has no
+        /// 'autocommand' entry. Yes = consent once, register all detected
+        /// clients now AND self-heal them on future startups; No = ask
+        /// again next session; Cancel = never ask ("off"). Registering
+        /// never starts anything — sessions still begin only from this tab.
+        /// </summary>
+        private void OfferAutoRegistration()
+        {
+            try
+            {
+                if (McpAutoRegistration.GetMode() != "ask") return;
+                var pending = McpAutoRegistration.UnregisteredDetectedClients();
+                if (pending.Count == 0) return;
+
+                var answer = MessageBox.Show(
+                    "Wire AutoCommand into the AI clients on this PC?\n\n" +
+                    string.Join(", ", pending.Select(c => c.DisplayName)) + "\n\n" +
+                    "AutoCommand will add its 'autocommand' MCP server to each detected client's user config " +
+                    "(the same entry the Register buttons write) and keep it current across app updates.\n\n" +
+                    "• Sessions still start only from this tab — registering never starts anything.\n" +
+                    "• With no session active, the proxy answers clients with setup guidance.\n" +
+                    "• Each entry can be removed later with its Remove button.\n\n" +
+                    "Auto-register now and keep them updated?",
+                    "Be My Guest — consent", MessageBoxButton.YesNoCancel, MessageBoxImage.Question, MessageBoxResult.No);
+                if (answer == MessageBoxResult.Cancel) { McpAutoRegistration.SetMode("off"); return; }
+                if (answer != MessageBoxResult.Yes) return;   // No: ask again next session
+
+                McpAutoRegistration.SetMode("auto");
+                var (outcomes, error) = McpAutoRegistration.RegisterAllDetected();
+                if (error != null)
+                {
+                    MessageBox.Show("Auto-registration did not run:\n\n" + error,
+                        "Be My Guest", MessageBoxButton.OK, MessageBoxImage.Warning);
+                    return;
+                }
+                int okCount = outcomes.Count(o => o.Success);
+                MessageBox.Show(
+                    okCount == outcomes.Count && outcomes.Count > 0
+                        ? "Registered in " + okCount + " client" + (okCount == 1 ? "" : "s") + ".\n\n" +
+                          "Their sessions auto-connect the server; tools answer setup guidance until you " +
+                          "start a session here. Future app updates keep the registration current automatically."
+                        : "Registered " + okCount + " of " + outcomes.Count + ":\n\n" +
+                          string.Join("\n\n", outcomes.Where(o => !o.Success)
+                                                      .Select(o => o.DisplayName + ":\n" + o.Message)),
+                    "Be My Guest", MessageBoxButton.OK,
+                    okCount == outcomes.Count ? MessageBoxImage.Information : MessageBoxImage.Warning);
+                PopulateClientButtons();
+            }
+            catch { /* the consent offer is advisory */ }
         }
 
         private void StopAgentBtn_Click(object sender, RoutedEventArgs e)
@@ -208,6 +299,26 @@ namespace AutoCommand.Views
                 };
                 btn.Click += ClientRegisterBtn_Click;
                 AgentClientsPanel.Children.Add(btn);
+
+                // first-class exit: our entry exists → offer its removal
+                // (same backup-before-write discipline, one confirm)
+                bool registered = false;
+                try { registered = detected && McpClientCatalog.IsRegistered(client); }
+                catch { /* unreadable config just hides the button */ }
+                if (registered)
+                {
+                    var rm = new Button
+                    {
+                        Content = "Remove",
+                        Tag = client,
+                        Padding = new Thickness(10, 2, 10, 2),
+                        Margin = new Thickness(0, 0, 8, 0),
+                        ToolTip = "Remove the 'autocommand' entry from " + client.DisplayName +
+                                  " (a backup is written beside its config).",
+                    };
+                    rm.Click += ClientUnregisterBtn_Click;
+                    AgentClientsPanel.Children.Add(rm);
+                }
             }
 
             // Migration self-heal: registrations left over from a previous
@@ -330,6 +441,26 @@ namespace AutoCommand.Views
                                "including with a hostile DOTNET_ROOT.";
             MessageBox.Show(message, ok ? "Registered" : "AI access",
                 MessageBoxButton.OK, ok ? MessageBoxImage.Information : MessageBoxImage.Warning);
+        }
+
+        /// <summary>Removes our entry from one client (confirm first). The
+        /// auto-registration consent never interacts with this — a Remove is
+        /// always an explicit user action on this tab.</summary>
+        private void ClientUnregisterBtn_Click(object sender, RoutedEventArgs e)
+        {
+            if (sender is not Button { Tag: McpClientRegistration client }) return;
+
+            var answer = MessageBox.Show(
+                "Remove the 'autocommand' MCP server entry from " + client.DisplayName + "?\n\n" +
+                client.ConfigPath + "\n\nA backup of the config is written beside it; nothing else in the " +
+                "file is touched.",
+                "Be My Guest — remove", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);
+            if (answer != MessageBoxResult.Yes) return;
+
+            var (ok, message) = McpClientCatalog.Unregister(client);
+            MessageBox.Show(message, ok ? "Removed" : "AI access",
+                MessageBoxButton.OK, ok ? MessageBoxImage.Information : MessageBoxImage.Warning);
+            if (ok) PopulateClientButtons();   // the Remove button disappears with the entry
         }
 
         private void CopyAgentConfigBtn_Click(object sender, RoutedEventArgs e)

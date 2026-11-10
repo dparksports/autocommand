@@ -115,8 +115,21 @@ namespace AutoCommand.Agent.Core
         public static System.Tuple<bool, string> PreflightProxy(string proxyExe) =>
             Engine.PreflightProxy(proxyExe);
 
+        public static bool IsRegistered(McpClientRegistration client) => Engine.IsRegistered(client);
+
+        public static System.Tuple<bool, string> Unregister(McpClientRegistration client) =>
+            Engine.Unregister(client);
+
+        public static List<AutoCommand.Engines.Bridge.RegistrationOutcome> RegisterDetectedClients(
+            string proxyPath, IEnumerable<McpClientRegistration> clients = null) =>
+            Engine.RegisterDetectedClients(proxyPath, clients);
+
         public static List<AutoCommand.Engines.Bridge.StaleMcpRegistration> FindStaleRegistrations(
             string currentProxyPath, IEnumerable<McpClientRegistration> clients = null) =>
             Engine.FindStaleRegistrations(currentProxyPath, clients);
+
+        // junction plumbing the self-test drives (InternalsVisibleTo)
+        internal static bool EnsureCurrentJunction(string root, string targetDir) =>
+            Engine.EnsureCurrentJunction(root, targetDir);
     }
 }
