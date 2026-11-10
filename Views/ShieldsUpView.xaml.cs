@@ -195,14 +195,17 @@ public partial class ShieldsUpView : UserControl
 
     private async Task RefreshDoorsAsync()
     {
-        var (sstp, hosted, kdnet, vpn, miniports, wifidirect) = await Task.Run(() =>
+        var (sstp, hosted, kdnet, vpn, miniports, wifidirect, llmnr, netbios, mdns) = await Task.Run(() =>
         (
             AttackSurfaceService.GetSstpStatus(),
             AttackSurfaceService.GetHostedNetworkStatus(),
             AttackSurfaceService.IsKernelDebugOn(),
             PrivacyService.GetVpnStatus(),
             AttackSurfaceService.ListWanMiniports(),
-            PrivacyService.IsWifiDirectAdapterPresent()
+            PrivacyService.IsWifiDirectAdapterPresent(),
+            NameResolutionDoors.GetLlmnrStatus(),
+            NameResolutionDoors.GetNetbiosStatus(),
+            NameResolutionDoors.GetMdnsStatus()
         ));
 
         bool sstpActive = sstp.Active;
@@ -240,10 +243,27 @@ public partial class ShieldsUpView : UserControl
               string.Join(", ", miniports.Take(4).Select(a => a.Name)) + (miniports.Count > 4 ? ", …" : "");
         MiniportStatusText.Foreground = miniports.Count == 0 ? OkBrush : WarnBrush;
 
+        // legacy name-resolution doors (LLMNR · NetBIOS · mDNS)
+        LlmnrStatusText.Text = llmnr.Evidence;
+        LlmnrStatusText.Foreground = llmnr.Open ? WarnBrush : OkBrush;
+        LlmnrToggleBtn.Content = llmnr.Open ? "Disable LLMNR" : "Re-enable LLMNR";
+
+        bool nbClosed = netbios.State == NameResolutionDoors.NbState.Closed;
+        NbnsStatusText.Text = netbios.Evidence;
+        NbnsStatusText.Foreground = nbClosed ? OkBrush : WarnBrush;
+        NbnsToggleBtn.Content = nbClosed ? "Re-enable NetBIOS" : "Disable NetBIOS";
+
+        MdnsStatusText.Text = mdns.Evidence;
+        MdnsStatusText.Foreground = mdns.Open ? WarnBrush : OkBrush;
+        MdnsToggleBtn.Content = mdns.Open ? "Block mDNS" : "Unblock mDNS";
+
         // Rail dot: red when kernel debug is on (the one BadBrush row),
         // amber while any door stands open, green when all are closed.
         int openDoors = (sstpActive ? 1 : 0) + (hostedActive ? 1 : 0) + (kdnet ? 1 : 0)
-            + (running > 0 ? 1 : 0) + (miniports.Count > 0 ? 1 : 0);
+            + (running > 0 ? 1 : 0) + (miniports.Count > 0 ? 1 : 0)
+            + (llmnr.Open ? 1 : 0)
+            + (netbios.State is NameResolutionDoors.NbState.None or NameResolutionDoors.NbState.Partial ? 1 : 0)
+            + (mdns.Open ? 1 : 0);
         if (kdnet) SetDot(DoorsDot, BadBrush, "Kernel debug on — open Doors");
         else if (openDoors > 0) SetDot(DoorsDot, WarnBrush, openDoors + " door(s) open — open Doors");
         else SetDot(DoorsDot, OkBrush, "All doors closed");
@@ -285,6 +305,72 @@ public partial class ShieldsUpView : UserControl
             await RefreshDoorsAsync();
             SstpToggleBtn.IsEnabled = true;
         }
+    }
+
+    // ── legacy name-resolution doors (LLMNR · NetBIOS · mDNS) ────────────
+    // Same contract as the other doors: confirm on the CLOSING direction
+    // (re-open is the safe direction), act on a background thread, report
+    // into the shared DoorActionResult line, refresh the board.
+
+    private async void LlmnrToggleBtn_Click(object sender, RoutedEventArgs e)
+    {
+        bool open = NameResolutionDoors.GetLlmnrStatus().Open;
+        if (open && !Confirm(
+                "Disable LLMNR (multicast name fallback, UDP 5355)?\n\nDNS misses will fail fast instead of asking every host on the LAN — this also kills the LLMNR-poisoning credential-theft class.\n\nReversible with the same button.",
+                "Disable LLMNR"))
+            return;
+        LlmnrToggleBtn.IsEnabled = false;
+        try
+        {
+            var failures = await Task.Run(() => open ? NameResolutionDoors.DisableLlmnr() : NameResolutionDoors.EnableLlmnr());
+            ShowResult(DoorActionResult, failures.Count > 0
+                ? "LLMNR toggle failed: " + string.Join("; ", failures)
+                : open ? "LLMNR disabled (EnableMulticast=0, snapshotted — reversible)." : "LLMNR re-enabled (previous value restored).");
+        }
+        catch (Exception ex) { ShowResult(DoorActionResult, "LLMNR toggle failed: " + ex.Message); }
+        finally { await RefreshDoorsAsync(); LlmnrToggleBtn.IsEnabled = true; }
+    }
+
+    private async void NbnsToggleBtn_Click(object sender, RoutedEventArgs e)
+    {
+        var before = NameResolutionDoors.GetNetbiosStatus();
+        if (before.State != NameResolutionDoors.NbState.Closed && !Confirm(
+                "Disable NetBIOS name resolution (UDP 137 broadcasts) on every interface?\n\nLegacy NetBIOS-name SMB stops resolving (DNS and FQDNs keep working). Takes effect on adapter restart or reboot. Per-interface previous values are snapshotted — reversible.",
+                "Disable NetBIOS"))
+            return;
+        NbnsToggleBtn.IsEnabled = false;
+        try
+        {
+            var failures = await Task.Run(() => before.State == NameResolutionDoors.NbState.Closed
+                ? NameResolutionDoors.EnableNetbios()
+                : NameResolutionDoors.DisableNetbios());
+            ShowResult(DoorActionResult, failures.Count > 0
+                ? "NetBIOS toggle issues: " + string.Join("; ", failures)
+                : before.State == NameResolutionDoors.NbState.Closed
+                    ? "NetBIOS re-enabled (per-interface previous values restored)."
+                    : "NetBIOS disabled on every interface (applies on adapter restart/reboot — snapshotted, reversible).");
+        }
+        catch (Exception ex) { ShowResult(DoorActionResult, "NetBIOS toggle failed: " + ex.Message); }
+        finally { await RefreshDoorsAsync(); NbnsToggleBtn.IsEnabled = true; }
+    }
+
+    private async void MdnsToggleBtn_Click(object sender, RoutedEventArgs e)
+    {
+        bool open = NameResolutionDoors.GetMdnsStatus().Open;
+        if (open && !Confirm(
+                "Block outbound mDNS multicast (UDP 5353) at the firewall?\n\n.local device discovery — printers, Chromecast, AirPlay — stops while closed. Windows has no source switch for mDNS, so this door is network-level only (the resolver itself stays on).\n\nReversible with the same button.",
+                "Block mDNS"))
+            return;
+        MdnsToggleBtn.IsEnabled = false;
+        try
+        {
+            var failures = await Task.Run(() => open ? NameResolutionDoors.DisableMdns() : NameResolutionDoors.EnableMdns());
+            ShowResult(DoorActionResult, failures.Count > 0
+                ? "mDNS toggle failed: " + string.Join("; ", failures)
+                : open ? "mDNS multicast blocked (scoped firewall rule — reversible)." : "mDNS unblocked (scoped rule removed).");
+        }
+        catch (Exception ex) { ShowResult(DoorActionResult, "mDNS toggle failed: " + ex.Message); }
+        finally { await RefreshDoorsAsync(); MdnsToggleBtn.IsEnabled = true; }
     }
 
     private async void HostedStopBtn_Click(object sender, RoutedEventArgs e)

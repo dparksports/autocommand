@@ -335,6 +335,35 @@
                                     <Button x:Name="MiniportRemoveBtn" Grid.Column="1" Content="Remove all" Padding="12,5"
                                             Margin="12,0,0,0" Click="MiniportRemoveBtn_Click"/>
                                 </Grid>
+
+                                <TextBlock Text="Legacy name resolution (LLMNR · NetBIOS · mDNS)" FontWeight="SemiBold" Margin="0,10,0,2"/>
+                                <Grid Margin="0,0,0,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="LlmnrStatusText" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap"/>
+                                    <Button x:Name="LlmnrToggleBtn" Grid.Column="1" Content="Disable LLMNR" Padding="12,5"
+                                            Margin="12,0,0,0" Click="LlmnrToggleBtn_Click"/>
+                                </Grid>
+                                <Grid Margin="0,0,0,4">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="NbnsStatusText" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap"/>
+                                    <Button x:Name="NbnsToggleBtn" Grid.Column="1" Content="Disable NetBIOS" Padding="12,5"
+                                            Margin="12,0,0,0" Click="NbnsToggleBtn_Click"/>
+                                </Grid>
+                                <Grid Margin="0,0,0,8">
+                                    <Grid.ColumnDefinitions>
+                                        <ColumnDefinition Width="*"/>
+                                        <ColumnDefinition Width="Auto"/>
+                                    </Grid.ColumnDefinitions>
+                                    <TextBlock x:Name="MdnsStatusText" Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap"/>
+                                    <Button x:Name="MdnsToggleBtn" Grid.Column="1" Content="Block mDNS" Padding="12,5"
+                                            Margin="12,0,0,0" Click="MdnsToggleBtn_Click"/>
+                                </Grid>
                                 <TextBlock x:Name="DoorActionResult" Foreground="{DynamicResource TextSecondaryBrush}"
                                            TextWrapping="Wrap" Visibility="Collapsed"/>
                             </StackPanel>

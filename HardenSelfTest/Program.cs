@@ -148,6 +148,22 @@ try
     Check("6i telemetry rules keep the classic wording (null SwitchKind = telemetry)",
           new TelemetryRuleStatus { Rule = rules.First(r => !r.IsFeatureToggle), State = TelemetryState.Off }
               .StateText == "Opted out");
+
+    // ── 7. legacy name-resolution doors — pure state machine ────────────
+    Check("7a netbios: no interfaces is Unknown, never Closed",
+          NameResolutionDoors.ComputeNetbiosState(0, 0) == NameResolutionDoors.NbState.Unknown);
+    Check("7b netbios: all interfaces disabled is Closed",
+          NameResolutionDoors.ComputeNetbiosState(3, 3) == NameResolutionDoors.NbState.Closed);
+    Check("7c netbios: some interfaces disabled is Partial",
+          NameResolutionDoors.ComputeNetbiosState(3, 1) == NameResolutionDoors.NbState.Partial);
+    Check("7d netbios: none disabled is the Open state",
+          NameResolutionDoors.ComputeNetbiosState(2, 0) == NameResolutionDoors.NbState.None);
+    Check("7e llmnr: absent policy means OPEN (Windows default)",
+          NameResolutionDoors.LlmnrOpenFromValue(null) && NameResolutionDoors.LlmnrOpenFromValue(1));
+    Check("7f llmnr: EnableMulticast=0 is the only closed value",
+          !NameResolutionDoors.LlmnrOpenFromValue(0));
+    Check("7g mdns: door closed only when a scoped rule exists",
+          !NameResolutionDoors.MdnsClosedFromRuleCount(0) && NameResolutionDoors.MdnsClosedFromRuleCount(1));
 }
 catch (Exception ex)
 {

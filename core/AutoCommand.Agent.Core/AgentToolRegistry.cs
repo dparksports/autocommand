@@ -334,9 +334,10 @@ namespace AutoCommand.Agent.Core
                 "get_shieldsup_status",
                 "The Shields Up tab's status board, read-only: every door Windows leaves open (SSTP VPN service " +
                 "and miniports, Wi-Fi Direct hosted network, kernel debug, the four Windows VPN services, WAN " +
-                "miniports), the OS-hardening switches (IPv6, LSA Protection, UAC strictness), the hosts-file " +
-                "audit, Defender Tamper Protection, and per-vendor telemetry opt-out state with rule ids. " +
-                "Everything is re-read live — never a cached verdict.",
+                "miniports, and the legacy name-resolution doors llmnr/netbios/mdns with their live 24h " +
+                "chatter counts — dropped UDP 137/5355/5353 attempts), the OS-hardening switches (IPv6, LSA " +
+                "Protection, UAC strictness), the hosts-file audit, Defender Tamper Protection, and per-vendor " +
+                "telemetry opt-out state with rule ids. Everything is re-read live — never a cached verdict.",
                 Schema(),
                 false,
                 a => GetShieldsUpStatus()),
@@ -401,10 +402,14 @@ namespace AutoCommand.Agent.Core
                 "Close ONE of the doors Windows leaves open (Shields Up tab): sstp (stop the SSTP VPN " +
                 "service + disable its miniport adapters), hostednetwork (stop + disallow the Wi-Fi Direct " +
                 "ghost hotspot), vpnservices (stop + disable RasMan/IKEEXT/PolicyAgent/RemoteAccess — any " +
-                "VPN connection drops), kdnet (turn kernel debug off) or wifidirect (disable the Wi-Fi " +
-                "Direct virtual adapters). All reversible. There is deliberately NO enable path over the " +
-                "bridge — re-opening a door is a human decision made in the tab. Asks the user for every call.",
-                Schema(("door", "One of: sstp | hostednetwork | vpnservices | kdnet | wifidirect", true),
+                "VPN connection drops), kdnet (turn kernel debug off), wifidirect (disable the Wi-Fi " +
+                "Direct virtual adapters), or the legacy name-resolution doors: llmnr (EnableMulticast=0 — " +
+                "kills the LLMNR-poisoning credential-theft class), netbios (NetbiosOptions=2 per interface " +
+                "— stops UDP 137 broadcasts), mdns (firewall-scoped block of UDP 5353 multicast — network-" +
+                "level only, .local device discovery stops while closed). All reversible. There is " +
+                "deliberately NO enable path over the bridge — re-opening a door is a human decision made " +
+                "in the tab. Asks the user for every call.",
+                Schema(("door", "One of: sstp | hostednetwork | vpnservices | kdnet | wifidirect | llmnr | netbios | mdns", true),
                        ("reason", "Why — shown to the user in the confirmation", false)),
                 true,
                 a => CloseShieldsUpDoor(a),
@@ -1859,6 +1864,48 @@ namespace AutoCommand.Agent.Core
             }
             catch (Exception ex) { o["wifi_direct_hosted_network"] = Err(ex); }
 
+            // legacy name-resolution doors — config + live chatter in one
+            // place: the same per-port attempt counts that diagnosed the
+            // PID 4 NetBIOS broadcasts
+            try
+            {
+                var chatter = NameResolutionChatter();
+                var llmnr = NameResolutionDoors.GetLlmnrStatus();
+                o["llmnr"] = new JsonObject
+                {
+                    ["open"] = llmnr.Open,
+                    ["evidence"] = llmnr.Evidence,
+                    ["chatter_24h"] = chatter.GetValueOrDefault(5355, 0),
+                };
+            }
+            catch (Exception ex) { o["llmnr"] = Err(ex); }
+            try
+            {
+                var chatter = NameResolutionChatter();
+                var nb = NameResolutionDoors.GetNetbiosStatus();
+                o["netbios"] = new JsonObject
+                {
+                    ["state"] = nb.State.ToString().ToLowerInvariant(),
+                    ["interfaces_disabled"] = nb.Disabled,
+                    ["interfaces_total"] = nb.Total,
+                    ["evidence"] = nb.Evidence,
+                    ["chatter_24h"] = chatter.GetValueOrDefault(137, 0),
+                };
+            }
+            catch (Exception ex) { o["netbios"] = Err(ex); }
+            try
+            {
+                var chatter = NameResolutionChatter();
+                var mdns = NameResolutionDoors.GetMdnsStatus();
+                o["mdns"] = new JsonObject
+                {
+                    ["open"] = mdns.Open,
+                    ["evidence"] = mdns.Evidence,
+                    ["chatter_24h"] = chatter.GetValueOrDefault(5353, 0),
+                };
+            }
+            catch (Exception ex) { o["mdns"] = Err(ex); }
+
             try { o["kernel_debug_on"] = AttackSurfaceService.IsKernelDebugOn(); }
             catch (Exception ex) { o["kernel_debug_on"] = Err(ex); }
 
@@ -1922,6 +1969,24 @@ namespace AutoCommand.Agent.Core
             static JsonObject Err(Exception ex) => new() { ["error"] = ex.Message };
         }
 
+        /// <summary>Legacy-name-resolution chatter: dropped-attempt counts by
+        /// port (137 NBNS, 5355 LLMNR, 5353 mDNS) over 24 h, from the live
+        /// block-hit feed. Attempts, never bytes — the honest currency.</summary>
+        private static Dictionary<int, int> NameResolutionChatter()
+        {
+            var counts = new Dictionary<int, int>();
+            try
+            {
+                foreach (var a in AutoCommand.Contain.Core.BlockHitFeedService.Instance.Aggregates(24 * 60, 300))
+                {
+                    if (a.DestPort is 137 or 5355 or 5353)
+                        counts[a.DestPort] = counts.GetValueOrDefault(a.DestPort, 0) + a.Count;
+                }
+            }
+            catch { /* feed not running → zero chatter is the honest answer */ }
+            return counts;
+        }
+
         private static List<TelemetryRuleStatus> _telemetryStatuses() =>
             new TelemetryRulesService().EvaluateAllAsync().GetAwaiter().GetResult();
 
@@ -1974,8 +2039,39 @@ namespace AutoCommand.Agent.Core
                             ["closed"] = acted > 0,
                             ["result"] = $"{acted} Wi-Fi Direct adapter(s) disabled (reversible in the tab).",
                         });
+                    case "llmnr":
+                        var llmnrFails = NameResolutionDoors.DisableLlmnr();
+                        return ToJson(new JsonObject
+                        {
+                            ["door"] = door,
+                            ["closed"] = llmnrFails.Count == 0,
+                            ["result"] = llmnrFails.Count == 0
+                                ? "EnableMulticast=0 written (snapshotted; reversible in the tab). DNS misses now fail fast instead of asking the LAN."
+                                : string.Join("; ", llmnrFails),
+                        });
+                    case "netbios":
+                        var nbFails = NameResolutionDoors.DisableNetbios();
+                        var nbAfter = NameResolutionDoors.GetNetbiosStatus();
+                        return ToJson(new JsonObject
+                        {
+                            ["door"] = door,
+                            ["closed"] = nbFails.Count == 0 && nbAfter.State == NameResolutionDoors.NbState.Closed,
+                            ["result"] = $"NetbiosOptions=2 on {nbAfter.Disabled}/{nbAfter.Total} interface(s)" +
+                                (nbFails.Count > 0 ? " — failures: " + string.Join("; ", nbFails) : "") +
+                                ". Applies on adapter restart/reboot; per-interface snapshot saved (reversible in the tab).",
+                        });
+                    case "mdns":
+                        var mdnsFails = NameResolutionDoors.DisableMdns();
+                        return ToJson(new JsonObject
+                        {
+                            ["door"] = door,
+                            ["closed"] = mdnsFails.Count == 0,
+                            ["result"] = mdnsFails.Count == 0
+                                ? "Outbound mDNS multicast (UDP 5353 → 224.0.0.251/ff02::fb) blocked at the firewall — network-level; the resolver itself stays on. Printer/Chromecast/AirPlay discovery stops while closed (reversible in the tab)."
+                                : string.Join("; ", mdnsFails),
+                        });
                     default:
-                        return $"Unknown door '{door}'. Valid doors: sstp, hostednetwork, vpnservices, kdnet, wifidirect.";
+                        return $"Unknown door '{door}'. Valid doors: sstp, hostednetwork, vpnservices, kdnet, wifidirect, llmnr, netbios, mdns.";
                 }
             }
             catch (Exception ex)
@@ -1995,6 +2091,9 @@ namespace AutoCommand.Agent.Core
                 "vpnservices" => "Stop and disable RasMan, IKEEXT, PolicyAgent and RemoteAccess — any VPN connection drops (reversible)?",
                 "kdnet" => "Turn kernel debugging OFF (effective next boot)?",
                 "wifidirect" => "Disable the Wi-Fi Direct virtual adapters (reversible)?",
+                "llmnr" => "Disable LLMNR (multicast name fallback, UDP 5355)? DNS misses will fail fast instead of asking the LAN; kills the LLMNR-poisoning credential-theft class. Reversible.",
+                "netbios" => "Disable NetBIOS name resolution (UDP 137 broadcasts) on every interface? Applies on adapter restart/reboot. Legacy NetBIOS-name SMB stops resolving. Reversible.",
+                "mdns" => "Block outbound mDNS multicast (UDP 5353) at the firewall? .local device discovery (printers, Chromecast, AirPlay) stops while closed. Network-level only — no source switch exists. Reversible.",
                 _ => $"Close door '{door}'?",
             }) + (string.IsNullOrEmpty(reason) ? "" : $"\n\nReason: {reason}");
         }
