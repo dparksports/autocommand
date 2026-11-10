@@ -164,6 +164,28 @@ try
           !NameResolutionDoors.LlmnrOpenFromValue(0));
     Check("7g mdns: door closed only when a scoped rule exists",
           !NameResolutionDoors.MdnsClosedFromRuleCount(0) && NameResolutionDoors.MdnsClosedFromRuleCount(1));
+
+    // ── 8. startup & tasks — classification (the surface's pure half) ───
+    Check("8a task: \\Microsoft\\Windows\\ paths are inbox",
+          ShieldsUp.Core.Services.StartupSurfaceService.ClassifyTask(@"\Microsoft\Windows\Defrag\ScheduledDefrag")
+              == ShieldsUp.Core.Services.StartupSurfaceService.TaskGroup.Inbox);
+    Check("8b task: root/vendor paths are third-party",
+          ShieldsUp.Core.Services.StartupSurfaceService.ClassifyTask(@"\GoogleUpdateTaskMachineUA")
+              == ShieldsUp.Core.Services.StartupSurfaceService.TaskGroup.ThirdParty &&
+          ShieldsUp.Core.Services.StartupSurfaceService.ClassifyTask(@"\Vendor\Something\Task")
+              == ShieldsUp.Core.Services.StartupSurfaceService.TaskGroup.ThirdParty);
+    Check("8c task: null/relative paths classify third-party (review-worthy), never crash",
+          ShieldsUp.Core.Services.StartupSurfaceService.ClassifyTask(null)
+              == ShieldsUp.Core.Services.StartupSurfaceService.TaskGroup.ThirdParty &&
+          ShieldsUp.Core.Services.StartupSurfaceService.ClassifyTask("")
+              == ShieldsUp.Core.Services.StartupSurfaceService.TaskGroup.ThirdParty);
+    Check("8d logon: Run locations are registry-togglable, folders are not",
+          ShieldsUp.Core.Services.StartupSurfaceService.KindOfLocation("HKCU Run")
+              == ShieldsUp.Core.Services.StartupSurfaceService.LogonKind.Registry &&
+          ShieldsUp.Core.Services.StartupSurfaceService.KindOfLocation("User Startup")
+              == ShieldsUp.Core.Services.StartupSurfaceService.LogonKind.Folder &&
+          ShieldsUp.Core.Services.StartupSurfaceService.KindOfLocation("Common Startup")
+              == ShieldsUp.Core.Services.StartupSurfaceService.LogonKind.Folder);
 }
 catch (Exception ex)
 {

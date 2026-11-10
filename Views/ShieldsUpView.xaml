@@ -542,6 +542,63 @@
                 </ScrollViewer>
             </TabItem>
 
+            <!-- ═══════════ STARTUP & TASKS ═══════════ -->
+            <TabItem Style="{StaticResource RailItem}">
+                <TabItem.Header>
+                    <Grid>
+                        <Grid.ColumnDefinitions>
+                            <ColumnDefinition Width="Auto"/>
+                            <ColumnDefinition Width="*"/>
+                        </Grid.ColumnDefinitions>
+                        <TextBlock Text="🚀" FontSize="14" VerticalAlignment="Center"/>
+                        <TextBlock Grid.Column="1" Text="Startup" Margin="9,0,0,0" Style="{StaticResource RailLabel}"/>
+                        <Ellipse x:Name="StartupDot" Grid.Column="1" Width="8" Height="8" HorizontalAlignment="Right"
+                                 VerticalAlignment="Center" Fill="Gray" ToolTip="Not checked yet"/>
+                    </Grid>
+                </TabItem.Header>
+                <ScrollViewer VerticalScrollBarVisibility="Auto">
+                    <StackPanel MaxWidth="880" HorizontalAlignment="Left" Margin="4,10,4,8">
+
+                        <Grid Margin="0,0,0,10">
+                            <Grid.ColumnDefinitions>
+                                <ColumnDefinition Width="*"/>
+                                <ColumnDefinition Width="Auto"/>
+                            </Grid.ColumnDefinitions>
+                            <StackPanel>
+                                <TextBlock Style="{StaticResource LargeTitle}" Text="Startup &amp; Tasks"/>
+                                <TextBlock Style="{StaticResource SubIntro}" Margin="0,4,0,0"
+                                           Text="The persistence surface: what runs at logon and on schedule. Third-party entries lead; Windows inbox tasks are counted, not listed. Every toggle is snapshotted and reversible."/>
+                            </StackPanel>
+                            <StackPanel Grid.Column="1" Orientation="Horizontal" VerticalAlignment="Top">
+                                <Border Style="{StaticResource Pill}" Margin="0,0,10,0">
+                                    <StackPanel Orientation="Horizontal">
+                                        <Ellipse x:Name="StartupPillDot" Width="8" Height="8" VerticalAlignment="Center"/>
+                                        <TextBlock x:Name="StartupPillText" FontSize="12" Margin="7,0,0,0"
+                                                   Foreground="{DynamicResource TextSecondaryBrush}" Text="Not checked yet"/>
+                                    </StackPanel>
+                                </Border>
+                                <Button x:Name="StartupRefreshBtn" Style="{StaticResource QuietBtn}" Content="⟳ Re-check" VerticalAlignment="Center"
+                                        Click="StartupRefreshBtn_Click"/>
+                            </StackPanel>
+                        </Grid>
+
+                        <TextBlock Style="{StaticResource GroupHeader}" Text="AT LOGON"/>
+                        <Border Style="{StaticResource InsetGroup}">
+                            <StackPanel x:Name="StartupLogonPanel"/>
+                        </Border>
+
+                        <TextBlock Style="{StaticResource GroupHeader}" Text="SCHEDULED TASKS — THIRD-PARTY"/>
+                        <Border Style="{StaticResource InsetGroup}">
+                            <StackPanel x:Name="StartupTaskPanel"/>
+                        </Border>
+
+                        <TextBlock x:Name="StartupInboxText" Style="{StaticResource RowEvidence}" Margin="8,0,0,6"/>
+                        <TextBlock x:Name="StartupActionResult" Foreground="{DynamicResource TextSecondaryBrush}"
+                                   TextWrapping="Wrap" Visibility="Collapsed" Margin="8,0,0,0"/>
+                    </StackPanel>
+                </ScrollViewer>
+            </TabItem>
+
             <!-- ═══════════ PRIVACY ═══════════ -->
             <TabItem Style="{StaticResource RailItem}">
                 <TabItem.Header>

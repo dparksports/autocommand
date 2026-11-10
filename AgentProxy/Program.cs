@@ -53,6 +53,7 @@ const string OfflineToolsJson = """
   { "name": "list_trace_projects", "description": "The Traces tab's user-defined tracing projects (needs an active session)." },
   { "name": "get_trace_project", "description": "One trace project's definition plus its measured snapshot (needs an active session)." },
   { "name": "get_shieldsup_status", "description": "The Shields Up status board: doors (SSTP, Wi-Fi Direct, kernel debug, VPN services), hardening switches, hosts audit, per-vendor telemetry opt-out state (needs an active session)." },
+  { "name": "get_startup_status", "description": "The Startup & Tasks surface: logon items (Run keys + Startup folders) and scheduled tasks — third-party listed, Windows inbox counted (needs an active session)." },
   { "name": "close_shieldsup_door", "description": "Close ONE door Windows leaves open - sstp, hostednetwork, vpnservices, kdnet or wifidirect (user-confirmed, reversible; no enable path over the bridge) (needs an active session)." },
   { "name": "opt_out_telemetry", "description": "Flip one vendor's own official telemetry opt-out switch, or revert=true to restore the saved previous value (user-confirmed) (needs an active session)." },
   { "name": "apply_shieldsup_preset", "description": "Apply a named firewall preset (strict_public/home_trusted/gaming_media/office/shield_up) with the baseline re-captured atomically (user-confirmed) (needs an active session)." },

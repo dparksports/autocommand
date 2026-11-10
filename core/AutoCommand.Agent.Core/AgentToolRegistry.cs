@@ -343,6 +343,16 @@ namespace AutoCommand.Agent.Core
                 a => GetShieldsUpStatus()),
 
             new Tool(
+                "get_startup_status",
+                "The Startup & Tasks surface, read-only: logon items (Run keys + Startup folders, with " +
+                "disabled-by-AutoCommand flags) and scheduled tasks — third-party entries listed individually " +
+                "(path, state, action, user), Windows inbox tasks as a count. Classification is location-based " +
+                "and says so; no signature claims. Mutating stays in the app's Shields Up tab.",
+                Schema(),
+                false,
+                a => GetStartupStatus()),
+
+            new Tool(
                 "get_wsl_status",
                 "WSL (Windows Subsystem for Linux) network state, read-only: whether WSL is installed and the " +
                 "utility VM is running, the running distros, the networking mode (NAT vs mirrored) with its " +
@@ -1967,6 +1977,64 @@ namespace AutoCommand.Agent.Core
             return ToJson(o);
 
             static JsonObject Err(Exception ex) => new() { ["error"] = ex.Message };
+        }
+
+        /// <summary>The Startup &amp; Tasks surface for the bridge: logon
+        /// items and scheduled tasks, read-only. Registry reads are local
+        /// (Agent.Core must not lean on the WPF app's helpers).</summary>
+        private static string GetStartupStatus()
+        {
+            var o = new JsonObject { ["type"] = "startup_status" };
+            try
+            {
+                var logon = new JsonArray();
+                foreach (var (hive, label) in new[]
+                {
+                    (Microsoft.Win32.Registry.CurrentUser, "HKCU Run"),
+                    (Microsoft.Win32.Registry.LocalMachine, "HKLM Run"),
+                })
+                {
+                    using var key = hive.OpenSubKey(@"Software\Microsoft\Windows\CurrentVersion\Run");
+                    if (key == null) continue;
+                    foreach (var name in key.GetValueNames())
+                        logon.Add(new JsonObject
+                        {
+                            ["name"] = name,
+                            ["location"] = label,
+                            ["command"] = key.GetValue(name)?.ToString() ?? "",
+                            ["disabled_by_autocommand"] = ShieldsUp.Core.Services.StartupSurfaceService.HasLogonSnapshot(label, name),
+                        });
+                }
+                o["logon_items"] = logon;
+            }
+            catch (Exception ex) { o["logon_items"] = new JsonObject { ["error"] = ex.Message }; }
+
+            try
+            {
+                var tasks = AutoCommand.Forensics.Core.TaskSchedulerService.Instance.LoadTasksAsync().GetAwaiter().GetResult();
+                var thirdParty = new JsonArray();
+                int inbox = 0;
+                foreach (var t in tasks)
+                {
+                    if (ShieldsUp.Core.Services.StartupSurfaceService.ClassifyTask(t.TaskPath) == ShieldsUp.Core.Services.StartupSurfaceService.TaskGroup.Inbox)
+                    { inbox++; continue; }
+                    thirdParty.Add(new JsonObject
+                    {
+                        ["name"] = t.TaskName,
+                        ["path"] = t.TaskPath,
+                        ["state"] = t.State,
+                        ["action"] = t.Action,
+                        ["user"] = t.User,
+                    });
+                }
+                o["third_party_tasks"] = thirdParty;
+                o["windows_inbox_task_count"] = inbox;
+                o["note"] = "Classification is location-based (\\Microsoft\\Windows\\ = inbox; everything else " +
+                            "third-party) — no signature claims. Mutating (disable/re-enable) stays in the app's Shields Up tab.";
+            }
+            catch (Exception ex) { o["third_party_tasks"] = new JsonObject { ["error"] = ex.Message }; }
+
+            return ToJson(o);
         }
 
         /// <summary>Legacy-name-resolution chatter: dropped-attempt counts by

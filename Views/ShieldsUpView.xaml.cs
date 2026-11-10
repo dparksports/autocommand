@@ -52,6 +52,7 @@ public partial class ShieldsUpView : UserControl
         BuildQuickScanRows();
         await Task.WhenAll(
             RefreshDoorsAsync(),
+            RefreshStartupAsync(),
             RefreshTelemetryAsync(),
             RefreshBloatwareAsync(),
             RefreshHardeningAsync(),
@@ -388,6 +389,172 @@ public partial class ShieldsUpView : UserControl
         finally { await RefreshDoorsAsync(); MdnsToggleBtn.IsEnabled = true; }
     }
 
+    // ── Startup & Tasks (the persistence surface) ────────────────────────
+    // Logon items (Run keys — snapshotted off by StartupSurfaceService;
+    // Startup-folder shortcuts are shown but never touched by us) and
+    // scheduled tasks (TaskSchedulerService COM). Third-party entries
+    // lead; Windows inbox tasks are counted, not listed.
+
+    private sealed class LogonRow { public string Name, Value, Location; public bool Folder; public bool DisabledByUs; }
+    private sealed class TaskRow { public string TaskPath, TaskName, State, Action, User; }
+
+    private Border MakeStartupRow(string title, string evidence, string actionLabel,
+        object tag, RoutedEventHandler onClick, bool actionEnabled, string disabledToolTip = null)
+    {
+        var btn = new Button
+        {
+            Content = actionLabel,
+            Style = (Style)FindResource("QuietBtn"),
+            Tag = tag,
+            Padding = new Thickness(14, 7, 14, 7),
+            Margin = new Thickness(12, 0, 0, 0),
+            VerticalAlignment = VerticalAlignment.Center,
+            IsEnabled = actionEnabled,
+            ToolTip = actionEnabled ? null : disabledToolTip,
+        };
+        btn.Click += onClick;
+        var border = new Border
+        {
+            Style = (Style)FindResource("StatusRow"),
+            Child = new Grid(),
+        };
+        var grid = (Grid)border.Child;
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = new GridLength(1, GridUnitType.Star) });
+        grid.ColumnDefinitions.Add(new ColumnDefinition { Width = GridLength.Auto });
+        var stack = new StackPanel();
+        stack.Children.Add(new TextBlock { Text = title, Style = (Style)FindResource("RowTitle") });
+        stack.Children.Add(new TextBlock
+        {
+            Text = evidence,
+            Style = (Style)FindResource("RowEvidence"),
+            Margin = new Thickness(0, 2, 0, 0),
+        });
+        Grid.SetColumn(stack, 0);
+        Grid.SetColumn(btn, 1);
+        grid.Children.Add(stack);
+        grid.Children.Add(btn);
+        return border;
+    }
+
+    private async Task RefreshStartupAsync()
+    {
+        try
+        {
+            var logon = await Task.Run(() => AutoCommand.Helpers.RegistryHelper.GetStartupItems());
+            var tasks = await AutoCommand.Forensics.Core.TaskSchedulerService.Instance.LoadTasksAsync();
+
+            StartupLogonPanel.Children.Clear();
+            var logonRows = new List<LogonRow>();
+            foreach (var item in logon)
+            {
+                bool folder = ShieldsUp.Core.Services.StartupSurfaceService.KindOfLocation(item.Location)
+                    == ShieldsUp.Core.Services.StartupSurfaceService.LogonKind.Folder;
+                bool byUs = !folder && ShieldsUp.Core.Services.StartupSurfaceService.HasLogonSnapshot(item.Location, item.Name);
+                var row = new LogonRow { Name = item.Name, Value = item.Value, Location = item.Location, Folder = folder, DisabledByUs = byUs };
+                logonRows.Add(row);
+                StartupLogonPanel.Children.Add(MakeStartupRow(
+                    item.Name + (byUs ? "  · disabled by AutoCommand" : folder ? "" : ""),
+                    $"{item.Value}\n{item.Location}",
+                    folder ? "Manual" : byUs ? "Re-enable" : "Disable",
+                    row,
+                    StartupLogonToggle_Click,
+                    !folder,
+                    folder ? "Folder shortcut — remove it in the Startup folder if unwanted; AutoCommand only toggles registry entries." : null));
+            }
+            if (logonRows.Count == 0)
+                StartupLogonPanel.Children.Add(new TextBlock { Text = "Nothing registered to run at logon ✓", Style = (Style)FindResource("RowEvidence"), Margin = new Thickness(8, 4, 0, 4) });
+
+            StartupTaskPanel.Children.Clear();
+            var thirdParty = tasks.Where(t => ShieldsUp.Core.Services.StartupSurfaceService.ClassifyTask(t.TaskPath)
+                                              == ShieldsUp.Core.Services.StartupSurfaceService.TaskGroup.ThirdParty).ToList();
+            foreach (var t in thirdParty.Take(40))
+            {
+                var row = new TaskRow { TaskPath = t.TaskPath, TaskName = t.TaskName, State = t.State, Action = t.Action, User = t.User };
+                StartupTaskPanel.Children.Add(MakeStartupRow(
+                    t.TaskName,
+                    $"{t.State} · {t.Action}" + (string.IsNullOrWhiteSpace(t.User) ? "" : $" · {t.User}"),
+                    t.State == "Disabled" ? "Enable" : "Disable",
+                    row,
+                    StartupTaskToggle_Click,
+                    true));
+            }
+            if (thirdParty.Count == 0)
+                StartupTaskPanel.Children.Add(new TextBlock { Text = "No third-party scheduled tasks ✓", Style = (Style)FindResource("RowEvidence"), Margin = new Thickness(8, 4, 0, 4) });
+            else if (thirdParty.Count > 40)
+                StartupTaskPanel.Children.Add(new TextBlock { Text = $"… and {thirdParty.Count - 40} more", Style = (Style)FindResource("RowEvidence"), Margin = new Thickness(8, 4, 0, 4) });
+
+            int inbox = tasks.Count - thirdParty.Count;
+            StartupInboxText.Text = inbox > 0
+                ? $"{inbox} Windows inbox task(s) — maintained by Windows, not listed; each is reviewable from the Process Monitor's task attribution."
+                : "";
+
+            int active = logonRows.Count(r => !r.Folder && !r.DisabledByUs) + thirdParty.Count(t => t.State != "Disabled");
+            if (active > 0)
+            {
+                SetDot(StartupDot, WarnBrush, active + " third-party autostart(s) — open Startup");
+                SetPill(StartupPillDot, StartupPillText, WarnBrush, active + " third-party autostart(s)");
+            }
+            else
+            {
+                SetDot(StartupDot, OkBrush, "Startup reviewed");
+                SetPill(StartupPillDot, StartupPillText, OkBrush, "Reviewed");
+            }
+        }
+        catch (Exception ex)
+        {
+            SetPill(StartupPillDot, StartupPillText, WarnBrush, "status unreadable");
+            StartupActionResult.Text = "Startup refresh failed: " + ex.Message;
+            StartupActionResult.Visibility = Visibility.Visible;
+        }
+    }
+
+    private async void StartupRefreshBtn_Click(object sender, RoutedEventArgs e)
+    {
+        StartupRefreshBtn.IsEnabled = false;
+        try { await RefreshStartupAsync(); }
+        finally { StartupRefreshBtn.IsEnabled = true; }
+    }
+
+    private async void StartupLogonToggle_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: LogonRow row }) return;
+        bool disabling = !row.DisabledByUs;
+        if (disabling && !Confirm(
+                $"Stop '{row.Name}' from running at logon?\n\nIts registry value is snapshotted and removed — restore it any time with the same button.",
+                "Disable logon item"))
+            return;
+        try
+        {
+            var failures = await Task.Run(() => disabling
+                ? ShieldsUp.Core.Services.StartupSurfaceService.DisableRegistryLogon(row.Location, row.Name)
+                : ShieldsUp.Core.Services.StartupSurfaceService.EnableRegistryLogon(row.Location, row.Name));
+            ShowResult(StartupActionResult, failures.Count > 0
+                ? string.Join("; ", failures)
+                : disabling ? $"'{row.Name}' disabled at logon (snapshotted — reversible)." : $"'{row.Name}' restored.");
+        }
+        catch (Exception ex) { ShowResult(StartupActionResult, "Logon toggle failed: " + ex.Message); }
+        finally { await RefreshStartupAsync(); }
+    }
+
+    private async void StartupTaskToggle_Click(object sender, RoutedEventArgs e)
+    {
+        if (sender is not Button { Tag: TaskRow row }) return;
+        bool disabling = row.State != "Disabled";
+        if (disabling && !Confirm(
+                $"Disable the scheduled task '{row.TaskName}'?\n\nThe task stays registered — its trigger stops firing. Reversible with the same button.",
+                "Disable scheduled task"))
+            return;
+        try
+        {
+            await AutoCommand.Forensics.Core.TaskSchedulerService.Instance.SetTaskEnabledAsync(row.TaskPath, !disabling);
+            ShowResult(StartupActionResult, disabling
+                ? $"Task '{row.TaskName}' disabled (reversible)."
+                : $"Task '{row.TaskName}' re-enabled.");
+        }
+        catch (Exception ex) { ShowResult(StartupActionResult, "Task toggle failed: " + ex.Message); }
+        finally { await RefreshStartupAsync(); }
+    }
+
     private async void HostedStopBtn_Click(object sender, RoutedEventArgs e)
     {
         HostedStopBtn.IsEnabled = false;
@@ -657,9 +824,10 @@ public partial class ShieldsUpView : UserControl
         {
             case 0: _ = QuickScanCheckAsync(); break;
             case 1: _ = RefreshDoorsAsync(); break;
-            case 2: _ = RefreshTelemetryAsync(); break;
-            case 3: _ = RefreshBloatwareAsync(); break;
-            case 4: _ = RefreshHardeningAsync(); break;
+            case 2: _ = RefreshStartupAsync(); break;
+            case 3: _ = RefreshTelemetryAsync(); break;
+            case 4: _ = RefreshBloatwareAsync(); break;
+            case 5: _ = RefreshHardeningAsync(); break;
         }
     }
 
