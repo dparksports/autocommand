@@ -1223,7 +1223,11 @@ namespace AutoCommand.Views
                 string warning = msApplies && !ConfirmPrefs.IsSuppressed(ConfirmPrefs.WarnMsInfra)
                     ? msWarning + "\n\n⚠ Think twice: this IP is Microsoft infrastructure."
                     : "";
-                string detail = $"Contacted by '{item.ProcessName}'.\n\n" +
+                // same pre-block brief as the process path, scoped to the
+                // contacting process + this destination
+                string brief = await Task.Run(() =>
+                    AutoCommand.Forensics.Core.BlockFeedbackService.Brief(item.ProcessName, ip));
+                string detail = $"Contacted by '{item.ProcessName}'.\n\n" + brief + (brief.Length > 0 ? "\n" : "") +
                                 "2 rules are created: outbound TCP and UDP — inbound is already covered by the\n" +
                                 "firewall's stateful filtering.\n" +
                                 "Undo anytime: the Undo button on the toast, right-click this row again,\nor 'Blocked' → Manage all.";
@@ -1312,6 +1316,20 @@ namespace AutoCommand.Views
                 warning = $"'{item.ProcessName}' is a Windows component. Blocking it can break shell features,\n" +
                           "widgets, or web content in Start/Settings.";
 
+            // Kernel/critical image guard — refuses the kernel outright (a
+            // PID 4 row once produced a literal AC-BLOCK-APP System rule
+            // that starved every kernel-mode socket) and escalates the
+            // dialog for security-critical images like lsass.
+            var guardDecision = BlockGuard.Decide(path, out string guardText);
+            if (guardDecision == BlockGuard.Decision.Refuse)
+            {
+                MessageBox.Show(guardText, "Cannot block — kernel process",
+                    MessageBoxButton.OK, MessageBoxImage.Warning);
+                return;
+            }
+            if (guardDecision == BlockGuard.Decision.Warn)
+                warning = string.IsNullOrEmpty(warning) ? guardText : guardText + "\n\n" + warning;
+
             bool coreApplies = warning.Length > 0;
             string warnKey = wslWarning ? ConfirmPrefs.WarnWslFamily : ConfirmPrefs.WarnWindowsCore;
             bool confirmSuppressed =
@@ -1332,10 +1350,18 @@ namespace AutoCommand.Views
                       : "") + "\n\n"
                 : "";
 
+            // Pre-block brief: the same investigation the bridge's
+            // investigate_process runs (who/traffic/already-blocked/verdict),
+            // compressed into the dialog so the decision is made with the
+            // evidence in front of the user. Archive-backed → background.
+            string brief = await Task.Run(() =>
+                AutoCommand.Forensics.Core.BlockFeedbackService.Brief(item.ProcessName));
+
             if (!confirmSuppressed)
             {
                 string shownWarning = coreApplies && !ConfirmPrefs.IsSuppressed(warnKey) ? warning : "";
-                string detail = exitedNote + $"{path}\n\n(1 outbound rule)\n" +
+                string detail = exitedNote + brief + (brief.Length > 0 ? "\n" : "") +
+                                $"{path}\n\n(1 outbound rule)\n" +
                                 "Undo anytime: the Undo button on the toast, right-click the row again,\nor 'Blocked' → Manage all.";
                 string key = shownWarning.Length > 0 ? warnKey : ConfirmPrefs.ConfirmProcess;
                 string label = shownWarning.Length > 0

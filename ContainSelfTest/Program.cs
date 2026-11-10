@@ -499,6 +499,26 @@ try
 }
 finally { try { Directory.Delete(sweepDir, true); } catch { } }
 
+// ─────────────────────────────────────────────────────────────────────
+// 10. BlockGuard — the kernel/critical image gate. Born from a live
+//     AC-BLOCK-APP System rule (program literally "System"); pure leaf
+//     matching, both bare names and full paths.
+// ─────────────────────────────────────────────────────────────────────
+BlockGuard.Decision G(string subject, out string guardText) => BlockGuard.Decide(subject, out guardText);
+
+Check("guard: bare 'System' is refused (the PID 4 incident)",
+      G("System", out var t1) == BlockGuard.Decision.Refuse && t1.Contains("kernel"), t1?.Split('\n')[0]);
+Check("guard: 'system' case-insensitive",
+      G("system", out _) == BlockGuard.Decision.Refuse);
+Check("guard: 'Idle' and 'Registry' refused too",
+      G("Idle", out _) == BlockGuard.Decision.Refuse && G("registry", out _) == BlockGuard.Decision.Refuse);
+Check("guard: lsass warned, never silently allowed",
+      G(@"C:\Windows\System32\lsass.exe", out var t2) == BlockGuard.Decision.Warn && t2.Contains("domain"));
+Check("guard: ordinary process allowed with no text",
+      G(@"C:\Tools\upd.exe", out var t3) == BlockGuard.Decision.Allow && string.IsNullOrEmpty(t3));
+Check("guard: empty subject allowed (nothing to mistake)",
+      G("", out _) == BlockGuard.Decision.Allow);
+
 Console.WriteLine();
 Console.WriteLine(failures == 0 ? "ALL CONTAIN SELF-TESTS PASSED" : $"{failures} CHECK(S) FAILED");
 return failures == 0 ? 0 : 1;
