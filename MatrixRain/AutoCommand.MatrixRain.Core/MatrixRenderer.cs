@@ -226,6 +226,54 @@ namespace AutoCommand.Matrix
             RecomputeGrid();
         }
 
+        /// <summary>
+        /// Replaces both rain surfaces after a render-device loss (display
+        /// sleep/wake, session lock, monitor mode change): WPF tears down the
+        /// bitmaps' GPU textures and resets their lock bookkeeping, so the
+        /// next Lock/Unlock throws InvalidOperationException. Same-size
+        /// rebuild — grid geometry is unchanged; the rain layer starts from
+        /// a clean slate and the ambient field repaints in full.
+        /// </summary>
+        private void RebuildSurfaces()
+        {
+            if (_rebuildingSurfaces || _w == 0 || _h == 0) return;
+            // Reentrancy guard: the ambient repaint below locks/unlocks the
+            // fresh bitmap, and if the device is STILL lost that unlock would
+            // recurse into this method — bail instead and let the next tick
+            // try again.
+            _rebuildingSurfaces = true;
+            try
+            {
+                _bmp = new WriteableBitmap(_w, _h, 96, 96, PixelFormats.Pbgra32, null);
+                _image.Source = _bmp;
+                _bgBmp = new WriteableBitmap(_w, _h, 96, 96, PixelFormats.Pbgra32, null);
+                _ambientImage.Source = _bgBmp;
+                _rainClearPending = true;
+                RedrawAmbientFull();
+            }
+            finally { _rebuildingSurfaces = false; }
+        }
+
+        private bool _rebuildingSurfaces;
+
+        /// <summary>Lock that tolerates the device-loss state: false means
+        /// the surface was dead and has been replaced — callers skip this
+        /// pass; the next tick draws into the fresh bitmap.</summary>
+        private bool LockSurface(WriteableBitmap bmp)
+        {
+            try { bmp.Lock(); return true; }
+            catch (InvalidOperationException) { RebuildSurfaces(); return false; }
+        }
+
+        /// <summary>Unlock twin of <see cref="LockSurface"/>: a device loss
+        /// mid-pass resets the lock state, so the Unlock of a completed draw
+        /// can be the call that discovers it.</summary>
+        private void UnlockSurface(WriteableBitmap bmp)
+        {
+            try { bmp.Unlock(); }
+            catch (InvalidOperationException) { RebuildSurfaces(); }
+        }
+
         private void RecomputeGrid()
         {
             if (_atlas == null || _w == 0) return;
@@ -362,7 +410,7 @@ namespace AutoCommand.Matrix
 
             ConsumeSnapshot();
 
-            _bmp.Lock();
+            if (!LockSurface(_bmp)) return; // device loss — fresh surfaces, retry next tick
             try
             {
                 int stride = _bmp.BackBufferStride;
@@ -477,7 +525,7 @@ namespace AutoCommand.Matrix
             }
             finally
             {
-                _bmp.Unlock();
+                UnlockSurface(_bmp);
             }
 
             if (!Cinema)
@@ -678,7 +726,7 @@ namespace AutoCommand.Matrix
             if (_pendingEtches.Count == 0) return;
             if (_bgBmp == null || _ambientGrid == null) { _pendingEtches.Clear(); return; }
 
-            _bgBmp.Lock();
+            if (!LockSurface(_bgBmp)) { _pendingEtches.Clear(); return; }
             try
             {
                 byte* dstBase = (byte*)_bgBmp.BackBuffer;
@@ -694,7 +742,7 @@ namespace AutoCommand.Matrix
                 }
                 _bgBmp.AddDirtyRect(new Int32Rect(0, 0, _w, _h));
             }
-            finally { _bgBmp.Unlock(); }
+            finally { UnlockSurface(_bgBmp); }
             _pendingEtches.Clear();
         }
 
@@ -712,13 +760,13 @@ namespace AutoCommand.Matrix
                 // Cinema is pure black behind the rain — the movie has no
                 // backdrop field.
                 _ambientGrid = null;
-                _bgBmp.Lock();
+                if (!LockSurface(_bgBmp)) return;
                 try
                 {
                     unsafe { new Span<byte>((void*)_bgBmp.BackBuffer, _h * _bgBmp.BackBufferStride).Clear(); }
                     _bgBmp.AddDirtyRect(new Int32Rect(0, 0, _w, _h));
                 }
-                finally { _bgBmp.Unlock(); }
+                finally { UnlockSurface(_bgBmp); }
                 return;
             }
 
@@ -735,7 +783,7 @@ namespace AutoCommand.Matrix
         private unsafe void RedrawAmbientFull()
         {
             if (_bgBmp == null) return;
-            _bgBmp.Lock();
+            if (!LockSurface(_bgBmp)) return;
             try
             {
                 new Span<byte>((void*)_bgBmp.BackBuffer, _h * _bgBmp.BackBufferStride).Clear();
@@ -749,7 +797,7 @@ namespace AutoCommand.Matrix
                 }
                 _bgBmp.AddDirtyRect(new Int32Rect(0, 0, _w, _h));
             }
-            finally { _bgBmp.Unlock(); }
+            finally { UnlockSurface(_bgBmp); }
         }
 
         private unsafe void BlitAmbientCell(byte* dstBase, int stride, int c, int r)
