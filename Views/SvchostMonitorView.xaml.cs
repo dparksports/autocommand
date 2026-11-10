@@ -285,6 +285,53 @@ namespace AutoCommand.Views
             else
             {
                 MessageBox.Show($"Failed to install Sysmon.\n\nDetails: {installError}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+
+                // Offline path: the download was the failure, so offer the
+                // local-copy route (USB-brought exe, IT-provided copy…).
+                // Seeding runs the same Microsoft-signature gate as every
+                // other source — a local copy is acceptable exactly when it
+                // verifies.
+                if (installError != null && installError.Contains("could not be downloaded"))
+                {
+                    var useLocal = MessageBox.Show(
+                        "This PC appears to be offline, so Sysmon64.exe could not be downloaded.\n\n" +
+                        "Use a local copy now? Pick a Microsoft-signed Sysmon64.exe you brought to this PC " +
+                        "(downloaded from live.sysinternals.com on any connected machine, moved here e.g. via USB).",
+                        "Offline install", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.Yes);
+
+                    if (useLocal == MessageBoxResult.Yes)
+                    {
+                        var dlg = new Microsoft.Win32.OpenFileDialog
+                        {
+                            Title = "Choose Sysmon64.exe",
+                            Filter = "Sysmon64.exe|Sysmon64.exe|Executables (*.exe)|*.exe",
+                        };
+                        if (dlg.ShowDialog() == true)
+                        {
+                            MonitorStatusText.Text = "Verifying and copying the local Sysmon64.exe...";
+                            string seedError = _installerService.TrySeedCacheFrom(dlg.FileName);
+                            if (seedError == null)
+                            {
+                                var (retryOk, retryError) = await _installerService.InstallAndConfigureAsync();
+                                if (retryOk)
+                                {
+                                    MessageBox.Show("Sysmon installed from the local copy and configured for network tracking.",
+                                        "Success", MessageBoxButton.OK, MessageBoxImage.Information);
+                                    CheckSysmonStatus();
+                                    MonitorStatusText.Text = "Sysmon ready. Click 'Start Monitor' to begin tracking.";
+                                    return;
+                                }
+                                MessageBox.Show($"Local copy accepted, but the install still failed.\n\nDetails: {retryError}",
+                                    "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+                            }
+                            else
+                            {
+                                MessageBox.Show(seedError, "Local copy refused", MessageBoxButton.OK, MessageBoxImage.Warning);
+                            }
+                        }
+                    }
+                }
+
                 SetupSysmonBtn.IsEnabled = true;
                 MonitorStatusText.Text = "Sysmon is not installed — install it from the Sysmon Audit tab. Network tracking will not work.";
             }

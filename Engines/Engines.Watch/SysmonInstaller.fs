@@ -295,32 +295,99 @@ type SysmonInstallerService() =
 
             // Verify-or-refetch: the cache is only trusted when the file is
             // plausibly sized AND Microsoft-signed. Anything else (missing,
-            // tampered, foreign-signed plant) is replaced by a fresh HTTPS
-            // download, and the download itself must verify before the path
-            // is handed to the elevated install path.
+            // tampered, foreign-signed plant) is never executed.
             let cachedIsTrusted =
                 File.Exists exePath
                 && (try (FileInfo exePath).Length > 1_000_000L with _ -> false)
                 && verifyMicrosoftSigned exePath
 
-            if not cachedIsTrusted then
-                use client = new HttpClient()
-                let! data = client.GetByteArrayAsync(SysmonDownloadUrl)
-                do! File.WriteAllBytesAsync(exePath, data)
-
-                if not (verifyMicrosoftSigned exePath) then
-                    File.Delete exePath
-                    return!
-                        Task.FromException<string>(
-                            InvalidOperationException(
-                                "Downloaded Sysmon64.exe failed Microsoft-signature verification."
-                            )
-                        )
-                else
-                    return exePath
-            else
+            if cachedIsTrusted then
                 return exePath
+            else
+                // Offline-first: local sources seed the cache BEFORE the
+                // network is touched — a user-supplied Sysmon64.exe beside
+                // the app exe (or in tools\), and the deployed binary a
+                // previous install left in C:\Windows, both cover offline
+                // machines. Sysinternals' license does not allow bundling
+                // the binary with AutoCommand, so bring-your-own-copy is
+                // the documented offline path. Every source passes the same
+                // Microsoft-signature gate.
+                let appDir = AppContext.BaseDirectory
+
+                let localCandidates =
+                    [ Path.Combine(appDir, "tools", SysmonExeName)
+                      Path.Combine(appDir, SysmonExeName)
+                      Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), SysmonExeName) ]
+
+                let mutable seeded = false
+
+                for src in localCandidates do
+                    if not seeded then
+                        try
+                            if File.Exists src && verifyMicrosoftSigned src then
+                                File.Copy(src, exePath, true)
+                                seeded <- true
+                        with _ -> ()
+
+                if seeded && verifyMicrosoftSigned exePath then
+                    return exePath
+                else
+                    // Nothing local — download over HTTPS, verify, or fail
+                    // with an actionable offline message (the raw socket
+                    // error told offline users nothing).
+                    let mutable downloadFailed = false
+
+                    try
+                        use client = new HttpClient()
+                        let! data = client.GetByteArrayAsync(SysmonDownloadUrl)
+                        do! File.WriteAllBytesAsync(exePath, data)
+                    with _ -> downloadFailed <- true
+
+                    if downloadFailed then
+                        return!
+                            Task.FromException<string>(
+                                InvalidOperationException(
+                                    "Sysmon64.exe could not be downloaded - this machine appears to be offline. " +
+                                    "Sysmon is licensed by Microsoft and cannot be bundled with AutoCommand, so " +
+                                    "bring your own copy: on any connected PC download Sysmon64.exe from " +
+                                    "live.sysinternals.com, move it here (e.g. via USB), place it next to " +
+                                    "AutoCommand.exe or in its tools folder, then retry - or use the " +
+                                    "'use a local copy' option offered after this message."
+                                )
+                            )
+                    elif not (verifyMicrosoftSigned exePath) then
+                        File.Delete exePath
+                        return!
+                            Task.FromException<string>(
+                                InvalidOperationException(
+                                    "Downloaded Sysmon64.exe failed Microsoft-signature verification."
+                                )
+                            )
+                    else
+                        return exePath
         }
+
+    /// <summary>
+    /// Offline-install seam for the UI: seeds the download cache from a
+    /// user-picked Sysmon64.exe (file dialog). Returns null on success;
+    /// otherwise a human-readable reason (wrong file, unsigned, not
+    /// Microsoft). The signature gate is the whole safety story — a local
+    /// copy is acceptable exactly when it verifies.
+    /// </summary>
+    member _.TrySeedCacheFrom(sourcePath: string) : string =
+        try
+            if String.IsNullOrWhiteSpace sourcePath then "No file selected."
+            elif not (File.Exists sourcePath) then $"File not found: {sourcePath}"
+            elif not (verifyMicrosoftSigned sourcePath) then
+                "That file is not a Microsoft-signed Sysmon64.exe - refused. " +
+                "Get it from live.sysinternals.com on a connected machine."
+            else
+                if not (Directory.Exists(tempDir ())) then Directory.CreateDirectory(tempDir ()) |> ignore
+
+                File.Copy(sourcePath, Path.Combine(tempDir (), SysmonExeName), true)
+                null
+        with ex ->
+            ex.Message
 
     static member private writeConfig () : Task<string> =
         // Recommended config for post-hoc process/network forensics:

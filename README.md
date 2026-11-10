@@ -22,6 +22,10 @@ Keep your antivirus if you like it. They do different jobs. Many people run both
 
 That's the whole tutorial.
 
+## No internet? (air-gapped PCs)
+
+AutoCommand itself needs no internet: the zip is self-contained and everything it records stays on the machine. The one exception is **Sysmon** — Microsoft licenses it so it can't be bundled here, and the Spawns timeline and network attribution need it. On an offline PC: download `Sysmon64.exe` from [live.sysinternals.com](https://live.sysinternals.com/Sysmon64.exe) on any connected computer, move it over (USB), and either drop it next to `AutoCommand.exe` (or in its `tools` folder) before installing, or answer **Yes** when the offline message offers *"use a local copy"*. Microsoft's [Sysinternals license terms](https://learn.microsoft.com/en-us/sysinternals/license-terms) apply to your copy.
+
 ## How to read one row
 
 ![Anatomy of one connection row: who, to whom, how much, how long, and Block](Assets/infographics/row-anatomy.svg)
