@@ -206,7 +206,17 @@ type McpClientCatalog (identity: AppIdentity, mcpId: string, proxyExeName: strin
                     try
                         if Directory.Exists(link) &&
                            (File.GetAttributes(link) &&& FileAttributes.ReparsePoint) <> enum 0 then
-                            match Directory.ResolveLinkTarget(link, returnFinalTarget = false) with
+                            // final-target, NOT the reparse buffer: mklink /J on
+                            // Windows 11 26300+ stores the substitute as
+                            // \??\Global\C:\..., and parsing that form
+                            // (returnFinalTarget = false) mangles the result to
+                            // <cwd>\Global\C:\... — never equal to targetDir, so
+                            // verification failed on every install and the
+                            // junction was declared unavailable (the link itself
+                            // works fine; only its buffered name reads oddly).
+                            // Final-form resolves through the file system and
+                            // returns the clean absolute path everywhere.
+                            match Directory.ResolveLinkTarget(link, returnFinalTarget = true) with
                             | null -> false
                             | t -> String.Equals(t.FullName, targetDir, StringComparison.OrdinalIgnoreCase)
                         else false

@@ -20,32 +20,56 @@ run release.ps1. Format contract (the scripts parse this file):
 v2026.11.11.2 (2026-11-11)
 ================================================================================
 
-# v2026.11.11.2 — The Last attempt column sorts again
+# v2026.11.11.2 — The Last attempt column sorts; the junction verifies
 
-Fixes the Blocks tab's "Last attempt" column header ignoring clicks —
-the one dead column in an otherwise fully sortable header.
+Two fixes found by one release: a dead sort header on the Blocks tab,
+and - chased through the local CI gate it surfaced - the proxy
+installer's junction verification broken on this Windows build.
 
-## Root cause
+## Fix 1: Blocks tab, Last attempt column ignored clicks
 
 The sort header works by parsing each button's Tag string as a
 BlockSortColumn enum member name. The "Last attempt" header carried
-Tag="traffic", but the enum member is LastTraffic — the parse failed
+Tag="traffic", but the enum member is LastTraffic - the parse failed
 silently and the click returned early. Every other column's tag
-(status, target, service, class, created, containment) matched its
-enum member exactly, which is why only this column was dead.
+matched its enum member exactly, which is why only this one was dead.
+Tag="lasttraffic" now matches, and the persisted sort preference
+round-trips too (SaveSortPref writes the enum name lower-cased,
+LoadSortPref parses it back case-insensitively).
 
-## The fix
+## Fix 2: tools\current junction verification fails on Windows 11 26300+
 
-- Tag="lasttraffic", matching the enum member. The sort behavior
-  itself needed no change: freshest-first with "no traffic found"
-  nulls sinking in both directions was already implemented in
-  ApplyUserSort.
-- This also lines up with the persisted sort preference: SaveSortPref
-  writes "lasttraffic" (enum name lower-cased) and LoadSortPref parses
-  it back case-insensitively, so a saved "Last attempt" sort now
-  survives restarts.
+On this build, cmd's mklink /J stores the junction's native
+substitute name as \??\Global\C:\... (older builds store \??\C:\...).
+The junction itself resolves fine - files read and processes spawn
+through it - but Directory.ResolveLinkTarget(link,
+returnFinalTarget: false) parses that buffered form as a relative
+path and returns <cwd>\Global\C:\..., which never equals the target
+dir. EnsureCurrentJunction therefore declared the junction
+unavailable on every install: the app fell back to versioned paths,
+and every app update stranded every MCP registration - the exact
+staleness dance the junction exists to prevent. GitHub's Server 2025
+runners store the old form, so CI never saw it; the desk did.
 
-Builds clean; all offline self-test suites green.
+The verification now resolves the final target
+(returnFinalTarget = true), which goes through the file system and
+returns the clean absolute path on every build. The link target is
+always a real versioned directory (never another link), so final and
+immediate resolution agree wherever the buffered form reads sanely.
+ProxyInstallSelfTest reads the junction the same way; all its
+junction-path assertions now pass at the desk.
+
+## Also in this release
+
+- scripts\local-ci.ps1: the ci.yml gate runnable at the desk
+  (vulnerability scan, Release + Debug builds, the strict offline
+  suites, the two advisory live-channel suites). It redirects TMP
+  and TEMP to a repo-local .citmp for the suites - agent sandboxes
+  run spawned .NET processes at Low integrity, which cannot write
+  the user-profile Temp, and every suite's scratch root lives under
+  GetTempPath().
+
+Builds clean in Release and Debug; offline suites green at the desk.
 
 ================================================================================
 v2026.11.11.1 (2026-11-11)

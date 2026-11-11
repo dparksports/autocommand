@@ -61,7 +61,7 @@ try
     Check("1a upgrade installs new version — at the STABLE junction path", p1 == canonical, m1);
     Check("1a2 the junction exists and resolves into the versioned folder",
           File.Exists(p1!) &&
-          Directory.ResolveLinkTarget(Path.Combine(tools, "current"), returnFinalTarget: false)!
+          Directory.ResolveLinkTarget(Path.Combine(tools, "current"), returnFinalTarget: true)!
                   .FullName.EndsWith("v2026.10.16", StringComparison.OrdinalIgnoreCase), "");
     Check("1b new bits actually copied",
           File.ReadAllText(p1!).Contains("old"), "source content came from src-old");
@@ -83,7 +83,7 @@ try
         Check("2a version bump → canonical path UNCHANGED (configs never need rewrites)",
               p2 == p1, m2 + " | p2=" + p2);
         Check("2a2 junction retargets to the new versioned folder",
-              Directory.ResolveLinkTarget(Path.Combine(tools, "current"), returnFinalTarget: false)!
+              Directory.ResolveLinkTarget(Path.Combine(tools, "current"), returnFinalTarget: true)!
                       .FullName.EndsWith("v2026.10.17", StringComparison.OrdinalIgnoreCase), "");
         Check("2b locked old folder survives for its running proxy", File.Exists(lockedExe), "");
         Check("2c new install carries new bits", File.ReadAllText(p2!).Contains("new"), "");
@@ -93,7 +93,7 @@ try
     Check("2d stale folder cleaned once unlocked",
           !Directory.Exists(Path.Combine(tools, "v2026.10.17")), "");
     Check("2d2 junction follows the cleanup to v2026.10.18",
-          Directory.ResolveLinkTarget(Path.Combine(tools, "current"), returnFinalTarget: false)!
+          Directory.ResolveLinkTarget(Path.Combine(tools, "current"), returnFinalTarget: true)!
                   .FullName.EndsWith("v2026.10.18", StringComparison.OrdinalIgnoreCase), "");
 
     // ── 3. every source locked → keep the previously-good path ───────────
