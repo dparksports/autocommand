@@ -10,6 +10,8 @@
 #   - assets: AutoCommand-v<ver>-win-x64.zip, unblock-autocommand.ps1,
 #     SHA256SUMS.txt (computed for the CI-built zip, uploaded --clobber
 #     so the sums always match the zip they shipped with)
+#   - release body: the version's section in docs/release-notes-history.md
+#     (the consolidated notes archive; same parse contract as release.ps1)
 #   - prune-releases.ps1 -Apply as the last step, so the Releases page keeps
 #     one release per day (the fresh tag is always its day's highest build)
 # No secrets needed: GITHUB_TOKEN with contents:write attaches to
@@ -107,9 +109,20 @@ jobs:
         run: |
           $tag = '${{ steps.ver.outputs.tag }}'
           $ver = '${{ steps.ver.outputs.version }}'
+          # Release body = the version's section in the consolidated notes
+          # archive ('## v<ver>' up to the next '## v' line) - same parse
+          # contract as release.ps1's Get-HistoryNotes.
+          $hist = Get-Content docs/release-notes-history.md -Raw -Encoding UTF8
+          $m = [regex]::Match($hist, "(?ms)^## v$ver(?![\d.])[^\r\n]*\r?\n(.*?)(?=^## v\d|\z)")
+          if (-not $m.Success) {
+            throw "no '## v$ver' section in docs/release-notes-history.md"
+          }
+          $notes = 'publish/release-notes.md'
+          [System.IO.File]::WriteAllText($notes, $m.Groups[1].Value.Trim(),
+            [System.Text.UTF8Encoding]::new($false))
           gh release view $tag --repo $Env:GITHUB_REPOSITORY 2>$null
           if ($LASTEXITCODE -ne 0) {
-            gh release create $tag --repo $Env:GITHUB_REPOSITORY --title $tag --notes-file "release_notes_v$ver.md"
+            gh release create $tag --repo $Env:GITHUB_REPOSITORY --title $tag --notes-file $notes
           }
           gh release upload $tag `
             "publish/AutoCommand-v$ver-win-x64.zip" `

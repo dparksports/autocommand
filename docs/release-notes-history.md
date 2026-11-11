@@ -1,0 +1,1468 @@
+# Release notes (consolidated archive)
+
+Every AutoCommand release note, newest first. The GitHub Releases page
+keeps one release per day with bodies cleared after publishing, so this
+file is the full history. release.ps1 and release.yml read the section
+for the version being released and use it as the GitHub release body.
+
+To release: add the new section at the top of this file, commit it, then
+run release.ps1. Format contract (the scripts parse this file):
+
+- one section per release, newest first
+- a section starts with the line `## v<version> (<yyyy-mm-dd>)`
+- the section body - everything after the heading, up to the next `## v`
+  line - is uploaded to GitHub verbatim
+
+## v2026.11.10.6 (2026-11-10)
+
+# v2026.11.10.6 — Encrypted at rest, de-elevated watch, honest scopes
+
+The follow-up to v2026.11.10.5's trust-door release: the same reviews'
+remaining items, in the same spirit — what the docs promise matches
+what the code does, and the elevated app keeps shrinking how much
+user-session input reaches it.
+
+## 1. Decrypted bodies are now encrypted at rest
+
+The Transmissions archive persisted decrypted request/response bodies
+(cookies, bearer tokens, POST credentials) as plaintext files under
+`%LOCALAPPDATA%\AutoCommand\transmissions\bodies\` — while the far less
+sensitive TLS keylog always had explicit ACL hygiene. Now every body
+blob is written as a **DPAPI (current-user) encrypted** file, and the
+bodies directory is created **current-user-only** with inheritable
+rules. The metadata index stays plaintext and greppable; each row's
+SHA-256 still hashes the plaintext, so "what was sent" remains provable
+after the fact. The viewer decrypts transparently, and pre-encryption
+legacy blobs still load.
+
+## 2. Launch-under-watch children no longer inherit admin
+
+AutoCommand runs elevated, and users casually pick *browsers* to watch —
+until now those children inherited the full administrator token, quietly
+eroding the UAC boundary for every renderer exploit. The watched program
+now starts via a **LUA-filtered copy** of this process's token
+(`CreateRestrictedToken` + `CreateProcessWithTokenW`): admin group
+filtered, medium integrity. The only thing it needs from AutoCommand —
+the `SSLKEYLOGFILE` variable — travels in an explicit environment block,
+so the launch flow behaves exactly as before.
+
+## 3. The intercept consent dialog states the real scope
+
+The dialog said "only the target PID is decrypted" while the engine
+decrypts every process running the same image path (that matching is
+deliberate — browsers spawn new PIDs per tab, and firewall rules cannot
+distinguish PIDs; shared hosts like svchost stay PID-exact). The
+consent dialog now says plainly: **"every process running from this
+exe, not just PID n"** — the same honesty the gate tool descriptions
+always had. Class docstring and TECHNICAL_NOTES updated to match.
+
+## 4. Be My Guest consent: fixed drift + a plain boundary note
+
+The session-start dialog still claimed "the only mutating actions are
+block gates" — the exact drift the bridge instructions had (there are
+five mutating tools; the v2026.11.10.5 release fixed the instructions,
+this fixes the human-facing dialog). It also now states the boundary in
+one line: **anything running as your user can read what the AI reads** —
+the session token lives in a local file while the session runs.
+
+## 5. CI: pinned actions + dependency-vulnerability gate
+
+`actions/checkout` and `actions/setup-dotnet` are pinned to **verified
+full commit SHAs** (a floating `@v4` tag executes whatever it points at
+tomorrow, with this workflow's permissions — including `contents:write`
+on the release path). A new CI step runs
+`dotnet list package --vulnerable --include-transitive` and fails the
+build on findings — the online enforcement that complements the
+NU1900 offline suppression.
+
+## 6. Lockdown is now reversible: snapshot restore
+
+v2026.11.10.5 made every Shields Up lockdown photograph the firewall
+before `RestoreLocalFirewallDefaults` irreversibly deleted the rules.
+This release completes the loop: a **⏪ Restore snapshot…** button in
+the Firewall tab re-imports a snapshot — rules the reset deleted are
+recreated from every photographed field, surviving default rules are
+re-enabled to their photographed state, and rules created after the
+snapshot are left untouched. The restore follows the profile-apply
+contract exactly: drift enforcer paused for the transition, end state
+re-captured as the enforced baseline.
+
+## 7. Uninstall-day removal primitives
+
+Three new engine capabilities, ready for the "remove everything"
+flow (the wizard UI ships next release; the primitives are here and
+suite-covered):
+
+- **`SysmonInstallerService.UninstallAsync()`** — the public Sysmon
+  removal entry (stops/removes the Sysmon64 service and driver, cleans
+  the event-manifest registration and the deployed exe). This path
+  existed only inside the repair flow and had no caller.
+- **`FirewallService.RemoveAllOwnRulesAsync()`** — *deletes* (the panic
+  button only disables) every rule this app ever created: current
+  AC-BLOCK prefixes, legacy names, and intercept QUIC blocks. Own
+  prefixes only; Windows and third-party rules are never matched.
+- **`HostsTelemetryPins.RemoveFromLiveHosts()`** — removes every marked
+  telemetry pin block with the same never-touch-user-lines contract as
+  the rest of the class, backing the file up first.
+
+## 8. Dead code and local hygiene
+
+The bridge's never-wired `FeedLoop`/`StartFeed` pair is gone
+(`feed.jsonl` keeps its session-start snapshot; live state comes from
+`BuildMonitorSnapshot` on demand).
+
+---
+
+**Verification:** Release + Debug build clean; all eleven offline
+self-test suites pass on the release machine (NetWatch 76, Contain 93,
+Harden 42, WSL 48, StartupHealth 22, AllowList 24, OneSettings 43,
+PyTrace 21, Bridge 19, ProxyInstall — Intercept 11/13 locally; its two
+machine-Root checks pass on CI's elevated runner, where this exact
+commit's suite run is green).
+
+## v2026.11.10.5 (2026-11-10)
+
+# v2026.11.10.5 — Sealing the local-trust doors
+
+Three independent security reviews of this repository (static, line-level,
+against v2026.11.3.4) found a consistent theme: the app's own trust boundary
+is the user session, and it runs everything as Administrator. Several files
+that gate machine-level capabilities were readable or writable by any
+process running as the same user, and the elevated app acted on them. This
+release closes every live finding, plus the documentation claims the
+reviews falsified. No behavior you rely on changes — the fixes are all
+about who gets to influence the elevated app, and what the docs admit.
+
+## 1. The intercept journal can no longer be forged into elevated commands
+
+An intercept session writes its undo record to
+`%LOCALAPPDATA%\AutoCommand\intercept\session-active.json`. At every app
+start, crash recovery replays that file into elevated `netsh` calls. The
+directory was user-writable and the fields were unvalidated, so any
+non-elevated process could write a journal that the app itself executed
+with admin rights — `FirewallRules: ["all"]` deleted every firewall rule
+on the machine at next launch, and a forged proxy "before" value pointed
+every Windows service at an attacker host. Three locks now hold:
+
+- **Validation at the sink.** Rule names must match the exact
+  `AutoCommand Intercept QUIC block (pid)` shape the hooks themselves
+  generate; proxy restores must be a real `host:port`; anything else
+  degrades to the conservative action (reset / clear / skip). Forged
+  content is now inert.
+- **ArgumentList everywhere.** netsh arguments travel as structured
+  process arguments — no caller string can break out into extra tokens.
+- **The directory is admin-only.** The intercept folder (journal and CA
+  key with it) is created Administrators/SYSTEM-only, so a non-elevated
+  process cannot write the journal in the first place.
+
+## 2. Sysmon64.exe is verified by digest, not by certificate
+
+The previous signature gate read the signer certificate out of the
+downloaded file and built its chain. That proves the *certificate* is
+Microsoft's — not that the surrounding bytes are the file Microsoft
+signed: a tampered Sysmon64.exe with an intact certificate table, or any
+renamed Microsoft-signed binary, passed it and was executed elevated.
+The gate is now a full `WinVerifyTrust` Authenticode verification —
+digest over the current bytes plus signer chain, then the Microsoft
+subject pin. Applied to the cache, every local source, the fresh
+download, and user-supplied offline copies alike.
+
+## 3. No more cleartext egress: RDAP-only IP attribution
+
+Enriching unknown destination IPs used the free ip-api.com endpoint over
+**plaintext HTTP** — every unclassified remote IP this machine connects
+to was visible to anyone on the network path, from the very tool that
+exists to notice exactly that. The ip-api step is removed; attribution
+is RDAP-only (HTTPS, IANA-bootstrap routed, its own pacing, caching and
+negative state). Labels keep their `· RDAP` provenance marker.
+**PRIVACY.md** no longer claims "no other network sender anywhere in the
+codebase" — it now spells out all three outbound lookups (RDAP, the
+Sysmon download, the DBX blob) with what each sends and when.
+
+## 4. The AI bridge tells the truth about what can mutate
+
+The MCP `initialize` instructions hardcoded "the only mutating tools are
+open_gate/close_gate" while the registry had grown to five (it also
+includes `close_shieldsup_door`, `opt_out_telemetry` and
+`apply_shieldsup_preset`). A model's picture of what can change the
+machine is a safety input, so the sentence is now generated from the
+registry itself — it cannot drift again.
+
+## 5. Gates re-arm before their record is dropped
+
+Closing an agent gate removed the gate record first and re-enabled the
+blocks second, swallowing firewall-COM failures — a transient error left
+the target unblocked with no record saying it should be blocked. Now the
+re-arm happens first with three retries, and a final failure keeps the
+expired gate on a 30-second retry tick (and re-arms at next startup).
+The "door silently open" window is closed.
+
+## 6. Lockdown snapshots before it deletes
+
+*Restore defaults + lockdown* calls `RestoreLocalFirewallDefaults`, which
+irreversibly deletes every non-default firewall rule on the machine —
+other security software's, VPNs, Docker/WSL, your own. A full snapshot
+of every rule (all fields) now lands under
+`%PROGRAMDATA%\AutoCommand\firewall-snapshots\lockdown-<timestamp>.json`
+before the reset runs, and the progress report names the file.
+
+## 7. Preference files stop depending on how the app was launched
+
+`sstp`/`kdnet` allow-lists, the privileged-task whitelist,
+auto-mitigate and confirm-confirmation prefs were resolved against the
+process's current working directory — a shortcut with a different
+"Start in" (or the AgentProxy wake path) silently read and wrote a
+*different file*, so settings appeared to forget themselves and
+enforcement state depended on launch mechanics. All now resolve against
+their data roots (`%PROGRAMDATA%\AutoCommand`, `%LOCALAPPDATA%\AutoCommand`)
+with a one-time import of legacy copies.
+
+## 8. Intercept hardening
+
+- **Upstream TLS validation now checks revocation** — a
+  confirmed-revoked upstream certificate fails the intercept leg
+  instead of passing while your browser would have refused it.
+  Revocation-unknown (offline OCSP) still soft-passes, browser-equivalent.
+- **The WinHTTP bypass list survives sessions** — it used to be reset to
+  `<local>` on every restore, discarding custom bypasses.
+- **Minted leaf private keys are dropped when a session ends** instead
+  of sitting in a static cache for the life of the process.
+
+## 9. Documentation that survives an audit
+
+- README: "It sends nothing anywhere" and "deleting the folder
+  uninstalls it completely" rewritten to claims that hold (outbound
+  lookups enumerated; the Sysmon driver / firewall rules / hosts pins
+  footnote stated plainly).
+- TECHNICAL_NOTES: the intercept-results row no longer claims decrypted
+  bodies are "in memory until the user says so" — they persist to the
+  transmissions archive on disk, and the row says where and for how long.
+- SECURITY.md: the `SECURITY-EMAIL-NOT-YET-SET` placeholder (published
+  against its own comment's instruction) is gone; GitHub private
+  vulnerability reporting is stated as the channel.
+
+---
+
+**Verification:** Release + Debug build clean; all eleven offline
+self-test suites pass (NetWatch 76, Contain 93, Harden 42, WSL 48,
+StartupHealth 22, AllowList 24, OneSettings 43, PyTrace 21, Bridge 19,
+ProxyInstall, Intercept — the latter's two machine-Root checks require
+an elevated runner, as CI provides).
+
+## v2026.11.10.4 (2026-11-10)
+
+# v2026.11.10.4 — Startup & Tasks: the persistence surface, on one board
+
+## The problem
+
+Shields Up covered network doors, phone-home, junk and OS switches — but
+not the third classic surface: **persistence**. What runs at logon (Run
+keys, Startup folders) and what runs on schedule (Task Scheduler) lived
+nowhere in the app, even though the engines already existed
+(`RegistryHelper.GetStartupItems`, the COM-based `TaskSchedulerService`
+that replaced every schtasks.exe call, and the monitor's task
+attribution).
+
+## What changed
+
+**A new Startup section in the Shields Up rail**, born directly in the
+HIG card kit introduced in v2026.11.10.3 — large title, summary pill
+("N third-party autostart(s)"), inset groups, one quiet card per item:
+
+- **AT LOGON** — Run-key and Startup-folder entries. Registry values
+  toggle by **snapshot-then-remove**: the exact command string is saved
+  to `startup-state.json` before the value is deleted; restore is exact,
+  and re-enabling something we never disabled refuses honestly. Folder
+  shortcuts are listed but never touched by us — the button says why.
+- **SCHEDULED TASKS** — third-party tasks listed individually (state ·
+  action · user) with reversible Enable/Disable via the existing COM
+  service; **Windows inbox tasks are counted, not listed** — the board
+  stays human. Classification is location-based
+  (`\Microsoft\Windows\` = inbox, everything else third-party) and says
+  so — no signature claims.
+- **Bridge**: a new read-only `get_startup_status` tool exposes the same
+  surface to AI sessions (logon items with disabled-by-AutoCommand
+  flags, third-party tasks, inbox count); mutations stay in the tab.
+
+Four new HardenSelfTest checks pin the classification (inbox vs
+third-party vs null-safe) and the registry-vs-folder toggle mapping.
+
+## Also on this machine (not part of the build)
+
+The two pending HKLM search policies from the SearchHost deactivation
+ladder were applied and verified with this release's approval:
+`DisableSearchBoxSuggestions=1`, `DisableCloudOptimizedContent=1`, plus
+a fresh stop of the SearchHost tree. The full ladder is now complete
+here: features off at the source, entry point hidden, dynamic search
+box off, tree contained at zero bytes. Revert path:
+`%LOCALAPPDATA%\AutoCommand\revert-searchhost.ps1`.
+
+## Notes
+
+Local CI before release: all 15 suites pass — including the
+stub-parity tripwire (the AgentProxy offline list gained
+`get_startup_status` in lockstep). RainSelfTest exceeded the sweep
+window twice under release-day build load and passed cleanly with the
+full window; its code path is untouched by this release. The two
+InterceptSelfTest journal-recovery failures remain pre-existing on a
+clean v2026.11.9.2 checkout (noted since v2026.11.10).
+
+## v2026.11.10.3 (2026-11-10)
+
+# v2026.11.10.3 — Shields Up, redesigned for readability
+
+A visual overhaul of all five Shields Up detail panels (Quick Scan,
+Doors, Privacy, Junk, Hardening) following Apple HIG principles,
+translated to the app's WPF idiom. **No behavior changes**: every
+control name, handler, binding and refresh method is untouched — this
+is a restyle with a XAML-only regression surface.
+
+## The new anatomy
+
+Every subtab now answers "am I OK?" before asking you to read:
+
+- **Large title + one plain sentence** replace the shouting section
+  headers — each page opens with its name (21 px, semibold) and a
+  single line of what it does.
+- **A summary pill** at the top right of every page — the page's whole
+  verdict in one glance: "3 of 8 doors open", "2 vendors still on",
+  "4 package(s) matched", "All switches set". Each pill is driven from
+  the same aggregate the rail dot already computes (one code path, two
+  faces: dot for the rail, pill for the page).
+- **Inset groups** — iOS-Settings-style rounded containers under
+  small-caps secondary headers. Doors reads as REMOTE ACCESS (5 rows) +
+  LEGACY NAME RESOLUTION (3 rows); Hardening as NETWORK / SIGN-IN /
+  HOSTS FILE.
+- **One quiet card per item** — title, one line of plain evidence,
+  action bottom-right. Row boundaries reveal on hover (direct
+  manipulation), never in static chrome.
+- **One button style for every action class** across all five subtabs:
+  quiet, rounded, hairline border, hover tint, disabled dim — the
+  mixed default-button styles are gone.
+
+The kit is built entirely from the app's existing dynamic brushes, so
+dark and light themes carry through unchanged, and it is exactly the
+vocabulary the upcoming Startup & Tasks section will be born in.
+
+## Verification
+
+Local CI before release: all 15 self-test suites pass (BridgeSelfTest
+and RainSelfTest pass on direct rerun — the sweep harness's shorter
+timeouts and a live AI session holding session.json account for their
+first-run noise; both are known environment sensitivities, and a
+XAML-only change touches no engine code). The two InterceptSelfTest
+journal-recovery failures remain pre-existing on a clean v2026.11.9.2
+checkout (noted since v2026.11.10) and are untouched.
+
+## v2026.11.10.2 (2026-11-10)
+
+# v2026.11.10.2 — The legacy name-resolution doors
+
+## The problem
+
+Windows enables three broadcast/multicast name-resolution protocols by
+default: **NBNS** (UDP 137, 1990s NetBIOS), **LLMNR** (UDP 5355) and
+**mDNS** (UDP 5353). Every DNS miss fans out to all of them, each packet
+interrogates every host on the LAN segment, and LLMNR/NBNS poisoning is
+a textbook credential-theft technique. The PID 4 mystery on the machine
+that drove this release turned out to be exactly this: the kernel's
+NetBIOS broadcasts, dropped by a block rule that shouldn't exist.
+
+## What changed
+
+**Three new doors on the Shields Up board** — one place, one toggle
+each, all reversible (`NameResolutionDoors`):
+
+- **LLMNR** — `EnableMulticast=0` policy, source-level. Status reads
+  the live policy; previous value snapshotted and restored exactly.
+- **NetBIOS** — `NetbiosOptions=2` on every `Tcpip_` interface, with a
+  per-GUID snapshot. **Partial is a first-class state**: "2 of 3
+  interfaces" is shown as Partial, never flattened to closed. Applies
+  on adapter restart/reboot (the evidence says so).
+- **mDNS** — a firewall-scoped outbound block of UDP 5353 multicast
+  (224.0.0.251 / ff02::fb) under its own rule group, the clean revert
+  unit. Labeled honestly: **network-level only** — Windows ships no
+  source switch, and the door says so. Printer/Chromecast/AirPlay
+  discovery stops while closed.
+
+**Status carries consequence, not just config**: `get_shieldsup_status`
+now includes each door's state *plus a live 24 h chatter count* —
+dropped UDP 137/5355/5353 attempt totals from the block-hit feed
+(attempts, never bytes). After closing a door, the same number becomes
+the receipt. `close_shieldsup_door` accepts the three new ids with the
+same confirm-every-call contract; re-opening stays a human decision in
+the tab.
+
+Snapshots persist in `name-resolution-doors.json` beside the other
+ShieldsUp state; re-open without a snapshot refuses honestly instead of
+guessing. The Doors rail dot counts the three new doors.
+
+## Notes
+
+- Local CI before release: HardenSelfTest (7 new door-state checks:
+  Unknown/Closed/Partial/Open transitions, the absent-policy-means-open
+  rule, rule-count semantics), ContainSelfTest, BridgeSelfTest and
+  ProxyInstallSelfTest all pass; the app builds clean. The two
+  InterceptSelfTest journal-recovery failures remain pre-existing on a
+  clean v2026.11.9.2 checkout (noted since v2026.11.10) and are
+  untouched.
+
+## v2026.11.10.1 (2026-11-10)
+
+# v2026.11.10.1 — Blocks that explain themselves
+
+## The problem
+
+Two live incidents from one machine. First: a monitor row for PID 4
+("System") produced a literal `AC-BLOCK-APP System` firewall rule —
+program set to the string "System" — which starves every kernel-mode
+socket (SMB client, http.sys, WSK sockets of VPN/EDR drivers) and only
+looks harmless until the day one of them is needed. Second: blocking
+anything showed a bare path or IP with zero context — users decided
+without the investigation (who is this image, what shape is its
+traffic, is it already being blocked) that the app's own
+`investigate_process` bridge tool can produce in seconds.
+
+## What changed
+
+**Block Guard (refuse / warn).** The process-block path now runs every
+subject through `BlockGuard` before the confirmation dialog:
+
+- **Kernel images** (`System`, `Idle`, `Registry` — the no-path
+  processes) are **refused outright**, with the explanation of what a
+  kernel-socket block breaks and the protocol-level alternative
+  (disable NetBIOS over TCP/IP; block the specific remote IP).
+- **Security-critical images** (`lsass`, `winlogon`, `wininit`,
+  `csrss`, `smss`, `fontdrvhost`) escalate the dialog warning: domain
+  auth / logon plumbing, spelled out.
+
+**Pre-block brief.** Both block dialogs (process and remote IP) now
+carry a compact live investigation from the new
+`BlockFeedbackService` — the same join behind
+`investigate_process`: who the image is (provenance verdict —
+including "Kernel process" for PID 4), its traffic shape (connects in
+window, ~per-hour, top destination with classification), whether it is
+already being blocked with drops counted, and the honest verdict
+headline. After blocking, the brief reminds what evidence to watch:
+attempts drop, bytes stay zero, and the Blocked tab shows
+contained / stale / leak.
+
+Both are covered by six new ContainSelfTest checks (guard decisions
+for bare names and paths, case-insensitivity, the empty subject).
+
+## Notes
+
+- Full local CI before release: ContainSelfTest (all 103 checks),
+  HardenSelfTest, ProxyInstallSelfTest, BridgeSelfTest pass; main app
+  builds clean. The InterceptSelfTest journal-recovery failures
+  remain pre-existing on a clean checkout of v2026.11.9.2 (noted in
+  the v2026.11.10 notes) and are untouched here.
+
+## v2026.11.10 (2026-11-10)
+
+# v2026.11.10 — Blocks that hold, honest opt-outs, zero-touch AI access
+
+Three features that came out of one live investigation: a blocked
+`msedgewebview2.exe` that kept "transmitting", a telemetry opt-out that
+didn't touch the traffic it was blamed for, and an MCP server that had
+to be wired into each AI client by hand.
+
+## 1. Name-blocks now cover every copy of the binary
+
+Windows Firewall enforces an app rule by exact image path, and binaries
+move: WebView2 lives in a versioned folder that is deleted on every
+runtime update, and ships in a second location under
+`System32\Microsoft-Edge-WebView`. A block pinned to the one path you
+saw goes inert while the process keeps trying from the new one.
+
+`AppBlockCoverageService` already extended coverage when a blocked exe
+*spawned* at a new path (Sysmon EID 1) and swept running processes at
+startup. This release adds the leg that holds **without Sysmon and
+before anything runs**: a periodic disk sweep enumerates every on-disk
+copy worth covering — sibling version folders of known-covered paths
+(only when the parent folder is version-named, so a blocked
+`C:\Tools\upd.exe` never scans the drive) plus the documented extra
+install roots of known multi-root binaries (WebView2's three
+locations, extensible by name). Coverage also fires the moment a new
+name enters the block list, not at the next hourly pass. Every
+extension lands in the same `app-block-extensions.jsonl` audit trail.
+
+## 2. Windows-search feature opt-outs — with honest wording
+
+The biggest talker in the Phone Home table is SearchHost's WebView2
+polling Bing suggestion/highlight endpoints — **feature traffic, not
+diagnostic data**, so no diagnostics switch touches it. The Shields Up
+vendor table gains three switches, each snapshotted and reversible:
+
+- `DisableSearchBoxSuggestions` — Bing suggestions & search highlights
+- `DisableCloudOptimizedContent` — the cloud-content pipeline
+- `IsDynamicSearchBoxEnabled` — web results in the search box
+
+They are labeled what they are (`switch_kind: feature`): the state
+reads **"Off at the source"**, never "stopped" — and the rule text
+says why: opt-out reduces at the source; only a firewall block proves
+zero bytes (`verify_block_containment`). `opt_out_telemetry` now also
+returns a **connects/hr baseline at flip time** for rules with a
+traffic process, so "did the rate actually drop?" has its before
+number in the same response. The registry write allow-list gains
+exactly one user-scope key (the search box's own settings); everything
+else stays confined to policy prefixes, and a new self-test replays
+every shipped rule against the allow-list.
+
+## 3. MCP auto-registration: one consent, then zero-touch
+
+Registering AutoCommand into each AI client (ZCode, Cursor, Windsurf,
+VS Code, Claude Desktop, Gemini) was a per-client button click — and
+every app update stranded every registration, because configs pinned
+`tools\v<version>\...`.
+
+- **Stable `tools\current` junction** — client configs are now written
+  at a path that never changes; the install step repoints the junction
+  at the newest complete versioned folder. A plain directory named
+  `current` is never touched. Registered strings survive every update;
+  stale detection now only fires on genuinely dead links.
+- **One-consent auto-registration** — when a session starts and
+  detected clients lack the `autocommand` entry, one dialog offers
+  *auto-register + keep updated* (Yes / ask-next-time / never). Consent
+  persists in `agent\auto-register.json`; only detected clients are
+  ever written.
+- **Startup self-heal** (consented mode only) re-points moved or dead
+  registrations through the same resolve → preflight → Register
+  discipline as a manual click. A successful repair is never a modal:
+  one status line on the Be My Guest tab plus a timestamped event in
+  `agent\registration-events.jsonl` (client, outcome, old → new). A
+  failed repair stays visible on the tab with the reason until fixed.
+- **First-class removal** — every registered client gets a Remove
+  button: same backup-before-write discipline, only our entry, verified
+  by re-reading.
+
+Registering still never starts anything: sessions begin only from the
+Be My Guest tab, and with no session the proxy answers clients with
+setup guidance.
+
+## Notes
+
+- Full local CI before release: 15/16 self-test suites pass. The two
+  InterceptSelfTest journal-recovery failures reproduce on a clean
+  checkout of the previous release — pre-existing, not from this
+  release; they are machine-state-sensitive checks unchanged here.
+- New/extended suites: ContainSelfTest (5 disk-sweep checks),
+  HardenSelfTest (5 rule-table invariants), ProxyInstallSelfTest
+  (junction stability across version bumps, plain-dir refusal,
+  unregister round-trip, bulk-register scope).
+
+## v2026.11.9.2 (2026-11-09)
+
+# v2026.11.9.2 — Sysmon without internet
+
+## The problem
+
+AutoCommand itself never needed internet: the zip is self-contained,
+everything it records stays on the machine, and the optional
+enrichments degrade gracefully when there's no network. But **Sysmon**
+— required for the Spawns timeline and network attribution — had
+exactly one source: a download from live.sysinternals.com. On an
+offline PC (a field report from a brand-new, air-gapped Windows 11
+box) the install failed with a raw socket error, and the follow-up
+"install fails, then repair" dance was confusing rather than helpful.
+
+## What changed
+
+**The installer now resolves Sysmon64.exe offline-first**, each source
+behind the same Microsoft-signature gate as the download itself:
+
+1. the verified `%TEMP%` cache (as before)
+2. **a user-supplied `Sysmon64.exe`** placed next to `AutoCommand.exe`
+   or in its `tools` folder — the documented air-gapped path
+3. **the deployed binary** a previous install left in `C:\Windows` —
+   which also lets an inconsistent install repair itself with no
+   download at all
+4. the HTTPS download — last resort, not the only path
+
+When the download is the failure, the error is now an actionable
+plain-English message instead of a socket error, and the setup flow
+offers **"use a local copy"**: pick a Microsoft-signed Sysmon64.exe
+(OpenFileDialog), it is verified and seeded into the cache, and the
+install retries immediately.
+
+## Why Sysmon is not bundled with the app
+
+Microsoft's current Sysinternals license terms do not permit shipping
+the binary inside another product ("You may not … publish the software
+for others to copy … transfer the software … to any third party"). So
+the offline path is bring-your-own-copy: on any connected PC download
+`Sysmon64.exe` from [live.sysinternals.com](https://live.sysinternals.com/Sysmon64.exe),
+move it to the offline machine (USB), and drop it next to
+`AutoCommand.exe` — or answer Yes to "use a local copy". Installing
+and using it on your own devices is exactly the right the license
+grants you. The README now has an **"Offline (air-gapped) PCs"**
+section spelling this out, and the signature gate (introduced in
+v2026.11.9) is what makes a user-supplied copy safe to consume: a
+local copy is acceptable exactly when it verifies as Microsoft-signed.
+
+## For the field-report machine
+
+If that box also showed "install fails → repair fixes it": the
+deployed-binary source (#3) plus the repair flow means an offline
+machine with any previous Sysmon state now converges on its own —
+repair no longer needs a download. On a clean offline box, place the
+USB-brought `Sysmon64.exe` beside the app exe once and both install
+and repair work forever after.
+
+## Verification
+
+- `dotnet build` Debug + Release — 0 errors.
+- Strict CI gate green on the change commit (run 42763836665).
+- Download+signature chain spot-checked live: 3.1 MB, Authenticode
+  Valid, `CN=Microsoft Windows Publisher, O=Microsoft Corporation` —
+  the gate accepts the genuine artifact and refuses anything else.
+
+## v2026.11.9.1 (2026-11-09)
+
+# v2026.11.9.1 — the rain survives a screen nap
+
+Same-day follow-up to v2026.11.9. One fix.
+
+## The bug
+
+A v2026.11.3.4 install on this machine logged two crashes
+(`crash.log`, 2026-11-08 21:55 and 2026-11-09 19:49):
+
+```
+System.InvalidOperationException: Cannot call this method while the image is unlocked.
+   at System.Windows.Media.Imaging.WriteableBitmap.Unlock()
+   at AutoCommand.Matrix.MatrixRenderer.Frame(...) MatrixRenderer.cs:line 480
+```
+
+The Matrix rain pane draws through a `WriteableBitmap` with a textbook
+`Lock() … try { draw } finally { Unlock() }` on the single UI thread —
+yet `Unlock()` found the bitmap already unlocked. Explanation: when the
+render device is lost (display sleep/wake, session lock, monitor mode
+change), WPF recreates the bitmap's GPU texture and resets its lock
+bookkeeping. The next frame's Lock/Unlock then throws. The global
+dispatcher handler kept the process alive, but every later tick aborted
+mid-draw — the pane froze until restart. Both timestamps match display
+sleep/wake events.
+
+## The fix
+
+Every `Lock`/`Unlock` site in the renderer (the rain frame pass and the
+three ambient/etch passes, on both bitmaps) now goes through
+`LockSurface`/`UnlockSurface`, which recognize the device-loss state,
+replace both surfaces at the current size (`RebuildSurfaces` — fresh
+bitmaps, clean rain slate, full ambient repaint), and let the next tick
+draw into the healthy surface. A reentrancy guard keeps a still-lost
+device from recursing through the ambient repaint. After a display
+wake-up the pane now blinks once and rebuilds instead of dying.
+
+Deliberately NOT a switch to GlyphRun/text rendering: the per-cell
+log-curve wake alpha, the cinema per-pixel fade and the atlas
+bloom/shadow cells have no text-path equivalent. The bitmap is the
+right tool; it needed to tolerate the one WPF state reset it can hit.
+
+## Verification
+
+- `dotnet build` Debug + Release — 0 errors.
+- Full strict suite gate on GitHub CI — green for this commit
+  (run 42753388671). `RainSelfTest` remains a manual visual harness by
+  design (a window with no exit path); a desk run after display
+  sleep/wake is the visual confirmation for this fix.
+
+## v2026.11.9 (2026-11-09)
+
+# v2026.11.9 — trust your own folder again
+
+## The theme
+
+A full audit of this codebase found one repeating weakness: **the elevated app
+trusted files that a non-elevated process can write.** AutoCommand runs as
+administrator — its threat model is "untrusted code running as the user" — so
+every one of these was a way for user-level code to get admin behavior. This
+release closes all of them, removes the last telemetry code from the family
+tree, and fixes the reliability bugs the same audit turned up.
+
+## Security: closed privilege gaps
+
+- **The Sysmon installer verified nothing.** The download cache lived in
+  user-writable `%TEMP%` and was executed elevated with no checks: any
+  same-user process could pre-plant a file at `%TEMP%\AutoCommand_Sysmon\Sysmon64.exe`
+  and it would run with admin rights at the next install or repair. The cache
+  is now trusted only when it is Microsoft-signed and plausibly sized;
+  anything else is re-downloaded over HTTPS — and the download itself must
+  verify or the install aborts.
+- **OneDrive removal read HKCU.** The uninstaller path was resolved from a
+  registry hive any user process can write (`HKCU\...\Uninstall\OneDriveSetup.exe\UninstallString`)
+  and executed elevated. HKCU is no longer consulted; every candidate binary
+  (registry or directory scan) must be named `OneDriveSetup.exe`/`OneDrive.exe`
+  AND carry a valid Microsoft signature before this app runs it.
+- **Desired-state files under ProgramData were user-writable.** A fresh
+  folder there inherits "Authenticated Users: Modify", so a standard-user
+  process could rewrite `firewall_baseline.json` / `firewall_config.json` /
+  `bloatware_config.json` — and the 60-second drift enforcer would then
+  disable/enable firewall rules on the attacker's behalf. The data root is
+  now ACL-hardened (admins + SYSTEM full, users read-only), with inheritable
+  rules so future files are covered too.
+- **Inbox tools were resolved by bare name.** `netsh`, `bcdedit`, `powershell`,
+  `wsl.exe`, `icacls.exe`, `sc.exe`, `wevtutil.exe`, `reg.exe`, `ipconfig` were
+  launched unqualified from an app that ships as a portable folder — a planted
+  `netsh.exe` next to the exe would run elevated (Windows searches the app
+  directory and CWD before System32). Every launch is now pinned to
+  `%SystemRoot%\System32`.
+- **"Always for this session" grants could widen.** Confirming "open a
+  1-minute block gate?" then authorized a 60-minute one for the same target,
+  and a grant for one ShieldsUp door/preset silently covered the others.
+  Grants are now keyed to the full argument shape: target AND duration for
+  gates, target for doors/presets/rules.
+- **The intercept CA's private key sat in plaintext.** The CA backing
+  machine-wide TLS trust persisted as a password-less PFX in user-writable
+  `%LOCALAPPDATA%`. It is now DPAPI-encrypted at rest (older plaintext files
+  upgrade in place on first load).
+- **The intercept teardown had two stranding windows.** A failure between
+  trusting the CA and installing the hooks left the CA machine-trusted with
+  no undo; and the undo journal was deleted even when the CA's removal
+  failed. The journal is now written BEFORE the first system change, kept
+  until the CA is confirmed out of the Root store, and a failure that lands
+  in the unjournaled window un-trusts the CA explicitly. Teardown racing a
+  new session no longer removes the CA the new session is using.
+- **Telemetry opt-out rules could write anywhere.** A tampered rules file
+  drove `Registry.LocalMachine.CreateSubKey(...)` with no constraints. Writes
+  are now confined to a policy-key allow-list; JSON opt-outs to config-file
+  locations. (The DNS probe already treated the file as untrusted; the
+  mutation paths now match.)
+- **The OneSettings watchdog registered SYSTEM tasks blindly.** A SYSTEM
+  task pointing at `Environment.ProcessPath` means "replace the exe, own
+  SYSTEM" when the app runs from Downloads. Registration now refuses
+  user-writable locations with instructions to move the install.
+- **The agent proxy trusted by name.** `AgentProxy` accepted a session whose
+  pid ran any process named `AutoCommand*` — a same-named impostor with its
+  own `session.json` could capture the assistant's data channel. It now also
+  verifies the process image lives in the app's install folder. Stdin is
+  pinned to UTF-8 (MCP-over-stdio is UTF-8; the console code page mangled
+  non-ASCII tool arguments).
+
+## Privacy: the old telemetry is gone — everywhere
+
+The GA4/Firebase analytics code from the SystemMonitor era remained in the
+archived `systemmonitor/` tree — with a live API secret committed. This
+release removes the analytics service, its config files, its consent flow and
+every call site from the archived tree (the EULA flow stays, re-keyed to a
+local settings flag; its text now says plainly: no telemetry). The retired
+GA4 credential appears in **other public repos in this family** (`myfirewall`,
+`SystemMonitor`) and was removed there in the same sweep — **if you run any
+of those, update them; and rotate/revoke that credential in your Google
+Analytics admin regardless, since public history still contains it.**
+AutoCommand itself has sent nothing but the opt-in anonymous daily count
+(public code, `telemetry/`) and still sends nothing new.
+
+## Reliability: the audit's "your own tool broke your PC" class
+
+- **Re-enabling a service no longer demotes it.** "Re-enable" hardcoded
+  `Manual`, so an Automatic service (RasMan — your VPN) silently stopped
+  starting at boot after a disable/enable cycle. The pre-disable start type
+  is recorded and restored exactly (both copies of the helper).
+- **The kernel-debug check stops lying.** Detecting "debug ON" by finding the
+  words `debug` and `yes` anywhere in `bcdedit` output matched
+  `recoveryenabled Yes` + `debug No` on healthy machines — driving
+  `bcdedit /debug off` every 30 seconds and a red alert every 60. The value
+  of the loader's actual `debug` line is parsed now, in all three copies.
+- **The security enforcer stops overlapping itself.** A callback slower than
+  the 500 ms scheduling tick used to be re-dispatched while still running
+  (a hung WMI call meant a new sweep every tick, forever). An in-flight
+  guard skips re-dispatch; your Settings cadence choice also survives
+  restarts instead of being force-re-enabled.
+- **Process pipes stop deadlocking.** Every runner read stdout to EOF before
+  touching stderr — a child that fills its stderr pipe (wsl.exe does;
+  Sysinternals tools do) hung the elevated app forever, with no timeout.
+  All runners now drain concurrently and kill at 120 s.
+- **The block ledger can no longer be wiped by a locked file.** An
+  unreadable `blocks.txt` (AV lock, share violation) was treated as "no
+  blocks", and the next save rewrote the file with only new records. An
+  unreadable store is now preserved as `blocks.txt.unreadable`, saves are
+  atomic (temp + replace), and the legacy import no longer mistakes sibling
+  directories for this install.
+- **A gzip bomb can no longer OOM the app.** Decoding capped the compressed
+  size but not the expansion — any HTTPS server could serve a 16 MB bomb
+  that inflated to gigabytes inside the elevated process during a peek.
+  Decoded output is now hard-capped at 64 MB; over-budget bodies show as
+  compressed/flagged, like any undecodable body.
+- **Update freezes survive a crash and a version change.** Freeze state was
+  CWD-relative (orphaned by every version-folder change — the deny ACE then
+  outlived the app's ability to undo it) and was saved only AFTER the deny
+  was applied (a crash in between froze an exe with no state, so the app
+  itself refused to thaw it). State now lives in an absolute path, is
+  written before the deny, saves atomically, and adopts old CWD-era freezes
+  at startup.
+- **Shutdown cannot deadlock.** The exit path awaited gate-closing inline on
+  the UI thread — a classic hang shape. It now runs on the thread pool with
+  a 10 s ceiling (gates also self-expire and reconcile at startup).
+- **UI fixes:** the Be My Guest tab no longer stacks a new 2-second refresh
+  handler on every visit; the Blocks tab's traffic cache is thread-safe; the
+  svchost CSV lives at an absolute path under `%LOCALAPPDATA%\AutoCommand`
+  (no more files in System32), rotates at 5 MB, and keeps 7 days of rows;
+  the blocked-rules window no longer pops a modal error every 15 seconds on
+  a service hiccup, and its CSV export is properly quoted.
+- **The privileged-task whitelist is honest.** The UI said "permanently";
+  the set was memory-only and forgot itself every relaunch. It persists now.
+
+## Honesty fixes
+
+- **Geo labels now say what they are.** The org/country text on connection
+  rows comes from a free geo-IP API that only serves plain-text HTTP —
+  forgeable by anyone on the network path. Fresh labels carry a
+  `· unverified` marker (RDAP-sourced labels, fetched over HTTPS, keep
+  their clean name). Nothing about what the app sends changes.
+- **Startup repairs what earlier crashes stranded** — this is the part you
+  may actually see once:
+  - an intercept CA still trusted machine-wide with no live session →
+    removed (by thumbprint, and by exact subject for older installs);
+  - the system or per-user proxy pointing at a dead `127.0.0.1:<port>` with
+    nothing listening → reset.
+  Each repair is shown in one dialog and appended to
+  `%LOCALAPPDATA%\AutoCommand\startup-repair.jsonl`. No session that is
+  actually running is ever touched.
+
+## CI and hygiene
+
+- `AllowListSelfTest` (the tamper-evident allow-list ledger — a security
+  control with fully synthetic tests) now gates CI; it was missing from the
+  strict list.
+- `test-agent-bridge.ps1`'s negative checks actually assert now: the bad-token
+  test used to send the *valid* token (PowerShell comma-call bound both
+  values to one parameter) and the spoofed-Host check only printed — the
+  bridge's 401/403 defenses were appearing tested while testing nothing.
+- Repo: `evidence/`, `firebase_config.json`, runtime preference files are
+  ignored; the machine-specific `ignored_processes.txt` is no longer tracked.
+
+## Verification
+
+- `dotnet build AutoCommand.csproj` Debug + Release — 0 errors.
+- Strict suites run locally on this machine; full gate in CI (the temp-dir
+  suites that cannot create directories inside this dev sandbox fail
+  identically on the pre-change tree — environment, not code).
+
+## Not in this release, on purpose
+
+- **Ephemeral per-session CA.** DPAPI + journal-ahead + the startup sweep
+  close the practical gaps; regenerating the CA per session is the deeper
+  redesign and gets its own change.
+- **Helper dedup across `Helpers/` and `ShieldsUp.Core/Helpers/`.** The
+  drifted copies now carry the same fixes (each was patched in place), but
+  one shared source is a structural follow-up.
+
+## v2026.11.8 (2026-11-08)
+
+# v2026.11.8 — the three-day fuse
+
+## The bug
+
+AutoCommand registered its own logon task with:
+
+```
+schtasks /create /tn "AutoCommandStartupTask" /tr "<exe>" /sc onlogon /rl highest /f
+```
+
+That command writes no `<ExecutionTimeLimit>`, so Task Scheduler supplied its
+own default — **PT72H** — and terminated the task three days after the logon
+that started it. PowerShell and Task Scheduler never surfaced this anywhere the
+user or the app could see it.
+
+Field evidence from this development machine:
+
+| When | What |
+|---|---|
+| 2026-11-03 23:04:35 | `\AutoCommandStartupTask` registered (author `Z690\honey`) |
+| 2026-11-05 20:05:05 | boot; logon trigger starts the app |
+| 2026-11-08 20:05:22 | Task Scheduler **event 329** — instance terminated for exceeding its execution time limit; 102/201 record return `0x8007050B` |
+| 2026-11-08 20:06:27 | user relaunches the app by hand (parent `explorer.exe`) |
+
+Exactly PT72H after the logon. `crash.log` was absent and there was no WER
+report, because a termination is not a crash — which is why the app appeared to
+vanish for no reason.
+
+**Honest note on the termination path.** The app's own `activity.jsonl` records
+`session stopped` at 20:05:22.577 — managed shutdown code ran at the same
+second the Scheduler reports the termination. The two records disagree about
+*how* the process ended. Nothing here depends on resolving that: the missing
+limit and the PT72H timing are not in doubt, and either way the fix is the same.
+
+## What changed
+
+- **`ScheduledTaskGuard`** (ShieldsUp.Core): reads the *registered* task back
+  and repairs the three settings that decide whether a long-lived watcher
+  survives — `ExecutionTimeLimit` → `PT0S`, plus the two battery defaults.
+  `Inspect`, `Repair` and `EnsureUnlimited` never throw; an unreadable task is
+  reported unhealthy with the reason.
+- **Both task creators normalise at creation.** `FreshSetupService` and
+  `ShieldsUp`'s `LogonTaskService` had the identical defect
+  (`ShieldsUpStartupTask` would also have died on day three). Creation now
+  succeeds only if the task ends up unlimited.
+- **Startup repairs a poisoned task.** An upgraded build cures the task an
+  older build left behind. Existence was never the right test: the old code
+  reported a 72-hour task as healthy forever, and the affected user is exactly
+  the one who never opens Settings.
+- **Liveness, so silence stops looking like success.**
+  - `agent\heartbeat.json`, rewritten every 30 s.
+  - A clean exit **deletes** it. That inversion is deliberate: a "clean = true"
+    flag written on exit cannot be trusted, because exit is the path that does
+    not run when a process is killed, and the path a crash truncates. A file
+    that must be removed to mean "fine" fails safe.
+  - Next start: a leftover beat whose pid is gone is an abrupt end by
+    construction → one line in `agent\deaths.jsonl`.
+  - When Task Scheduler's channel is readable, event 329 names the cause
+    (`task-time-limit` vs `abrupt`); when it is not, the death is still
+    recorded, just unattributed.
+  - The user gets one plain-English dialog — *"AutoCommand was stopped by
+    Windows at 8:05 PM because my own startup entry had a three-day time limit.
+    That was my bug, not a problem with your PC."* — never a hex code, never an
+    event id.
+- **`StartupHealthSelfTest`** — 24 offline checks pinning the health matrix, the
+  cause table, and the clean-exit inversion. Added to the strict CI gate.
+
+## Not in this release, on purpose
+
+- **Evidence-bundle UI and token redaction.** `session.json` carries the bearer
+  token for the loopback bridge; a bundle feature must redact it, and doing that
+  properly is its own change. The incident bundle built by hand during
+  diagnosis stays out of the tree.
+- **Sysmon EID 10 process-access arming.** That makes a future killer
+  attributable rather than reconstructed, but it is a shipped Sysmon config, not
+  a code change.
+
+## Verification
+
+- `dotnet build AutoCommand.csproj -c Release` — 0 errors (6 pre-existing
+  NU1900 connectivity warnings, expected on an offline machine).
+- `StartupHealthSelfTest` — 24/24 pass.
+- Strict suites: `NetWatch`, `OneSettingsCadence`, `Contain`, `ProxyInstall`,
+  `Bridge`, `PyTrace`, `Harden`, `Wsl`, `StartupHealth` all pass locally.
+  `InterceptSelfTest` fails in this sandbox inside `RestoreWininetProxy`
+  (registry access), a subsystem this change does not touch; it is reported as
+  an environment failure, not a code failure.
+
+## v2026.11.3.4 (2026-11-03)
+
+# AutoCommand — v2026.11.3.4
+
+A follow-up release with no shipped-binary change: this one fixes the source
+of the preserved SystemMonitor precursor tree (`systemmonitor/`, excluded
+from the app build on purpose).
+
+## What changed
+
+- **Precursor connections table made whole and honest.** An audit of the
+  classic app's GetUdpConnections/GetTcpConnections against the
+  Engines.Watch kernel-table family found eight defects, all fixed in the
+  `systemmonitor/` tree:
+  - IPv6: AF_INET6 was defined and never queried — every IPv6 endpoint was
+    invisible. TCP6/UDP6 owner-pid structs added; both tables enumerate
+    both families.
+  - Sizing race: a table that grew between the sizing probe and the fill
+    silently produced an EMPTY snapshot; the probe now answers
+    ERROR_INSUFFICIENT_BUFFER and a grown fill retries at the new size.
+  - Semantics: UDP rows said "Listening" (a TCP concept) and vanished rows
+    entered history as "Closed" — they now say "Bound" / "Unbound".
+  - Mute collision: every UDP row's RemoteAddress is "-", so one mute muted
+    every UDP row; mute keys are per-protocol now (TCP keeps the bare-IP
+    contract WhoIs/clipboard rely on).
+  - WhoIs guard: "-" was queued into the lookup pipeline like an IP;
+    connectionless rows resolve to "UDP (bound, no remote)".
+  - IsLocalIp: the "172.16." prefix check missed RFC1918 172.16.0.0/12
+    (172.17–172.31 misclassified as non-local); proper /12 parse + ::1.
+  - TCP remote port: carried in the struct, never rendered — new
+    ConnectionItem.RemotePort (RemoteAddress stays a bare IP).
+  - pid→name cache never expired: cleared per refresh cycle so a recycled
+    pid cannot wear its previous tenant's name.
+
+If you only run AutoCommand, nothing about this release changes your
+install — the precursor tree does not compile into anything shipped.
+
+## v2026.11.3.3 (2026-11-03)
+
+# AutoCommand - v2026.11.3.3
+
+AI access lives in the Be My Guest tab only. The headless host is retired,
+and with it the last reason anyone would ever need a separately installed
+.NET runtime: every binary in the release zip now carries its own.
+
+## What changed
+
+- **Tab-only activation.** Sessions start from the Be My Guest tab - the
+  Start button, or its "start automatically" option. There is no command-line
+  activation anymore: the `--agent-headless` launch path is removed from the
+  app, and the headless AgentHost console tool (and yesterday's launcher
+  shim for it) are retired from the codebase and the zip. Existing installs
+  that copied the old AgentHost folder keep whatever they copied, but nothing
+  ships it or documents it anymore.
+- **Wake-on-knock opens the app; it never starts a session.** The opt-in
+  wake preference still works: when a tool call arrives and no session
+  exists, the proxy can launch AutoCommand (one UAC approval) - but the app
+  now opens normally at the Be My Guest tab and *you* click Start. A knock
+  can bring the door to your face; only you can open it.
+- **Honest guidance, everywhere.** The proxy's offline answers, the wake
+  consent dialog, and the README all now say the same thing: start the
+  session in the Be My Guest tab; MCP clients forward into the session you
+  started and answer with setup guidance when none is running.
+- **Why this removes the .NET runtime requirement:** the only framework-
+  dependent component in the zip was AgentHost (published
+  `--self-contained false` on purpose). AutoCommand.exe and AgentProxy.exe
+  both ship self-contained. With AgentHost gone, a fresh Windows 11 machine
+  needs nothing installed - not the SDK, not the runtime, ever.
+
+## Notes
+
+- The wire-protocol smoke test (test-agent-bridge.ps1) now attaches to a
+  live session started from the Be My Guest tab instead of spawning a
+  headless one.
+- Allow-list tamper-evidence, surface verdicts and re-arm (v2026.11.3.1)
+  are unchanged.
+
+## v2026.11.3.2 (2026-11-03)
+
+# AutoCommand - v2026.11.3.2
+
+The headless agent host now works on machines without any .NET installed -
+no runtime install required, ever.
+
+## What changed
+
+- **AgentHost launcher (AgentHost\AutoCommand.AgentHost.cmd).** Scripts get
+  one entry point that always works: when a .NET 10 runtime is present it
+  runs the framework-dependent exe directly (millisecond boots - the reason
+  this tool exists), aiming the runtime resolution at the same dotnet the
+  probe validated, so portable PATH-only dotnet installs resolve too. When
+  no .NET 10 exists, the launcher falls back to the app's own embedded
+  runtime via AutoCommand.exe --agent-headless - the app ships
+  self-contained, so the no-runtime case needs nothing installed. Both
+  paths share the same session semantics: same bridge, same tools, mutating
+  tools permanently denied, one session at a time.
+- **Honest docs.** The AgentHost README and the Be My Guest section of the
+  README now lead with the launcher and state the runtime trade-offs and
+  the DOTNET_ROOT caveat for MCP-style scripts.
+
+## Notes
+
+- Calling the exe directly still requires the .NET 10 runtime - the launcher
+  exists so scripts don't have to care.
+- Existing allow-list behavior from v2026.11.3.1 (tamper-evident ledger,
+  protected-surface verdicts, re-arm) is unchanged.
+
+## v2026.11.3.1 (2026-11-03)
+
+# AutoCommand - v2026.11.3.1
+
+This release closes a silent back door in the SSTP / kernel-debug allow-lists and
+gives you real proof of what the machine looks like - computed from the machine,
+never from a preference file.
+
+## What changed
+
+- **Tamper-evident allow-lists.** `allowed_sstp.txt` / `allowed_kerneldebug.txt`
+  keep their plain-file format, but every change the app itself makes is now
+  hash-pinned (SHA-256) in an append-only ledger under
+  `%PROGRAMDATA%\AutoCommand\allowlist-ledger.log` (admin-only write ACL). On
+  every load the file is checked against the pin: a "True" written by anything
+  other than the app fails secure - enforcement re-arms on the spot and a red
+  "Tamper: Allow-list Reverted" alert says what was found. A deleted or garbage
+  file fails secure the same way. Absent files always meant "enforce"; that is
+  now true for every failure path.
+- **Detection is never gated.** Whitelisted surfaces are still probed on every
+  sweep; the whitelist now only skips remediation. Whitelisted drift is recorded
+  in the ledger (once per clean-to-drift transition) and surfaced amber in-app
+  instead of the surface silently disappearing from view.
+- **Protected-surfaces verdicts** (Settings > Network Adapter Security). Live
+  machine truth per surface, e.g. "SSTP service: stopped + Disabled (Start=4),
+  no SSTP miniports present - enforced, verified 09:14:03". Green = verified
+  clean, amber = whitelisted drift, red = drift while enforced. Whitelisted
+  rows carry a one-click Re-arm button that resumes enforcement and immediately
+  re-verifies.
+- **Removal completeness is part of the verdict.** The SSTP verdict now
+  enumerates the SSTP-family WAN miniports (read-only SetupAPI listing), so
+  "removed and stayed removed" is verified, not just the service state.
+- **An honest whitelist dialog.** The adapter review prompt now states what
+  "No" actually means: AutoCommand stops checking for and removing that
+  surface; drift is recorded but NOT remediated; re-arm anytime in Settings.
+- **AllowListSelfTest** - 24 offline checks proving the ledger's fail-secure
+  paths (absent, seeded, trusted, tampered-by-rewrite, tampered-by-delete,
+  garbage, drift-notes-keep-trust, root isolation) and the SSTP/KDNET verdict
+  evaluators against synthetic machine states.
+
+## Notes
+
+- Existing allow-list files are adopted on first run (seeded into the ledger),
+  so current whitelists keep working; after that, every change is pinned.
+- The ledger directory carries an admin-only write ACL. AutoCommand runs
+  elevated, so this never gets in the app's way - it is exactly what blocks a
+  standard-user process from quietly flipping the allow-lists off.
+
+## v2026.11.3 (2026-11-03)
+
+# AutoCommand — v2026.11.3
+
+This release makes AutoCommand usable on the smallest screens Windows runs on.
+A refresh install of Windows 11 often sits at 800×600 on the Basic Display
+Adapter until GPU drivers land — and until now the main window opened at a
+fixed 1200×750 there, clipped past the screen edge with its title-bar buttons
+unreachable. The window now adapts to whatever screen it finds, and remembers
+what you did with it.
+
+## What changed
+
+- **Adaptive startup sizing.** At launch the window measures its monitor's
+  work area (per-monitor, DPI-correct): persisted geometry is restored and
+  clamped to the current screen, screens too small for the designed 1200×750
+  start MAXIMIZED so the title bar and every pane are reachable, and larger
+  displays keep the design size — the fluid layout already uses the extra
+  room. A resolution jump after drivers install self-corrects: the window is
+  re-clamped live when the work area changes, no restart needed.
+- **Placement persists.** Final size, position and maximized state are saved
+  to `%LOCALAPPDATA%\AutoCommand\window_state.txt` (the same plain-text idiom
+  as rain_panel.txt) and restored next launch — clamped, so a saved window
+  can never come back straddling a screen it no longer fits.
+- **Dialogs can never exceed their monitor.** Every popup (block confirms,
+  Traffic Peek, PID Inquiry, Blocked Rules, the WSL diagnosis, …) caps at
+  92% of its screen, and MinWidth floors wider than the screen are lowered —
+  Traffic Peek demanded an 880px-wide window, which an 800px panel could
+  never show at all.
+- **Small screens start lean.** On narrow launches the sidebar starts folded
+  to its icons (the burger expands it as before), so every horizontal pixel
+  goes to content. The resize floor is now 640×420 — below 800×600 because
+  the work area is smaller than the panel (the taskbar takes a strip, and
+  125% scaling on a tiny panel yields an effective 640×480 desktop).
+- **Per-monitor DPI awareness.** The app manifest declares PerMonitorV2, so
+  when that refresh install gets its real driver and a high-DPI panel, the
+  UI renders crisp on the monitor it is on instead of bitmap-stretching.
+- **QA hook.** Set `AUTOCOMMAND_FORCE_WORKAREA=800x600` to simulate the
+  small-screen path on a dev machine — no test bench required.
+
+## v2026.11.2.1 (2026-11-02)
+
+# AutoCommand — v2026.11.2.1
+
+Same-day follow-up to v2026.11.2 with two Spawn Watches fixes found in
+the first hours of real use.
+
+## What changed
+
+- **The Spawn Watches tab renders its data.** The shipped tab bound its
+  hits grid, rule cards and hit counts to public *fields* on the row view
+  models — WPF bindings resolve CLR properties only, so every binding
+  silently produced nothing and the tab rendered blank while the service
+  indexed hits correctly on disk. The view models now use public
+  properties (the BlockRowVm house pattern). Backend behavior unchanged.
+- **backgroundTaskHost joins the visible feed.** It was part of the
+  starter allowlist, so svchost spawning it never counted as a hit. It is
+  a legitimate service-host child worth seeing; it left the starter
+  allowlist, and existing machines keep full authority over their own
+  `allowlist.txt` hand-edits.
+
+## v2026.11.2 (2026-11-02)
+
+# AutoCommand — v2026.11.2
+
+This release adds Spawn Watches: you describe a class of processes once
+("anything spawned by svchost that isn't a known helper") and AutoCommand
+remembers matching spawns the moment Sysmon archives them — instead of you
+chasing them after the fact, when the processes are already gone. The
+Shields Up sub-tabs also stop being pill buttons and become a rail that
+mirrors the app sidebar, with each section's live state on it.
+
+## What changed
+
+- **Spawn Watches (new tab, WATCH group).** A watch is a JSON rule — image
+  and parent-image wildcards, parent svchost `-s` service scoping, a
+  command-line substring, and allowlist subtraction (one pattern per line in
+  `allowlist.txt`) — evaluated at *ingestion time*: the moment an event is
+  written to the Sysmon archive, not when you query. Every hit lands in a
+  per-day JSONL index under `%LOCALAPPDATA%\AutoCommand\watches\hits\` with
+  the full EventData, so a hit is a complete substitute for the raw archive
+  row. The tab shows rule cards (hit counts, enable/delete) beside the hit
+  feed with a detail pane, and creating or editing a rule replays the last
+  24 h so it covers history immediately instead of waiting for the next
+  spawn. Files are the interface: hand-edit or drop in a rule JSON and it is
+  picked up on the next pass, no restart.
+- **Two new read-only bridge tools.** `list_watches` (rules with match
+  definitions and 24 h hit counts) and `tail_watches` (recent hits with
+  rule, image, PID, parent, service and command line) let an AI session
+  answer "what did svchost spawn" for the classes you prefiltered in one
+  call, instead of paging the raw archive.
+- **Shields Up rail.** The five ritual sub-tabs render as a left-side rail
+  mirroring the app sidebar (indicator bar, nav brushes, collapse to
+  icons), and each row carries its section's live state as one dot —
+  kernel debug red, open doors amber, all-closed green — refreshed on every
+  section read, so the rail doubles as a checklist visible from every
+  sub-tab.
+- **Under the hood.** The Sysmon archive gained an `Appended` event on its
+  single write path (live watch and backfill alike); spawn-watch matching
+  runs on a consumer task so the archive lock never waits on rule files.
+  WatchSelfTest joins the self-test family: it drives the real hook offline
+  against redirected persistence — wildcards, service scoping, allowlist
+  subtraction, hook → consumer → hits index, dropped-in rule pickup, replay
+  dedupe.
+
+## v2026.10.31.2 (2026-10-31)
+
+# AutoCommand — v2026.10.31.2
+
+The Shields Up tab stops being one long scroll: the rituals are now five
+focused sub-tabs — Quick Scan, Doors, Privacy, Junk, Hardening — and the
+firewall preset buttons are gone from it, because they were a duplicate of
+the Firewall tab's own profile control.
+
+## What changed
+
+- **Sub-tabs.** One sidebar item, five pages inside it, each answering one
+  question: ✅ **Quick Scan** (the whole ritual as one checklist — still the
+  default landing), 🚪 **Doors** (SSTP/miniports, Wi-Fi Direct, KDNET, VPN
+  services, WAN miniports), 📵 **Privacy** (per-vendor opt-outs, hosts
+  pinning, revert), 🧹 **Junk** (bloatware scan + removal), 🔐 **Hardening**
+  (IPv6, LSA, UAC, hosts audit). Switching sub-tabs re-reads that section's
+  live state — opening a tab IS a check. The last-used sub-tab is
+  remembered across launches (Quick Scan stays the default).
+- **Firewall presets removed from the tab.** They duplicated the Firewall
+  tab's profile control (same engine, same presets). The Firewall tab now
+  also pauses the drift enforcer for the apply window before re-capturing
+  the baseline — the atomic-apply behavior the Shields Up copy had, moved
+  to where presets actually live. Quick Scan keeps its Shield Up profile
+  step.
+- **Results stay on their tab.** The OS-hardening actions used to report
+  into the doors card's result line; they now have their own, so feedback
+  is never on a tab you're not looking at.
+- **Honest pointers.** The nav tooltip and the `apply_shieldsup_preset`
+  bridge tool description now say the firewall profile lives in the
+  Firewall tab (tool name unchanged — registered MCP clients unaffected).
+
+## v2026.10.31.1 (2026-10-31)
+
+# AutoCommand — v2026.10.31.1
+
+WSL stops being a mystery: the utility VM's traffic is now visible in the
+Process Monitor, attributable to the Linux process that made it, and the
+"WSL suddenly has no internet" case — the one that lives below the Windows
+firewall rule model — has a one-click answer.
+
+## What changed
+
+- **WSL rows decode themselves.** Connections owned by the WSL family
+  (wslservice, vmmem/vmmemWSL, wslrelay, wsl, wslhost, wslg) now show a
+  `[WSL]` tag and a plain-English tooltip: *a Linux process inside the WSL
+  utility VM made this connection; host-side attribution stops at the VM
+  boundary* — plus the running distros and the networking mode (NAT vs
+  mirrored, with its source). The panic-block failure mode dies here: the
+  row says "your Linux VM did this" before anyone reaches for Block.
+- **The Linux side answers back.** When the utility VM is already running,
+  AutoCommand probes each distro's socket table (`ss -tnp`) and joins it to
+  the host's WSL-family connections by destination (NAT preserves it): the
+  tooltip grows a `linux side: node (pid 4312) → 1.1.1.1:80 (Ubuntu-22.04)`
+  line. **The probes can never start the VM** — watching stays side-effect
+  free; when the VM is down, the UI says so instead of launching it.
+- **🩺 Why is WSL offline?** The Process Monitor's right-click menu gains a
+  staged diagnosis (the 2026-10-30 field-report pipeline, promoted from
+  PowerShell scripts into the product): host egress probe → guest probe
+  (bash /dev/tcp, exit 0 vs 124) → the guest's NAT-gateway leg → the full
+  firewall rule-model scan for WSL/Hyper-V-family rules → the Hyper-V
+  firewall layer — ending in one plain-English verdict: healthy,
+  machine-wide outage, disabled family rules, the Hyper-V layer blocking,
+  or *a drop below the rule model* (WFP — not an AutoCommand block; the
+  verdict hands you the elevated attribution step). Read-only end to end.
+- **Blocking a WSL process warns like it should.** Blocking a family
+  process takes down every distro's whole network — the confirmation now
+  says so (its own "don't warn me" class, separate from the Windows-core
+  warning) and points at the two narrower tools: block the remote IP, or
+  the Hyper-V firewall layer.
+- **Be My Guest learns the VM.** Read-only `get_wsl_status` (state, distros,
+  mode, the guest socket join, the Hyper-V firewall profiles/rules — the
+  Windows-native layer for per-VM containment) and `diagnose_wsl` (the same
+  staged diagnosis the screen runs — the AI and the tab can never
+  disagree). The offline proxy stub list ships both.
+- **Self-test coverage.** A new strict `WslSelfTest` suite (in CI from this
+  release): the family matcher, the wsl.exe UTF-16 list decoders, the
+  .wslconfig mode parser, both real `ss` output shapes (Netid-first and
+  State-first), the host→guest join, the guest-probe exit-code classifier,
+  and every verdict branch of the diagnosis — all with synthetic inputs, no
+  wsl.exe spawned, no socket opened.
+
+## Fixed
+
+- **The Shields Up tab no longer crashes on open.** v2026.10.31 shipped a
+  latent bug in the vendored command runner: the async stderr drain ran
+  under `using var`, and when the drain had not finished by the time the
+  method returned, disposing it threw "A task may only be disposed if it
+  is in a completion state" — caught by the door refresh on tab open and
+  shown as a UI-error dialog. The drain now runs fire-and-forget (the
+  deadlock guard stays; only the dispose is gone), confirmed against the
+  crash.log stack from a real occurrence.
+
+## v2026.10.31 (2026-10-31)
+
+# AutoCommand III — v2026.10.31
+
+Shields Up moves in: the standalone admin console's four rituals — take the
+junk out, set the firewall, close the doors, silence the phone-home — are now
+a tab inside AutoCommand, driven by the same engine set, with the firewall
+baseline re-captured atomically every time a preset applies.
+
+## What changed
+
+- **🔒 The Shields Up tab (CONTAIN).** Quick Scan is the whole ritual as one
+  checklist: it reads your machine's current state first, shows what is
+  already done in green, and finishes the rest in order behind one master
+  confirmation — with every result re-verified against live state instead of
+  trusted. Below it, the four sections: **doors** (SSTP VPN service +
+  miniports, the Wi-Fi Direct ghost hotspot, kernel debug, the Windows VPN
+  service family, WAN miniports), **firewall presets**, **telemetry
+  opt-outs**, **bloatware**, and the **OS-hardening switches** (IPv6, LSA
+  Protection, UAC strictness, hosts-file audit). Every action asks first; No
+  is the default button; almost everything reverses.
+- **One data home.** The tab points its state at `%PROGRAMDATA%\AutoCommand`,
+  where the file names already matched by design — `firewall_config.json`
+  becomes the one desired-state store the drift enforcer and the tab both
+  read. If the standalone Shields Up app left state behind, the tab offers to
+  import it (your edited bloatware list, the telemetry revert history, the
+  update-freeze ledger); a running standalone app gets flagged before the two
+  can fight over the same switches.
+- **The WSL footgun is fixed at the source.** The 2026-10-30 field report
+  caught a Shields-Up-era mass-disable whose narrow whitelist silently took
+  WSL2/Hyper-V egress down below the rule model. The widened whitelist (mDNS,
+  Core Networking + the VM-infrastructure groups: icsvc, WSL, Hyper-V, HNS,
+  wslservice, vmcompute) now lives once, upstream, in the firewall engine —
+  both C# copies delegate to it — and the checklist pins it offline.
+- **Presets apply atomically.** Applying a preset pauses the drift enforcer,
+  applies, and re-captures the firewall baseline in the same operation, so
+  Auto-Mitigate protects the preset's intent instead of endlessly
+  re-disabling rules Windows re-enables (the frozen-baseline footgun from the
+  same report). The Shield Up whitelist spares VM networking.
+- **Be My Guest learns the shields.** Read-only `get_shieldsup_status` (every
+  door, hardening switch, hosts audit and per-vendor telemetry state), plus
+  three gated tools: `close_shieldsup_door`, `opt_out_telemetry` and
+  `apply_shieldsup_preset` — each confirmed in AutoCommand, each reversible,
+  and deliberately no door-enable path over the bridge: reopening a door
+  stays a human decision made in the tab. The offline proxy stub list ships
+  the new tools so clients see them before a session starts.
+- **Same engine, both faces.** The door/privacy/hardening checks were
+  extracted from the WinUI pages into pure services that the tab drives —
+  the standalone app and the tab cannot drift apart, and the standalone app
+  keeps working for anyone who prefers it separate.
+- **Self-test coverage.** A new strict `HardenSelfTest` suite (in CI from this
+  release) pins the data-root seam, the shared-file reload-merge-write
+  behavior, the import copy/merge/idempotency rules, the quick-scan shape and
+  the widened whitelist — all offline against a temp data root.
+
+## Notes
+
+- `Agent.Core`, `AgentHost` and `ProxyInstallSelfTest` now target the same
+  `net10.0-windows10.0.19041.0` floor the app and AgentProxy already carry —
+  the vendored Shields Up core needs a Windows 10 SDK surface for the WinRT
+  package manager. No supported-OS change: the app's floor was 19041 already.
+- The archived `dparksports/autocommand-windows` README mirror updates as
+  usual; the standalone Shields Up README now points here.
+
+## v2026.10.25.4 (2026-10-25)
+
+# AutoCommand v2026.10.25.4
+
+## RDAP attribution that respects the registries
+
+IP owner lookups were quietly hammering rdap.org — roughly one query every three minutes, 500+ connections a day — and getting throttled for it (the 403s were landing in the cache as failures). Four things were wrong at once, and all four are fixed:
+
+**Queries now go straight to the authoritative registry.** The IANA bootstrap registry (RFC 9224) is fetched once a day and cached beside the block cache, so an IP resolves to its registry locally — ARIN, APNIC, RIPE — and the query goes there directly. rdap.org, the shared redirector everyone rate-limits, is now only a fallback when bootstrap resolution fails.
+
+**The cache can't be defeated anymore.** Failed lookups are negative-cached per /24 (IPv4) or /48 (IPv6) prefix instead of per exact IP — Windows telemetry rotates through sibling IPs, and each sibling was a fresh miss, a fresh rdap.org hit, a fresh throttle. A cached positive block always outranks a covering negative. And a server answer of `max-age=0` no longer evaporates a block entry on contact; TTLs are clamped to 1-30 days.
+
+**The client is polite by construction.** A global pacer spaces request starts at least 10 seconds apart with a bounded queue; a 429/503 puts that host on a cooldown honoring `Retry-After`; and requests now carry a User-Agent identifying AutoCommand (registries, ARIN especially, reject anonymous clients — that was the 403s). Private and reserved ranges (10.x, 169.254.x, link-local IPv6…) are answered locally with no network at all — those were spending real queries.
+
+**The Blocked tab's "RDAP-verify" button stays snappy** — user-initiated lookups skip the inter-request pacing while still obeying cooldowns and queue limits.
+
+Net effect: rdap.org drops to effectively zero, new address blocks are answered by the right registry in one query, and the whole block (not one IP) is cached from that single answer — verified live against ARIN and APNIC, where one Microsoft lookup now covers their entire 20.180.0.0/12 telemetry range for a week.
+
+## v2026.10.21.1 (2026-10-21)
+
+# v2026.10.21.1 — Your sites, your browsers, one-click unblock
+
+Two answers to the two questions real users ask after their first
+"Why is this site slow?" run.
+
+## The picker is now user territory
+
+- **"Sites from" filter**: pick from *All apps*, your ★ pinned sites, or
+  the sites one specific browser actually visits — Chrome, Brave,
+  Firefox, Edge, Opera, Vivaldi and friends are detected from your own
+  recorded traffic. Every user's list is their own browsing; there is no
+  built-in site roster anywhere in the flow (and never was — but now
+  it's obvious).
+- **★ Pin**: pin any typed site to the top of the picker. Pins live on
+  this PC (`%LocalAppData%\AutoCommand\site-doctor-pins.json`), survive
+  restarts, and are yours alone.
+- Control sites (the comparison baseline) always come from the
+  all-traffic pool, so filtering or pinning can never skew a verdict.
+
+## Unblock right from the verdict
+
+When the check finds addresses that fail **and** are on AutoCommand's
+block list (via the v2026.10.21 live blocked-inventory cache):
+
+- the evidence line says so outright — `142.250.141.84: TCP FAILED …
+  ← ON YOUR BLOCK LIST`
+- a **"🚫 Unblock N blocked address(es) for this site"** button appears
+  under the verdict: confirmation lists each address with the date it
+  was blocked, then removes **only AutoCommand's own AC-BLOCK rules**
+  for them — nothing else in Windows Firewall is touched, and every
+  address can be re-blocked from the Blocks tab. Then re-run the check
+  to confirm the site is back.
+
+No more "open wf.msc and hope you find it" runarounds.
+
+## v2026.10.20.6 (2026-10-20)
+
+# AutoCommand v2026.10.20.6
+
+Layer 3 for the Transmissions tab: an intercept for apps that can NEVER write
+TLS session keys - Schannel-based Windows system components (svchost services,
+taskhostw, conhost-hosted injected code), pinned or exotic clients. Until now
+those rows ended at "encrypted (no keys)" with metadata only; this release
+gives them a one-click, time-boxed, fully reversible decryption path.
+
+## Why driverless, unlike the open-source interceptors
+
+mitmproxy's local:<pid> capture and similar tools redirect traffic with
+WinDivert - a kernel driver that on Windows 11 26H2 fights memory integrity
+(HVCI), Smart App Control enforcement, and Microsoft's 2026 removal of
+cross-signed-driver trust. AutoCommand takes the route that reaches exactly
+the target set this feature exists for, because Windows services route
+through WinHTTP: a local loopback proxy installed as the temporary system
+proxy. No driver, no SAC exceptions, works everywhere.
+
+## The intercept session (15 minutes, auto-reverting)
+
+- Every accepted connection is attributed to its owning PID through the
+  kernel TCP table. The TARGET pid's connections are decrypted - leaf
+  certificate minted per hostname from a per-install "AutoCommand Intercept
+  CA", upstream validated for real, both legs TLS, never a downgrade. Every
+  other app's connections tunnel through byte-for-byte, untouched.
+- The CA is trusted machine-wide only while the session runs, and removed at
+  the end. The WinHTTP + WinINET proxy settings and the per-program UDP/443
+  block rule (QUIC falls back to TCP/TLS) are journaled BEFORE installation;
+  a crash leaves the journal, and the next app start undoes everything it
+  describes. App exit also stops the session.
+- Certificate-pinned clients fail loudly - recorded as "refused intercept
+  (pinning)", which is itself a detection signal. Intercepted traffic lands
+  in the same Transmissions grid, tagged "decrypted - intercept", with the
+  full archive treatment: message decode, SHA-256, >10KB lens, body viewer.
+- Strictly observe-only: bytes are teed and recorded, never modified in
+  transit.
+
+## UX
+
+- Encrypted rows gain "Intercept this process..." with a consent dialog that
+  states exactly what will happen and how it reverts. An amber banner counts
+  down the session with a Stop-now button.
+- The system-component restart-block message now points at the intercept
+  instead of claiming metadata is the ceiling.
+
+## Known limits (honest ones)
+
+- Apps that ignore both WinHTTP and WinINET proxy settings (raw sockets)
+  bypass the intercept - the WinDivert transparent route remains a possible
+  future escape hatch for those, with the driver-signing caveats above.
+- HTTP/2 bodies are detected and shown as raw bytes (no HPACK demux yet),
+  same as the keylog path.
+

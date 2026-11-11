@@ -14,8 +14,10 @@
 #   powershell -File release.ps1 -Version 2026.10.16 -Yes   # no confirm prompt
 #   powershell -File release.ps1 -DryRun               # package + verify only
 #
-# Full release requires: clean working tree on master, release_notes_v<Version>.md
-# already written, and `gh` authenticated. Steps: bump csproj -> publish
+# Full release requires: clean working tree on master, a '## v<Version>'
+# section already written AND COMMITTED in docs/release-notes-history.md (the
+# single home for release notes - its section becomes the GitHub release body),
+# and `gh` authenticated. Steps: bump csproj -> publish
 # self-contained win-x64 -> verify the exe reports the csproj version -> zip app
 # -> SHA256SUMS.txt (app zip + unblock script) -> confirm -> commit -> tag -> push ->
 # gh release create. If it dies mid-run after the bump, the csproj is left
@@ -39,6 +41,24 @@ function Step($msg) { Write-Host "==> $msg" -ForegroundColor Cyan }
 function Die($msg)  { Write-Host "ERROR: $msg" -ForegroundColor Red; exit 1 }
 function Assert-Exit([string]$what) {
     if ($LASTEXITCODE -ne 0) { Die "$what failed (exit $LASTEXITCODE)" }
+}
+function Get-HistoryNotes([string]$Version) {
+    # The consolidated notes archive is the single home for release notes: the
+    # section for this version (everything after its '## v<version>' heading,
+    # up to the next '## v' line) becomes the GitHub release body. Same parse
+    # contract as release.yml's attach step.
+    $histPath = Join-Path $PSScriptRoot 'docs\release-notes-history.md'
+    if (-not (Test-Path $histPath)) { Die 'docs/release-notes-history.md not found' }
+    # [IO.File]::ReadAllText, NOT Get-Content: the archive is UTF-8 (release
+    # titles carry em-dashes) and PS 5.1's Get-Content would decode it as ANSI.
+    $hist = [System.IO.File]::ReadAllText($histPath)
+    # $Version is already validated as \d+\.\d+\.\d+(\.\d+)? - no metacharacters;
+    # the (?![\d.]) guard stops v2026.11.1 from matching v2026.11.10 headings.
+    $m = [regex]::Match($hist, "(?ms)^## v$Version(?![\d.])[^\r\n]*\r?\n(.*?)(?=^## v\d|\z)")
+    if (-not $m.Success) {
+        Die "no '## v$Version' section in docs/release-notes-history.md - write the notes section at the top, commit it, then re-run (format contract is at the top of that file)"
+    }
+    return $m.Groups[1].Value.Trim()
 }
 
 Step "Parameters: Version=[$Version] DryRun=[$DryRun] Yes=[$Yes]"
@@ -64,7 +84,12 @@ if (-not $DryRun) {
     if ((git branch --show-current) -ne 'master') { Die 'releases are cut from master only' }
     $dirty = git status --porcelain --untracked-files=no
     if ($dirty) { Die "working tree not clean - commit or stash first:`n$dirty" }
-    if (-not (Test-Path "release_notes_v$Version.md")) { Die "release_notes_v$Version.md not found - write the release notes first" }
+    Step "Reading notes for v$Version from docs/release-notes-history.md"
+    $notesFile = 'publish/release-notes.md'
+    $notes = Get-HistoryNotes $Version
+    if (-not $notes) { Die "notes section for v$Version is empty" }
+    [System.IO.File]::WriteAllText((Join-Path $PSScriptRoot $notesFile), $notes,
+        (New-Object System.Text.UTF8Encoding($false)))
 
     Step "Bumping AutoCommand.csproj to $Version (currently v$currentVersion)"
     $newText = $csprojText -replace "(?m)^(\s*<Version>)[\d.]+(</Version>\s*)$", "`${1}$Version`${2}"
@@ -81,7 +106,6 @@ if (-not $DryRun) {
 }
 
 $relVersion = if ($DryRun) { $currentVersion } else { $Version }
-$notesFile  = "release_notes_v$relVersion.md"
 $appZip     = "publish/AutoCommand-v$relVersion-win-x64.zip"
 $unblockPs1 = "publish/unblock-autocommand.ps1"
 $sumsFile   = "publish/SHA256SUMS.txt"
@@ -152,7 +176,7 @@ if (-not $Yes) {
 
 # -- Commit, tag, push, release -----------------------------------------------
 Step "Committing and tagging v$Version"
-git add AutoCommand.csproj AgentProxy\AutoCommand.AgentProxy.csproj "release_notes_v$Version.md"
+git add AutoCommand.csproj AgentProxy\AutoCommand.AgentProxy.csproj
 git commit -m "release: v$Version"
 Assert-Exit 'git commit'
 git tag "v$Version"
@@ -170,7 +194,7 @@ Step "Creating GitHub release"
 # races itself into HTTP 422 "ReleaseAsset.name already exists" (seen on
 # two consecutive releases), then rolls back the whole release. Serial
 # create-then-upload with --clobber cannot race itself.
-gh release create "v$Version" --title "v$Version" --notes-file "release_notes_v$Version.md"
+gh release create "v$Version" --title "v$Version" --notes-file $notesFile
 Assert-Exit 'gh release create (release shell)'
 gh release upload "v$Version" $appZip --clobber
 Assert-Exit 'gh release upload (app zip)'
