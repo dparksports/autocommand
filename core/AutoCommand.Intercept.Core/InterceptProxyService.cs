@@ -175,6 +175,12 @@ namespace AutoCommand.Intercept.Core
             try { InterceptSystemHooks.UndoAll(journal, removeCa: !newSessionStarted); }
             catch (Exception ex) { OnStatus?.Invoke($"Intercept teardown warning: {ex.Message}"); }
 
+            // Minted leaf private keys must not outlive the session that
+            // justified them (a new session starting under the same CA
+            // keeps the cache — its handshakes are still using it).
+            if (!newSessionStarted)
+                InterceptCaService.ClearLeafCache();
+
             OnSessionEnded?.Invoke(reason);
         }
 
@@ -272,6 +278,32 @@ namespace AutoCommand.Intercept.Core
             return -1;
         }
 
+        /// <summary>
+        /// Upstream validation with revocation: the default SslStream client
+        /// validation never checks CRL/OCSP, so a revoked-but-otherwise-valid
+        /// upstream cert (compromised CA key, mis-issuance) would pass this
+        /// leg while the user's own browser refuses it. Confirmed-revoked
+        /// fails the intercept; "revocation unknown" (offline machine, OCSP
+        /// responder unreachable) is accepted — hard-failing every session on
+        /// OCSP-blocked networks would silently kill the feature, and
+        /// soft-fail on unknown is the browser-equivalent behavior.
+        /// </summary>
+        private static bool ValidateUpstreamCertificate(
+            object sender, X509Certificate certificate, X509Chain chain, SslPolicyErrors sslPolicyErrors)
+        {
+            if (sslPolicyErrors != SslPolicyErrors.None) return false;
+
+            using var revocationChain = new X509Chain();
+            revocationChain.ChainPolicy.RevocationMode = X509RevocationMode.Online;
+            if (revocationChain.Build(new X509Certificate2(certificate))) return true;
+
+            foreach (X509ChainStatus status in revocationChain.ChainStatus)
+                if (status.Status != X509ChainStatusFlags.RevocationStatusUnknown &&
+                    status.Status != X509ChainStatusFlags.OfflineRevocation)
+                    return false;
+            return true;
+        }
+
         private async Task HandleConnectAsync(NetworkStream clientStream, Socket client, string peer, string target, byte[] leftover)
         {
             int port = 443;
@@ -292,8 +324,8 @@ namespace AutoCommand.Intercept.Core
                 await TunnelAsync(clientStream, host, port, initialClientBytes: leftover);
                 return;
             }
-
-            // Upstream: real validation, no downgrade anywhere.
+            // Upstream: real validation, no downgrade anywhere — including
+            // revocation (see ValidateUpstreamCertificate).
             TcpClient upstream;
             SslStream upstreamTls;
             try
@@ -301,7 +333,12 @@ namespace AutoCommand.Intercept.Core
                 upstream = new TcpClient();
                 await upstream.ConnectAsync(host, port);
                 upstreamTls = new SslStream(upstream.GetStream(), leaveInnerStreamOpen: false);
-                await upstreamTls.AuthenticateAsClientAsync(host);
+                var upstreamOptions = new SslClientAuthenticationOptions
+                {
+                    TargetHost = host,
+                    RemoteCertificateValidationCallback = ValidateUpstreamCertificate,
+                };
+                await upstreamTls.AuthenticateAsClientAsync(upstreamOptions);
             }
             catch (Exception ex)
             {

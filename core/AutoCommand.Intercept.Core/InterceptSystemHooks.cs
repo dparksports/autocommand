@@ -2,6 +2,7 @@ using System;
 using System.Diagnostics;
 using System.IO;
 using System.Runtime.InteropServices;
+using System.Text.RegularExpressions;
 using Microsoft.Win32;
 
 namespace AutoCommand.Intercept.Core
@@ -26,6 +27,14 @@ namespace AutoCommand.Intercept.Core
     /// and the journal deleted after a clean stop, so a crash never leaves
     /// the machine proxied: RecoverAfterCrash() runs at every app start and
     /// undoes whatever the journal still describes.
+    ///
+    /// The journal is replay input for ELEVATED netsh/registry calls, so
+    /// its strings are never trusted: every restore validates its undo
+    /// value against the exact shape this class itself captured (defense
+    /// in depth behind the CA dir's admin-only ACL — a forged journal in
+    /// a user-writable location must degrade to the conservative action,
+    /// never shape an elevated command line; arguments also travel via
+    /// ArgumentList, so quoting is the runtime's job, not string surgery).
     /// </summary>
     public static class InterceptSystemHooks
     {
@@ -36,6 +45,7 @@ namespace AutoCommand.Intercept.Core
         internal sealed class Journal
         {
             public string WinHttpProxyBefore { get; set; }   // null = direct (netsh reset proxy restores this)
+            public string WinHttpBypassBefore { get; set; }  // null = no bypass list; restored alongside the proxy
             public int? WininetEnableBefore { get; set; }
             public string WininetServerBefore { get; set; }
             public string CaThumbprint { get; set; }
@@ -69,20 +79,24 @@ namespace AutoCommand.Intercept.Core
 
         // ── WinHTTP (services) ────────────────────────────────────────────
 
-        private static string RunNetsh(string arguments)
+        private static string RunNetsh(params string[] arguments)
         {
             // Pinned to System32: the app runs elevated from a portable
             // folder, and an unqualified "netsh" would resolve through the
-            // app directory / CWD first (both user-writable).
+            // app directory / CWD first (both user-writable). Arguments
+            // travel via ArgumentList — each element is ONE process
+            // argument, quoted by the runtime — so no caller-side string
+            // can ever break out into extra netsh tokens.
             var psi = new ProcessStartInfo(
-                System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "netsh.exe"),
-                arguments)
+                System.IO.Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.System), "netsh.exe"))
             {
                 CreateNoWindow = true,
                 UseShellExecute = false,
                 RedirectStandardOutput = true,
                 RedirectStandardError = true,
             };
+            foreach (string argument in arguments)
+                psi.ArgumentList.Add(argument);
             using var process = Process.Start(psi);
             // Drain stderr concurrently — netsh never writes much, but a
             // blocked pipe must not be able to wedge the read.
@@ -97,50 +111,84 @@ namespace AutoCommand.Intercept.Core
             return output;
         }
 
-        /// <summary>The proxy line netsh reports ("127.0.0.1:8888" or the
-        /// string "direct"), plus whether it is ours to restore.</summary>
-        private static (string Proxy, bool IsDirect) CurrentWinHttpProxy()
+        // ── journal-input validation ─────────────────────────────────────
+        // The journal's undo strings are replayed by the elevated app, so
+        // they are validated at the sink against the exact shapes this
+        // class itself captures. Anything else degrades to the
+        // conservative action (reset / skip) instead of being applied.
+
+        private static readonly Regex RuleNameShape = new(
+            @"^AutoCommand Intercept QUIC block \(\d{1,10}\)$", RegexOptions.Compiled);
+        private static readonly Regex WinHttpProxyShape = new(
+            @"^[A-Za-z0-9.\-]+:\d{1,5}$", RegexOptions.Compiled);
+        // WinINET ProxyServer values ("host:port", "socks=host:port",
+        // "http=h1:p1;https=h2:p2") and WinHTTP bypass lists ("<local>",
+        // "foo;bar", wildcards) — a conservative charset with no quoting,
+        // newline or shell-relevant characters in it.
+        private static readonly Regex ProxyServerShape = new(
+            @"^[A-Za-z0-9.:\-;=]{1,256}$", RegexOptions.Compiled);
+        private static readonly Regex BypassShape = new(
+            @"^[A-Za-z0-9.\-;=<>*, ]{1,1024}$", RegexOptions.Compiled);
+
+        private static bool IsPortInRange(string hostPort)
         {
-            string show = RunNetsh("winhttp show proxy");
+            int colon = hostPort.LastIndexOf(':');
+            return colon > 0 && int.TryParse(hostPort[(colon + 1)..], out int port) && port is > 0 and <= 65535;
+        }
+
+        /// <summary>The proxy line and bypass list netsh reports, plus
+        /// whether a proxy is set at all.</summary>
+        private static (string Proxy, bool IsDirect, string Bypass) CurrentWinHttpProxy()
+        {
+            string show = RunNetsh("winhttp", "show", "proxy");
+            string proxy = null;
+            string bypass = null;
             foreach (var line in show.Split('\n'))
             {
                 string trimmed = line.Trim();
                 if (trimmed.StartsWith("Proxy Server(s)", StringComparison.OrdinalIgnoreCase))
                 {
                     string value = trimmed.Substring(trimmed.IndexOf(':') + 1).Trim();
-                    if (value.Length == 0 || value.Equals("direct", StringComparison.OrdinalIgnoreCase) ||
-                        value.Contains("directly accessing", StringComparison.OrdinalIgnoreCase))
-                        return (null, true);
-                    return (value, false);
+                    if (value.Length > 0 && !value.Equals("direct", StringComparison.OrdinalIgnoreCase) &&
+                        !value.Contains("directly accessing", StringComparison.OrdinalIgnoreCase))
+                        proxy = value;
+                }
+                else if (trimmed.StartsWith("Bypass List", StringComparison.OrdinalIgnoreCase))
+                {
+                    string value = trimmed.Substring(trimmed.IndexOf(':') + 1).Trim();
+                    if (value.Length > 0)
+                        bypass = value;
                 }
             }
-            return (null, true);
+            return (proxy, proxy == null, bypass);
         }
 
-        internal static string InstallWinHttpProxy(int port)
+        /// <summary>Snapshot of the WinHTTP state to restore afterwards:
+        /// the proxy line (null = direct) AND the bypass list — a user with
+        /// a custom bypass must not lose it to every intercept session.</summary>
+        internal static (string Proxy, string Bypass) CaptureWinHttpProxy()
         {
-            string before = CaptureWinHttpProxy();
-            ApplyWinHttpProxy(port);
-            return before;
-        }
-
-        /// <summary>Snapshot half of InstallWinHttpProxy: the proxy line to
-        /// restore afterwards (null = direct), before anything changes.</summary>
-        internal static string CaptureWinHttpProxy()
-        {
-            var (before, wasDirect) = CurrentWinHttpProxy();
-            return wasDirect ? null : before;
+            var (before, wasDirect, bypass) = CurrentWinHttpProxy();
+            return (wasDirect ? null : before, bypass);
         }
 
         private static void ApplyWinHttpProxy(int port) =>
-            RunNetsh($"winhttp set proxy 127.0.0.1:{port} \"<local>\"");
+            RunNetsh("winhttp", "set", "proxy", $"127.0.0.1:{port}", "<local>");
 
-        internal static void RestoreWinHttpProxy(string before)
+        internal static void RestoreWinHttpProxy(string before, string bypass)
         {
-            if (before == null)
-                RunNetsh("winhttp reset proxy");
+            if (before == null || !WinHttpProxyShape.IsMatch(before) || !IsPortInRange(before))
+            {
+                // null = was direct; a value that no longer has the shape
+                // this class captures came from a tampered journal — reset
+                // is the conservative undo either way.
+                RunNetsh("winhttp", "reset", "proxy");
+                return;
+            }
+            if (bypass != null && BypassShape.IsMatch(bypass))
+                RunNetsh("winhttp", "set", "proxy", before, bypass);
             else
-                RunNetsh($"winhttp set proxy \"{before}\" \"<local>\"");
+                RunNetsh("winhttp", "set", "proxy", before);
         }
 
         // ── WinINET (user apps) ───────────────────────────────────────────
@@ -159,7 +207,8 @@ namespace AutoCommand.Intercept.Core
             return (enableBefore, serverBefore);
         }
 
-        /// <summary>Snapshot half of InstallWininetProxy, before anything changes.</summary>
+        /// <summary>Snapshot of the per-user WinINET proxy values, before
+        /// anything changes.</summary>
         internal static (int? EnableBefore, string ServerBefore) CaptureWininetProxy()
         {
             int? enableBefore = null;
@@ -191,6 +240,12 @@ namespace AutoCommand.Intercept.Core
 
         internal static void RestoreWininetProxy(int? enableBefore, string serverBefore)
         {
+            // A ProxyServer that no longer matches the shapes this class
+            // captures came from a tampered journal — restoring it is never
+            // attempted; the value is cleared instead.
+            string server = serverBefore != null && ProxyServerShape.IsMatch(serverBefore)
+                ? serverBefore
+                : null;
             using (var key = Registry.CurrentUser.OpenSubKey(InternetSettingsKey, writable: true))
             {
                 if (key != null)
@@ -200,8 +255,8 @@ namespace AutoCommand.Intercept.Core
                     else
                         key.DeleteValue("ProxyEnable", throwOnMissingValue: false);
 
-                    if (serverBefore != null)
-                        key.SetValue("ProxyServer", serverBefore, RegistryValueKind.String);
+                    if (server != null)
+                        key.SetValue("ProxyServer", server, RegistryValueKind.String);
                     else
                         key.DeleteValue("ProxyServer", throwOnMissingValue: false);
                 }
@@ -215,19 +270,28 @@ namespace AutoCommand.Intercept.Core
         internal static string AddQuicBlock(string image, int pid)
         {
             string rule = $"{FirewallRulePrefix} ({pid})";
-            RunNetsh($"advfirewall firewall add rule name=\"{rule}\" dir=out action=block " +
-                     $"program=\"{image}\" protocol=UDP remoteport=443");
+            RunNetsh("advfirewall", "firewall", "add", "rule",
+                $"name={rule}", "dir=out", "action=block",
+                $"program={image}", "protocol=UDP", "remoteport=443");
             return rule;
         }
 
-        internal static void RemoveRule(string ruleName) =>
-            RunNetsh($"advfirewall firewall delete rule name=\"{ruleName}\"");
+        internal static void RemoveRule(string ruleName)
+        {
+            // Only our own deterministic rule names are ever deletable from
+            // journal data — the shape check is what keeps a forged journal
+            // from deleting rules it should not even name (name=all is the
+            // documented netsh delete-everything wildcard).
+            if (string.IsNullOrEmpty(ruleName) || !RuleNameShape.IsMatch(ruleName))
+                return;
+            RunNetsh("advfirewall", "firewall", "delete", "rule", $"name={ruleName}");
+        }
 
         // ── inspection seams for the startup repair sweep ─────────────────
 
         /// <summary>The current WinHTTP proxy server line (null = direct),
         /// read-only.</summary>
-        internal static string InspectWinHttpProxy() => CaptureWinHttpProxy();
+        internal static string InspectWinHttpProxy() => CaptureWinHttpProxy().Proxy;
 
         internal static void ResetWinHttpProxyForRepair() => RunNetsh("winhttp reset proxy");
 
@@ -297,7 +361,9 @@ namespace AutoCommand.Intercept.Core
             WriteJournal(journal);
             ApplyWininetProxy(port);
 
-            journal.WinHttpProxyBefore = CaptureWinHttpProxy();
+            var (winHttpProxy, winHttpBypass) = CaptureWinHttpProxy();
+            journal.WinHttpProxyBefore = winHttpProxy;
+            journal.WinHttpBypassBefore = winHttpBypass;
             WriteJournal(journal);
             ApplyWinHttpProxy(port);
 
@@ -321,7 +387,7 @@ namespace AutoCommand.Intercept.Core
             if (journal == null) return;
             foreach (var rule in journal.FirewallRules ?? Array.Empty<string>())
                 RemoveRule(rule);
-            RestoreWinHttpProxy(journal.WinHttpProxyBefore);
+            RestoreWinHttpProxy(journal.WinHttpProxyBefore, journal.WinHttpBypassBefore);
             RestoreWininetProxy(journal.WininetEnableBefore, journal.WininetServerBefore);
 
             bool caClean = true;

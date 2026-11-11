@@ -49,14 +49,24 @@ namespace AutoCommand
         // load is checked against that pin — a "True" written by anything else
         // fails secure (enforcement re-arms, tamper reported) instead of silently
         // disarming the sweep.
-        public const string SstpPrefPath = "allowed_sstp.txt";
-        public const string KdnetPrefPath = "allowed_kerneldebug.txt";
+        //
+        // The preference files themselves resolve against the shared
+        // %PROGRAMDATA%\AutoCommand root (admin-only write, ACL-hardened by
+        // ProgramDataGuard) — they used to be CWD-relative, so a shortcut with
+        // a different "Start in" (or the AgentProxy wake path) silently read
+        // and wrote a DIFFERENT file; enforcement state must never depend on
+        // how the app was launched. LoadPersistedPreferences imports any
+        // legacy CWD copy once, best-effort.
+        public static string SstpPrefPath => System.IO.Path.Combine(Helpers.ProgramDataGuard.Root, "allowed_sstp.txt");
+        public static string KdnetPrefPath => System.IO.Path.Combine(Helpers.ProgramDataGuard.Root, "allowed_kerneldebug.txt");
 
         /// <summary>Persisted privileged-task whitelist — the UI promises
         /// "permanently", so the set must survive restarts (it used to be
         /// memory-only and the same task alerted again after every
         /// relaunch).</summary>
-        public const string WhitelistedTasksPath = "whitelisted_tasks.txt";
+        public static string WhitelistedTasksPath => System.IO.Path.Combine(Helpers.ProgramDataGuard.Root, "whitelisted_tasks.txt");
+
+        private static string AutoMitigateAdaptersPath => System.IO.Path.Combine(Helpers.ProgramDataGuard.Root, "auto_mitigate_adapters.txt");
 
         private static volatile bool _isSstpAllowed = false;
         public static bool IsSstpAllowed
@@ -145,7 +155,7 @@ namespace AutoCommand
             set
             {
                 _autoMitigateAdapters = value;
-                try { System.IO.File.WriteAllText("auto_mitigate_adapters.txt", value.ToString()); } catch { }
+                try { System.IO.File.WriteAllText(AutoMitigateAdaptersPath, value.ToString()); } catch { }
             }
         }
 
@@ -159,6 +169,8 @@ namespace AutoCommand
         {
             try
             {
+                ImportLegacyCwdCopies();
+
                 var sstp = AllowListLedger.Load("sstp", SstpPrefPath);
                 _isSstpAllowed = sstp.Value;
                 if (sstp.Status == AllowListLoadStatus.Tampered)
@@ -169,8 +181,8 @@ namespace AutoCommand
                 if (kdnet.Status == AllowListLoadStatus.Tampered)
                     _tamperNotices.Add("Kernel-debug allow-list: " + kdnet.Detail);
 
-                if (System.IO.File.Exists("auto_mitigate_adapters.txt"))
-                    _autoMitigateAdapters = System.IO.File.ReadAllText("auto_mitigate_adapters.txt").Trim() == "True";
+                if (System.IO.File.Exists(AutoMitigateAdaptersPath))
+                    _autoMitigateAdapters = System.IO.File.ReadAllText(AutoMitigateAdaptersPath).Trim() == "True";
 
                 if (System.IO.File.Exists(WhitelistedTasksPath))
                 {
@@ -182,6 +194,32 @@ namespace AutoCommand
                 }
             }
             catch { }
+        }
+
+        /// <summary>One-time migration from the CWD-relative era: if a
+        /// preference file sits beside the exe (or in the old launch CWD)
+        /// and the anchored copy does not exist yet, adopt it. Best-effort —
+        /// a failed import just means the secure defaults apply.</summary>
+        private static void ImportLegacyCwdCopies()
+        {
+            string[] names = { "allowed_sstp.txt", "allowed_kerneldebug.txt",
+                               "whitelisted_tasks.txt", "auto_mitigate_adapters.txt" };
+            foreach (string name in names)
+            {
+                try
+                {
+                    string anchored = System.IO.Path.Combine(Helpers.ProgramDataGuard.Root, name);
+                    if (System.IO.File.Exists(anchored)) continue;
+
+                    string legacy = System.IO.Path.Combine(AppContext.BaseDirectory, name);
+                    if (!System.IO.File.Exists(legacy))
+                        legacy = System.IO.Path.Combine(Environment.CurrentDirectory, name);
+                    if (!System.IO.File.Exists(legacy)) continue;
+
+                    System.IO.File.Copy(legacy, anchored);
+                }
+                catch { /* next launch retries; secure defaults in the meantime */ }
+            }
         }
 
         /// <summary>Allow-list tamper notices from load time (empty when clean).</summary>

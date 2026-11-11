@@ -8,6 +8,8 @@ open System.IO
 open System.Linq
 open System.Net
 open System.Text
+open System.Text.Json
+open System.Text.Json.Nodes
 open System.Threading.Tasks
 open AutoCommand.Engines.Core
 
@@ -324,13 +326,79 @@ type FirewallService(naming: FirewallNaming) =
         )
 
     /// <summary>
+    /// Captures every firewall rule as JSON before a lockdown resets them.
+    /// RestoreLocalFirewallDefaults deletes every non-default rule on the
+    /// machine — other security software's, VPNs, Docker/WSL, the user's
+    /// own — and nothing can undo the COM call; the snapshot under
+    /// %PROGRAMDATA%\AutoCommand\firewall-snapshots at least keeps the
+    /// destruction reversible by hand. Best-effort: a failed snapshot is
+    /// reported through the returned null but never blocks the lockdown
+    /// the user explicitly confirmed.
+    /// </summary>
+    member private _.ExportPreLockdownSnapshot(fwPolicy: INetFwPolicy2) : string =
+        try
+            let root =
+                Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                    "AutoCommand",
+                    "firewall-snapshots"
+                )
+
+            Directory.CreateDirectory(root) |> ignore
+
+            let path =
+                Path.Combine(root, "lockdown-" + DateTime.Now.ToString("yyyyMMdd-HHmmss") + ".json")
+
+            let rules = JsonArray()
+            let mutable unreadable = 0
+
+            for r in Com.enumRules fwPolicy.Rules do
+                try
+                    let o = JsonObject()
+
+                    let put (name: string) (value: string) =
+                        o[name] <- (match value with null -> null | v -> JsonValue.Create(v))
+
+                    put "name" r.Name
+                    put "description" r.Description
+                    put "applicationName" r.ApplicationName
+                    put "serviceName" r.ServiceName
+                    o["protocol"] <- JsonValue.Create(r.Protocol)
+                    put "localPorts" r.LocalPorts
+                    put "remotePorts" r.RemotePorts
+                    put "localAddresses" r.LocalAddresses
+                    put "remoteAddresses" r.RemoteAddresses
+                    put "icmpTypesAndCodes" r.IcmpTypesAndCodes
+                    put "direction" (r.Direction.ToString())
+                    put "interfaceTypes" r.InterfaceTypes
+                    o["enabled"] <- JsonValue.Create(r.Enabled)
+                    put "grouping" r.Grouping
+                    o["profiles"] <- JsonValue.Create(r.Profiles)
+                    o["edgeTraversal"] <- JsonValue.Create(r.EdgeTraversal)
+                    put "action" (r.Action.ToString())
+                    rules.Add(o)
+                with _ ->
+                    unreadable <- unreadable + 1
+
+            let doc = JsonObject()
+            doc["capturedUtc"] <- JsonValue.Create(DateTime.UtcNow.ToString("o"))
+            doc["ruleCount"] <- JsonValue.Create(rules.Count)
+            doc["unreadableRules"] <- JsonValue.Create(unreadable)
+            doc["rules"] <- rules
+            File.WriteAllText(path, doc.ToJsonString(JsonSerializerOptions(WriteIndented = true)))
+            path
+        with _ ->
+            null
+
+    /// <summary>
     /// Reset the firewall to the Windows default rule set (the COM
     /// equivalent of `netsh advfirewall reset`), then disable every
     /// remaining rule so both all inbound and all outbound traffic is
     /// blocked. Non-default rules — including the app's own v2 blocks — do
-    /// not survive the reset.
+    /// not survive the reset; everything deleted is snapshotted first (see
+    /// ExportPreLockdownSnapshot).
     /// </summary>
-    member _.ResetToDefaultsAndLockdownAsync(progress: IProgress<string>) : Task<GroupToggleResult> =
+    member this.ResetToDefaultsAndLockdownAsync(progress: IProgress<string>) : Task<GroupToggleResult> =
         Task.Run(fun () ->
             let result = GroupToggleResult(GroupName = "Lockdown (reset to defaults)")
 
@@ -343,7 +411,13 @@ type FirewallService(naming: FirewallNaming) =
                     beforeCount <- fwPolicy.Rules.Count
                 with _ -> ()
 
-                if not (isNull progress) then progress.Report("Restoring Windows default firewall rules…")
+                let snapshotPath = this.ExportPreLockdownSnapshot(fwPolicy)
+
+                if not (isNull progress) then
+                    if not (String.IsNullOrEmpty snapshotPath) then
+                        progress.Report("Pre-lockdown rule snapshot saved: " + snapshotPath)
+
+                    progress.Report("Restoring Windows default firewall rules…")
 
                 fwPolicy.RestoreLocalFirewallDefaults()
 

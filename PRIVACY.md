@@ -1,7 +1,13 @@
 # AutoCommand privacy policy
 
-**The short version: by default, AutoCommand sends nothing. Not at startup,
-not on a timer, not "anonymized" — nothing.**
+**The short version: AutoCommand collects nothing about you and reports to
+no one. Not at startup, not on a timer, not "anonymized."** The only
+automatic outbound traffic is questions to *public directories* — when the
+monitor sees an IP it cannot identify locally, it asks public RDAP
+registries (over HTTPS) which organization owns that address. The registry
+sees the queried IP and nothing else; no identifier, no behavior, no
+payload of yours. The full list of outbound lookups is
+[below](#network-lookups-spelled-out).
 
 The only exception is a **voluntary, opt-in daily count**. If — and only if —
 you clicked **"Yes, count me in"** in the dialog the app showed you once, the
@@ -36,8 +42,26 @@ value to `no`). That withdraws consent permanently. Uninstalling the app
 removes the settings with it.
 
 **Everything else the app stores** stays on your machine, in readable files
-listed in the [Technical Notes](docs/TECHNICAL_NOTES.md) — there is no other
-network sender anywhere in the codebase.
+listed in the [Technical Notes](docs/TECHNICAL_NOTES.md).
+
+**Network lookups, spelled out.** Three features reach the internet, each
+sending only what that feature needs:
+
+- **IP ownership (automatic, HTTPS only):** destination IPs the local
+  classifier cannot identify are looked up at public RDAP registries
+  (IANA-routed, e.g. rdap.org) so rows can say "Akamai" or "Gcore" instead
+  of a bare address. The registry learns the queried IP; that is the entire
+  payload. (An earlier build also used the free HTTP endpoint of
+  ip-api.com — that cleartext sender has been removed.)
+- **Sysmon install (only when you click Install):** Sysmon64.exe downloads
+  from live.sysinternals.com over HTTPS and must pass a full Microsoft
+  Authenticode verification (digest + signer chain) before it is ever run.
+- **Secure-boot DBX remediation (only from the Shields Up tab):** the
+  revocation-list blob downloads from Microsoft's
+  `secureboot_objects` repository on raw.githubusercontent.com over HTTPS.
+
+No lookup carries an identifier, and no feature sends any captured content
+(bodies, keys, hostnames, process names) anywhere.
 
 **BITS Transfers tab, spelled out.** It watches what Windows itself records
 about Background Intelligent Transfer jobs (the Bits-Client event log and the

@@ -459,11 +459,31 @@ type AgentBridgeService (identity: AppIdentity, tools: IAgentTools,
                             (match FileVersionInfo.GetVersionInfo(exePath).ProductVersion with
                              | null -> "?" | v -> v))
                         result["serverInfo"] <- serverInfo
+                        // The mutating surface is GENERATED from the injected
+                        // registry, not hand-maintained: this sentence once
+                        // said "the only mutating tools are open_gate/
+                        // close_gate" while the registry had already grown
+                        // to five. A model's picture of what can change the
+                        // machine must match the actual tool list.
+                        let mutators =
+                            tools.Names(true)
+                            |> Seq.filter (fun n ->
+                                match tools.Find(n, true) with
+                                | t when not (isNull (box t)) -> t.Mutating
+                                | _ -> false)
+                            |> Seq.toList
+                        let mutatingText =
+                            if mutators.IsEmpty then
+                                "This session exposes read-only tools only."
+                            else
+                                "Mutating tools ("
+                                + String.concat ", " mutators
+                                + ") each ask the user for confirmation in the app UI on "
+                                + "every single call; everything else is read-only."
                         result["instructions"] <- JsonValue.Create(
                             "Read-only security telemetry from the locally running " + identity.Name + " app " +
                             "(process monitor, svchost identity, PID provenance, Sysmon tail, trace analysis). " +
-                            "The only mutating tools are open_gate/close_gate - temporary per-target unblocks " +
-                            "that ask the user for confirmation in the app UI on every single call.")
+                            mutatingText)
                         return AgentBridgeService.RpcResult(rpc["id"], result)
 
                     | "notifications/initialized"

@@ -103,9 +103,12 @@ type private AdHocResolve(remoteIp: string) =
 /// <summary>
 /// Resolves IP → hostname in the background, with a persistent JSON cache,
 /// rate-limited queues, live row updates via INotifyPropertyChanged — and,
-/// when reverse DNS has nothing, the geo/org engine: locally classified
-/// ranges first, then the /24 prefix cache, then ip-api.com (throttled,
-/// adaptive backoff) with the RDAP registry fallback.
+/// when reverse DNS has nothing, the org engine: locally classified ranges
+/// first, then the /24 prefix cache, then RDAP over HTTPS (IANA-bootstrap
+/// routed, its own cache and pacing). The old ip-api.com step — the one
+/// cleartext-HTTP egress in the app, broadcasting every unclassified
+/// destination IP to the network path — is gone; RDAP-only attribution
+/// keeps org·country labels flowing with no plaintext sender anywhere.
 /// </summary>
 type DnsResolutionService() as this =
 
@@ -113,10 +116,6 @@ type DnsResolutionService() as this =
     static let dnsCacheTtl = TimeSpan.FromHours 24.
     static let geoCacheTtl = TimeSpan.FromDays 14.
     static let geoNegativeTtl = TimeSpan.FromHours 24.
-    /// <summary>Minimum delay between successive ip-api.com calls (45 req/min free tier).</summary>
-    static let geoApiThrottle = TimeSpan.FromMilliseconds 1400.
-    /// <summary>Cap for the transient-failure backoff doubling.</summary>
-    static let geoBackoffMax = TimeSpan.FromMinutes 5.
     static let forwardCacheTtl = TimeSpan.FromMinutes 60.
     static let forwardNegativeTtl = TimeSpan.FromMinutes 10.
     static let saveInterval = TimeSpan.FromSeconds 60.
@@ -132,8 +131,6 @@ type DnsResolutionService() as this =
             BoundedChannelOptions(512, FullMode = BoundedChannelFullMode.DropOldest, SingleReader = true)
         )
 
-    static let http = new HttpClient(Timeout = TimeSpan.FromSeconds 5.)
-
     let cts = new CancellationTokenSource()
     let mutable workerTask: Task = null
     let mutable saveTimer: Timer = null
@@ -141,16 +138,6 @@ type DnsResolutionService() as this =
 
     // "a.b.c.0/24" (IPv4; full address for IPv6) → (org·code, resolvedAt, negative)
     let geoCache = ConcurrentDictionary<string, GeoCacheEntry>()
-
-    let mutable lastGeoCall = DateTime.MinValue
-    /// <summary>Grows on transient ip-api failures (rate limit, timeouts), resets on success.</summary>
-    let mutable geoBackoff = geoApiThrottle
-
-    /// <summary>Set by ResolveNow: the NEXT api call skips the forward
-    /// inter-request spacing (user-initiated urgent lookup). Whoever's call
-    /// it lands on, it is one skipped spacing; failures still double the
-    /// backoff.</summary>
-    let mutable skipNextSpacing = 0
 
     /// <summary>Addresses queued for background resolution — the honest
     /// "resolving" state for DescribeResolveState (a Channel cannot be
@@ -264,9 +251,6 @@ type DnsResolutionService() as this =
             else
                 geoCache.TryRemove(DnsResolutionService.GeoPrefixKey ip) |> ignore
 
-                Interlocked.Exchange(&skipNextSpacing, 1) |> ignore
-                geoBackoff <- geoApiThrottle
-
                 let cachedHostname = this.GetCachedHostname ip
                 let effective = if isNull (box cachedHostname) then ip else cachedHostname
 
@@ -281,10 +265,10 @@ type DnsResolutionService() as this =
     /// The "Retry unresolved" bulk action: forget every negative geo
     /// answer (definitive only as of when it was asked) and every raw-IP
     /// placeholder in the hostname cache (those placeholders are what
-    /// stops EnqueueForResolution from re-queuing), reset the provider
-    /// backoff, and re-queue the given addresses — or every pending one
-    /// when the caller passes none. Normal pacing applies throughout: the
-    /// point is a fresh, polite re-ask. Returns the number re-queued.
+    /// stops EnqueueForResolution from re-queuing), and re-queue the given
+    /// addresses — or every pending one when the caller passes none. RDAP's
+    /// own pacing applies throughout: the point is a fresh, polite re-ask.
+    /// Returns the number re-queued.
     /// </summary>
     member _.RetryUnresolved([<Optional; DefaultParameterValue(null: IEnumerable<string>)>] ips: IEnumerable<string>) : int =
         for kv in geoCache do
@@ -292,8 +276,6 @@ type DnsResolutionService() as this =
 
         for kv in cache do
             if DnsResolutionService.IsUnresolvedHostname kv.Value.Hostname then cache.TryRemove(kv.Key) |> ignore
-
-        geoBackoff <- geoApiThrottle
 
         let mutable queuedCount = 0
 
@@ -343,10 +325,7 @@ type DnsResolutionService() as this =
                     let mutable pending = 0uy
 
                     if pendingIps.TryGetValue(ip, &pending) then
-                        if geoBackoff > geoApiThrottle then
-                            "resolving — throttled, next attempt in ~" + this.MinutesUntilNextGeoCall() + " min"
-                        else
-                            "resolving — queued (" + string pendingIps.Count + " waiting)"
+                        "resolving — queued (" + string pendingIps.Count + " waiting)"
                     else
                         let mutable geo = Unchecked.defaultof<GeoCacheEntry>
                         let prefix = DnsResolutionService.GeoPrefixKey ip
@@ -364,13 +343,7 @@ type DnsResolutionService() as this =
 
                         match geoLine with
                         | Some line -> line
-                        | None ->
-                            if geoBackoff > geoApiThrottle then
-                                "not resolved yet — the lookup provider is throttled, next attempt in ~"
-                                + this.MinutesUntilNextGeoCall()
-                                + " min (or use Resolve now)"
-                            else
-                                "not resolved yet — queued on the next refresh pass"
+                        | None -> "not resolved yet — queued on the next refresh pass"
 
     // ── idle reconciliation ───────────────────────────────────────────
 
@@ -664,19 +637,16 @@ type DnsResolutionService() as this =
                 return ip // DNS NXDOMAIN or timeout
         }
 
-    member private _.MinutesUntilNextGeoCall() : string =
-        let remaining = geoBackoff - (DateTime.UtcNow - lastGeoCall)
-        Math.Max(0., Math.Ceiling remaining.TotalMinutes).ToString("0")
-
     /// <summary>
     /// Geo/owner label for an IP, cheapest source first:
     ///   1. locally classified ranges (IpClassification) — no network at all;
     ///   2. non-routable addresses (RFC1918, loopback, link-local…) — no
     ///      answer exists, so no trip either;
-    ///   3. the /24-prefix cache — one API answer serves a whole rotating
+    ///   3. the /24-prefix cache — one answer serves a whole rotating
     ///      fleet block for two weeks;
-    ///   4. ip-api.com, throttled, with backoff on transient failures.
-    /// Transient failures (rate limit, timeout) return RetryLater and cache
+    ///   4. RDAP over HTTPS (IANA-bootstrap routed; the engine keeps its
+    ///      own cache, pacing and negative state).
+    /// Transient failures (timeout, throttle) return RetryLater and cache
     /// NOTHING — a wrong "unresolved" answer must not outlive the outage.
     /// </summary>
     member private _.GeoIpLookupAsync(ip: string, ct: CancellationToken) : Task<GeoOutcome> =
@@ -707,56 +677,26 @@ type DnsResolutionService() as this =
                     match cacheAnswer with
                     | Some answer -> return answer
                     | None ->
-                        // 4. The API. Spacing uses the current backoff so a
-                        //    rate-limiting episode widens the gap instead of
-                        //    compounding the 429s — unless this is the
-                        //    user-initiated urgent call ResolveNow queued
-                        //    (one skipped spacing; failures still back off below).
-                        if Interlocked.Exchange(&skipNextSpacing, 0) <> 1 then
-                            let elapsed = DateTime.UtcNow - lastGeoCall
-                            if elapsed < geoBackoff then do! Task.Delay(geoBackoff - elapsed, ct)
-
-                        lastGeoCall <- DateTime.UtcNow
-
+                        // 4. RDAP over HTTPS — the only external attribution
+                        //    source (see the type header: the cleartext
+                        //    ip-api.com step is gone). The RDAP engine keeps
+                        //    its own cache, pacing and negative state; here
+                        //    we only translate its answer into the prefix
+                        //    cache so the whole /24 stops asking.
                         try
-                            let url =
-                                $"http://ip-api.com/json/{Uri.EscapeDataString ip}?fields=status,message,org,countryCode"
+                            let! entry = RdapService.Instance.LookupAsync ip
 
-                            let! json = http.GetStringAsync(url, ct)
-                            use doc = JsonDocument.Parse json
-                            let root = doc.RootElement
-
-                            let statusOk =
-                                match root.TryGetProperty("status") with
-                                | true, status -> status.GetString() = "success"
-                                | _ -> false
-
-                            if not statusOk then
-                                // A well-formed "fail" (invalid query, reserved
-                                // range the local check didn't cover) is a
-                                // definitive answer.
-                                geoBackoff <- geoApiThrottle
+                            if
+                                isNull (box entry)
+                                || entry.IsNegative
+                                || String.IsNullOrEmpty entry.Org
+                            then
+                                // Definitive no-data — negative prefix entry,
+                                // re-asked only after the negative TTL.
                                 geoCache.[prefix] <- GeoCacheEntry("", DateTime.UtcNow, true)
-                                return! this.RdapFallbackOrAsync(ip, GeoNoData, ct)
+                                return GeoNoData
                             else
-                                let org =
-                                    match root.TryGetProperty("org") with
-                                    | true, o ->
-                                        match o.GetString() with
-                                        | null -> ""
-                                        | s -> s
-                                    | _ -> ""
-
-                                let code =
-                                    match root.TryGetProperty("countryCode") with
-                                    | true, c ->
-                                        match c.GetString() with
-                                        | null -> ""
-                                        | s -> s
-                                    | _ -> ""
-
-                                // Strip "AS12345 " prefix
-                                let mutable org = org
+                                let mutable org = entry.Org
 
                                 if
                                     org.Length > 3
@@ -767,82 +707,23 @@ type DnsResolutionService() as this =
 
                                     if space > 0 then org <- org[(space + 1) ..]
 
-                                let label = if String.IsNullOrEmpty code then org else $"{org} · {code}"
-
-                                // ip-api.com's free tier serves plain-text HTTP,
-                                // so the answer is forgeable by anyone on the
-                                // network path — a C2 endpoint could present as
-                                // "Microsoft · US". Carried into every label as
-                                // an explicit unverified marker; RDAP fallback
-                                // labels arrive over HTTPS and keep their clean
-                                // name. Cached entries age out within 14 days.
-                                let marked =
-                                    if String.IsNullOrEmpty label then ""
-                                    else label + " · unverified"
-
-                                geoBackoff <- geoApiThrottle
-                                geoCache.[prefix] <- GeoCacheEntry((if String.IsNullOrEmpty marked then "" else marked), DateTime.UtcNow, String.IsNullOrEmpty marked)
-
-                                if String.IsNullOrEmpty marked then
-                                    return! this.RdapFallbackOrAsync(ip, GeoNoData, ct)
+                                if String.IsNullOrEmpty org then
+                                    geoCache.[prefix] <- GeoCacheEntry("", DateTime.UtcNow, true)
+                                    return GeoNoData
                                 else
-                                    return GeoOk marked
+                                    let label =
+                                        if String.IsNullOrEmpty entry.Country then org
+                                        else $"{org} · {entry.Country}"
+
+                                    geoCache.[prefix] <- GeoCacheEntry(label, DateTime.UtcNow, false)
+                                    return GeoOk(label + " · RDAP")
                         with
-                        | :? OperationCanceledException -> return! Task.FromException<GeoOutcome>(OperationCanceledException ct)
+                        | :? OperationCanceledException ->
+                            return! Task.FromException<GeoOutcome>(OperationCanceledException ct)
                         | _ ->
-                            // HTTP 429 / timeout / unparseable body — transient:
-                            // back off (doubling, capped) and let the caller retry later.
-                            geoBackoff <-
-                                if geoBackoff >= geoBackoffMax then geoBackoffMax
-                                else TimeSpan.FromTicks(min (geoBackoff.Ticks * 2L) geoBackoffMax.Ticks)
-
-                            return! this.RdapFallbackOrAsync(ip, GeoRetryLater, ct)
-        }
-
-    /// <summary>
-    /// Registry fallback for the two outcomes that leave an address
-    /// unresolved — a definitive ip-api "no data" and a transient
-    /// throttle/timeout. The RDAP engine (IANA-bootstrap routed, its own
-    /// cache, its own pacing) answers the same org question for many of
-    /// those prefixes at zero cost to the ip-api free tier, and writes the
-    /// positive prefix entry itself so a found answer overwrites the
-    /// negative one. <paramref name="fallback"/> is returned untouched
-    /// when RDAP has nothing — never a worse answer than the caller had.
-    /// </summary>
-    member private _.RdapFallbackOrAsync(ip: string, fallback: GeoOutcome, ct: CancellationToken) : Task<GeoOutcome> =
-        task {
-            try
-                let! entry = RdapService.Instance.LookupAsync ip
-
-                if
-                    isNull (box entry)
-                    || entry.IsNegative
-                    || String.IsNullOrEmpty entry.Org
-                then
-                    return fallback
-                else
-                    let mutable org = entry.Org
-
-                    if
-                        org.Length > 3
-                        && org.[0] = 'A'
-                        && org.[1] = 'S'
-                    then
-                        let space = org.IndexOf ' '
-
-                        if space > 0 then org <- org[(space + 1) ..]
-
-                    if String.IsNullOrEmpty org then
-                        return fallback
-                    else
-                        let label =
-                            if String.IsNullOrEmpty entry.Country then org
-                            else $"{org} · {entry.Country}"
-
-                        geoCache.[DnsResolutionService.GeoPrefixKey ip] <- GeoCacheEntry(label, DateTime.UtcNow, false)
-                        return GeoOk(label + " · RDAP")
-            with _ ->
-                return fallback // RDAP unavailable/throttled — keep the caller's outcome
+                            // Timeout / throttle — transient: cache nothing, the
+                            // monitor's re-enqueue tick retries later.
+                            return GeoRetryLater
         }
 
     /// <summary>/24 network for IPv4 ("a.b.c.0/24"); IPv6 keeps its full address as key.</summary>

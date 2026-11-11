@@ -3,27 +3,32 @@ using System.Collections.Generic;
 using System.IO;
 using System.Net;
 using System.Runtime.InteropServices;
+using System.Security.AccessControl;
 using System.Security.Cryptography;
 using System.Security.Cryptography.X509Certificates;
+using System.Security.Principal;
 
 namespace AutoCommand.Intercept.Core
 {
-    /// <summary>
-    /// The intercept CA and its leaf minting. Layer 3's dangerous part,
-    /// caged: one RSA-2048 CA per install ("CN=AutoCommand Intercept CA"),
-    /// persisted under %LOCALAPPDATA%\AutoCommand\intercept so sessions
-    /// reuse it, installed into the MACHINE Root store only while an
-    /// intercept session runs and removed when it ends. Leaf certificates
-    /// are minted per hostname, cached briefly — a session never generates
-    /// hundreds of keys.
-    ///
-    /// The persisted PFX is DPAPI-encrypted (current user): the key backs a
-    /// CA that is trusted machine-wide during sessions, so the file at rest
-    /// must not be raw-exportable key material any same-user process could
-    /// lift and reuse. Nothing here ever touches LSASS or Schannel
-    /// internals: the CA is the standard, user-visible mechanism, auditable
-    /// in certmgr as "AutoCommand Intercept CA" whenever it is trusted.
-    /// </summary>
+        /// <summary>
+        /// The intercept CA and its leaf minting. Layer 3's dangerous part,
+        /// caged: one RSA-2048 CA per install ("CN=AutoCommand Intercept CA"),
+        /// persisted under %LOCALAPPDATA%\AutoCommand\intercept so sessions
+        /// reuse it, installed into the MACHINE Root store only while an
+        /// intercept session runs and removed when it ends. Leaf certificates
+        /// are minted per hostname, cached briefly — a session never generates
+        /// hundreds of keys.
+        ///
+        /// The persisted PFX is DPAPI-encrypted (current user): the key backs a
+        /// CA that is trusted machine-wide during sessions, so the file at rest
+        /// must not be raw-exportable key material any same-user process could
+        /// lift and reuse. The directory itself is created admin/SYSTEM-only
+        /// (see EnsureRealDirHardened) so the sibling crash-recovery journal —
+        /// replay input for elevated netsh calls — cannot be forged by a
+        /// non-elevated process. Nothing here ever touches LSASS or Schannel
+        /// internals: the CA is the standard, user-visible mechanism, auditable
+        /// in certmgr as "AutoCommand Intercept CA" whenever it is trusted.
+        /// </summary>
     internal static class InterceptCaService
     {
         private const string CaSubject = "CN=AutoCommand Intercept CA,O=AutoCommand";
@@ -38,9 +43,58 @@ namespace AutoCommand.Intercept.Core
             set => _dirOverride = value;
         }
 
-        internal static string Dir => _dirOverride ?? Path.Combine(
-            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-            "AutoCommand", "intercept");
+        internal static string Dir
+        {
+            get
+            {
+                if (_dirOverride != null) return _dirOverride;
+                EnsureRealDirHardened();
+                return Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "AutoCommand", "intercept");
+            }
+        }
+
+        private static bool _hardenAttempted;
+
+        // The real intercept dir holds the crash-recovery journal — replay
+        // input for elevated netsh calls — and the CA pfx. Both must be out
+        // of reach for non-elevated same-user processes, so the directory is
+        // created admin/SYSTEM-only (same shape as ProgramDataGuard; the
+        // app is elevated and keeps full access). One-shot, best-effort:
+        // failures never block callers, and the test seam (DirOverride)
+        // bypasses this entirely — a non-elevated self-test must not ACL
+        // itself out of its own temp root.
+        private static void EnsureRealDirHardened()
+        {
+            if (_hardenAttempted) return;
+            _hardenAttempted = true;
+            try
+            {
+                string dir = Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "AutoCommand", "intercept");
+                Directory.CreateDirectory(dir);
+
+                var info = new DirectoryInfo(dir);
+                var security = info.GetAccessControl();
+                security.SetAccessRuleProtection(true, false);
+                var sidAdmins = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
+                var sidSystem = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
+                security.AddAccessRule(new FileSystemAccessRule(
+                    sidAdmins, FileSystemRights.FullControl,
+                    InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
+                    PropagationFlags.None, AccessControlType.Allow));
+                security.AddAccessRule(new FileSystemAccessRule(
+                    sidSystem, FileSystemRights.FullControl,
+                    InheritanceFlags.ContainerInherit | InheritanceFlags.ObjectInherit,
+                    PropagationFlags.None, AccessControlType.Allow));
+                info.SetAccessControl(security);
+            }
+            catch { /* non-elevated or odd filesystem — the journal-field
+                      validation in InterceptSystemHooks remains the second
+                      lock on this door */ }
+        }
 
         private static string CaPath => Path.Combine(Dir, "ca.pfx");
 
@@ -278,6 +332,20 @@ namespace AutoCommand.Intercept.Core
 
                 _leafCache[host] = (leafWithKey, DateTime.UtcNow);
                 return leafWithKey;
+            }
+        }
+
+        /// <summary>Drops every cached leaf (private keys included). Called
+        /// at session stop: without this, the last session's minted keys sit
+        /// in a static dictionary for the life of the process, long past the
+        /// session that justified minting them.</summary>
+        internal static void ClearLeafCache()
+        {
+            lock (Gate)
+            {
+                foreach (var entry in _leafCache.Values)
+                    try { entry.Cert.Dispose(); } catch { }
+                _leafCache.Clear();
             }
         }
     }

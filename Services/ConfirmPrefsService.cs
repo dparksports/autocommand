@@ -28,9 +28,43 @@ namespace AutoCommand.Services
 
         public static readonly string[] AllKeys = { ConfirmIp, ConfirmProcess, WarnMsInfra, WarnWindowsCore, WarnWslFamily };
 
-        private const string PrefsPath = "confirm_prefs.txt";
+        // Anchored under the per-user app data root, NOT the process's
+        // current working directory: a shortcut with a different "Start in"
+        // (or the AgentProxy wake path) used to silently read and write a
+        // different file, so the "don't ask again" choices appeared to
+        // forget themselves depending on how the app was launched.
+        private static string PrefsPath => System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "AutoCommand", "confirm_prefs.txt");
 
         private static readonly HashSet<string> _suppressed = Load();
+
+        /// <summary>One-time migration from the CWD-relative era: adopt a
+        /// legacy copy sitting beside the exe (or in the old launch CWD)
+        /// when the anchored file does not exist yet. Best-effort.</summary>
+        static ConfirmPrefs()
+        {
+            try
+            {
+                if (!File.Exists(PrefsPath))
+                {
+                    string legacy = System.IO.Path.Combine(AppContext.BaseDirectory, "confirm_prefs.txt");
+                    if (!File.Exists(legacy))
+                        legacy = System.IO.Path.Combine(Environment.CurrentDirectory, "confirm_prefs.txt");
+                    if (File.Exists(legacy))
+                    {
+                        Directory.CreateDirectory(System.IO.Path.GetDirectoryName(PrefsPath));
+                        File.Copy(legacy, PrefsPath);
+                        foreach (string line in File.ReadAllLines(PrefsPath))
+                        {
+                            string key = line.Trim();
+                            if (Array.IndexOf(AllKeys, key) >= 0) _suppressed.Add(key);
+                        }
+                    }
+                }
+            }
+            catch { /* unreadable legacy copy — every prompt stays active */ }
+        }
 
         private static HashSet<string> Load()
         {

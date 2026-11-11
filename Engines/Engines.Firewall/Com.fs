@@ -176,20 +176,25 @@ type internal NetFwPolicy2Legacy =
 
 // ── Public face (plain F# interfaces; COM detail stays behind Com) ──────
 
-/// <summary>The members of COM INetFwRule the engine reads and writes.</summary>
+/// <summary>The members of COM INetFwRule the engine reads and writes
+/// (the pre-lockdown snapshot reads the full field set).</summary>
 [<AllowNullLiteral>]
 type INetFwRule =
     abstract Name: string with get, set
     abstract Description: string with get, set
     abstract ApplicationName: string with get, set
+    abstract ServiceName: string with get, set
     abstract Protocol: int with get, set
     abstract LocalPorts: string with get, set
     abstract RemotePorts: string with get, set
+    abstract LocalAddresses: string with get, set
     abstract RemoteAddresses: string with get, set
+    abstract IcmpTypesAndCodes: string with get, set
     abstract InterfaceTypes: string with get, set
     abstract Enabled: bool with get, set
     abstract Grouping: string with get, set
     abstract Profiles: int with get, set
+    abstract EdgeTraversal: bool with get, set
     abstract Direction: FwRuleDirection with get, set
     abstract Action: FwAction with get, set
 
@@ -235,6 +240,18 @@ type internal RuleShim(x: NetFwRuleX, legacy: NetFwRuleLegacy) =
         member s.ApplicationName
             with get () = (if not (isNull x) then x.ApplicationName else legacy.ApplicationName)
             and set v = (if not (isNull x) then x.ApplicationName <- v else legacy.ApplicationName <- v)
+        member s.ServiceName
+            with get () = (if not (isNull x) then x.ServiceName else legacy.ServiceName)
+            and set v = (if not (isNull x) then x.ServiceName <- v else legacy.ServiceName <- v)
+        member s.LocalAddresses
+            with get () = (if not (isNull x) then x.LocalAddresses else legacy.LocalAddresses)
+            and set v = (if not (isNull x) then x.LocalAddresses <- v else legacy.LocalAddresses <- v)
+        member s.IcmpTypesAndCodes
+            with get () = (if not (isNull x) then x.IcmpTypesAndCodes else legacy.IcmpTypesAndCodes)
+            and set v = (if not (isNull x) then x.IcmpTypesAndCodes <- v else legacy.IcmpTypesAndCodes <- v)
+        member s.EdgeTraversal
+            with get () = (if not (isNull x) then x.EdgeTraversal else legacy.EdgeTraversal)
+            and set v = (if not (isNull x) then x.EdgeTraversal <- v else legacy.EdgeTraversal <- v)
         member s.Protocol
             with get () = (if not (isNull x) then x.Protocol else legacy.Protocol)
             and set v = (if not (isNull x) then x.Protocol <- v else legacy.Protocol <- v)

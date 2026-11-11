@@ -8,7 +8,7 @@
   [![Platform](https://img.shields.io/badge/Windows-10_%2F_11-0078D7?logo=windows)](../../releases/latest)
 </div>
 
-Antivirus matches files against a list of known-bad ones. That is a fine job — but it has nothing to say about the "clean" program phoning home more than it should, and it goes quiet exactly when your computer is acting weird. AutoCommand is the piece antivirus never gives you: **it shows you every program on your PC that talks to the internet, explains each one in plain English, and stops anything you don't want** — one click, undo included. It sends nothing anywhere, costs nothing, and deleting the folder uninstalls it completely.
+Antivirus matches files against a list of known-bad ones. That is a fine job — but it has nothing to say about the "clean" program phoning home more than it should, and it goes quiet exactly when your computer is acting weird. AutoCommand is the piece antivirus never gives you: **it shows you every program on your PC that talks to the internet, explains each one in plain English, and stops anything you don't want** — one click, undo included. It reports nothing about you to anyone (the only automatic outbound traffic asks public RDAP registries who owns an IP — see [PRIVACY.md](PRIVACY.md)), costs nothing, and its data lives in readable local files.
 
 Keep your antivirus if you like it. They do different jobs. Many people run both.
 
@@ -50,7 +50,7 @@ Real example, from this app's own development machine: *"svchost.exe is uploadin
 
 ![One-click undo, restore-internet panic button, local-first, delete equals uninstalled](Assets/infographics/safety.svg)
 
-Security tools you're afraid to touch are security tools you won't use. Every block is reversible in one click; the 🚑 **Restore Internet** button in the corner undoes every block the app ever made; nothing is sent anywhere by default; and there's no installer to untangle — remove the folder and it's gone.
+Security tools you're afraid to touch are security tools you won't use. Every block is reversible in one click; the 🚑 **Restore Internet** button in the corner undoes every block the app ever made; the only outbound lookups are the public-registry IP questions PRIVACY.md spells out; and there's no installer to untangle. One honest footnote on "delete the folder": the app's own files go with it, but things it installed *into Windows* on your behalf — the Sysmon driver (if you installed it), firewall rules, hosts pins — outlive the folder; the panic button and Settings remove those, and TECHNICAL_NOTES lists every location.
 
 ## Where it came from
 

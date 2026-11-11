@@ -20,13 +20,7 @@ Broadly: anything that lets malware, an unprivileged user, or a remote party **b
 
 👉 [Report a vulnerability](https://github.com/dparksports/autocommand/security/advisories/new)
 
-This reaches the maintainer privately and lets us coordinate a fix and advisory before anything is public. You'll need a (free) GitHub account.
-
-**By email** (no account needed):
-
-<!-- MAINTAINER: replace with an address you actually monitor, and delete
-     this comment. Until then this line should not be published. -->
-`SECURITY-EMAIL-NOT-YET-SET`
+This reaches the maintainer privately and lets us coordinate a fix and advisory before anything is public. This is currently the only reporting channel: it needs a (free) GitHub account, and an email address may be added here once one is actually monitored — a dead inbox is worse than none.
 
 **Please do not open public issues, discussions, or PRs describing a vulnerability** — a working bypass posted publicly puts every current user at risk before a fix ships.
 

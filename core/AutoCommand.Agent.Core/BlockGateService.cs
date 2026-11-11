@@ -35,6 +35,10 @@ namespace AutoCommand.Agent.Core
     ///   • gates.json is written SYNCHRONOUSLY before blocking turns off —
     ///     a lost gate record would mean protection stays down, so this is
     ///     the one store that does not ride the managed write buffers;
+    ///   • a gate record is removed only AFTER its blocks are confirmed
+    ///     back ON — a failed re-arm (firewall COM hiccup) keeps the
+    ///     expired record so the tick retries instead of silently leaving
+    ///     a door open with no record of it;
     ///   • app exit closes every open gate (a dead app never leaves a door
     ///     open); startup closes anything that expired while it was down;
     ///   • one gate per target — re-opening extends from now (after a fresh
@@ -101,7 +105,11 @@ namespace AutoCommand.Agent.Core
         }
 
         /// <summary>Close a gate and turn blocking back ON. Idempotent —
-        /// closing an unknown gate is a no-op (already safe).</summary>
+        /// closing an unknown gate is a no-op (already safe). The gate
+        /// record is only removed AFTER the firewall re-enable succeeds: a
+        /// failed re-arm keeps the (expired) record in the store so the
+        /// watch tick and the next startup retry it — a lost record would
+        /// mean protection stays down with nothing saying otherwise.</summary>
         public async Task CloseAsync(string kind, string key, string origin)
         {
             LoadOnce();
@@ -111,10 +119,26 @@ namespace AutoCommand.Agent.Core
                 g = _gates.FirstOrDefault(x =>
                     x.Kind == kind && x.Key.Equals(key, StringComparison.OrdinalIgnoreCase));
                 if (g == null) return;
+            }
+
+            if (!await RestoreBlockingAsync(g, origin))
+            {
+                // Re-arm failed after retries — keep the gate and push its
+                // expiry 30s out so the watch tick retries shortly (and
+                // ReconcileOnStartupAsync picks it up after a restart).
+                lock (_lock)
+                {
+                    g.ExpiresUtc = DateTime.UtcNow.AddSeconds(30);
+                    SaveLocked();
+                }
+                return;
+            }
+
+            lock (_lock)
+            {
                 _gates.Remove(g);
                 SaveLocked();
             }
-            await RestoreBlockingAsync(g, origin);
         }
 
         /// <summary>The gate-watch instrument's tick: close everything past
@@ -147,19 +171,31 @@ namespace AutoCommand.Agent.Core
         /// was down closes immediately; the rest resume counting.</summary>
         public Task ReconcileOnStartupAsync() => CloseExpiredAsync();
 
-        private async Task RestoreBlockingAsync(BlockGate g, string origin)
+        /// <summary>Turns blocking back ON for one gate's target, retrying
+        /// transient firewall-COM failures. True when the target is
+        /// confirmed re-armed; false means the gate record must STAY so the
+        /// tick/startup retry path keeps trying.</summary>
+        private async Task<bool> RestoreBlockingAsync(BlockGate g, string origin)
         {
-            try
+            var targets = new[] { (g.Kind, g.Key) };
+            for (int attempt = 1; ; attempt++)
             {
-                var targets = new[] { (g.Kind, g.Key) };
-                await FirewallService.Instance.SetTargetsEnabledAsync(targets, true);
-                BlocksStore.SetStatuses(targets, "on", origin);
+                try
+                {
+                    await FirewallService.Instance.SetTargetsEnabledAsync(targets, true);
+                    BlocksStore.SetStatuses(targets, "on", origin);
+                    try { GateClosed?.Invoke(g, origin); } catch { }
+                    return true;
+                }
+                catch
+                {
+                    // Firewall COM hiccups are usually momentary — three
+                    // attempts with a small gap before the caller falls back
+                    // to the keep-the-gate-and-retry path.
+                    if (attempt >= 3) return false;
+                    await Task.Delay(300 * attempt);
+                }
             }
-            catch { /* firewall COM failure: the gate is already removed from
-                    the store; the disabled rules are caught by the Blocks
-                    tab's reconcile on next load, and blocks-events carries
-                    the intent */ }
-            try { GateClosed?.Invoke(g, origin); } catch { }
         }
 
         private void LoadOnce()

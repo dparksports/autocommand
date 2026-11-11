@@ -25,7 +25,90 @@ open System.Diagnostics.Eventing.Reader
 open System.IO
 open System.Linq
 open System.Net.Http
+open System.Runtime.InteropServices
 open System.Threading.Tasks
+
+/// <summary>
+/// Authenticode verification via WinVerifyTrust — the F# port of
+/// ShieldsUp.Core's AuthenticodeVerifier (C#), kept engine-side so
+/// Engines.Watch stays app-agnostic. WinVerifyTrust validates the WHOLE
+/// signature: signer chain AND the digest over the file as it exists on
+/// disk right now. That digest half is the difference that matters here —
+/// reading the signer certificate out of the file and building its chain
+/// (the previous check) proves only that the embedded certificate is a
+/// valid Microsoft cert, not that the surrounding bytes are the file it
+/// signed: a tampered Sysmon64.exe with an intact certificate table, or
+/// any renamed Microsoft-signed binary, sailed through it.
+/// </summary>
+module private WinTrust =
+
+    [<Literal>]
+    let WTD_UI_NONE = 2u
+
+    [<Literal>]
+    let WTD_REVOKE_NONE = 0u
+
+    [<Literal>]
+    let WTD_CHOICE_FILE = 1u
+
+    [<Literal>]
+    let WTD_STATEACTION_VERIFY = 1u
+
+    [<Struct; StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)>]
+    type WINTRUST_FILE_INFO =
+        val mutable cbStruct: uint32
+        val mutable pcwszFilePath: string
+        val mutable hFile: nativeint
+        val mutable pgKnownSubject: nativeint
+
+    [<Struct; StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)>]
+    type WINTRUST_DATA =
+        val mutable cbStruct: uint32
+        val mutable pPolicyCallbackData: nativeint
+        val mutable pSIPClientData: nativeint
+        val mutable dwUIChoice: uint32
+        val mutable fdwRevocationChecks: uint32
+        val mutable dwUnionChoice: uint32
+        val mutable pFile: nativeint
+        val mutable dwStateAction: uint32
+        val mutable hWVTStateData: nativeint
+        val mutable pwszURLReference: string
+        val mutable dwProvFlags: uint32
+        val mutable dwUIContext: uint32
+        val mutable pSignatureSettings: nativeint
+
+    [<DllImport("wintrust.dll", SetLastError = true)>]
+    extern int WinVerifyTrust(nativeint hWnd, Guid& actionId, WINTRUST_DATA& data)
+
+    /// <summary>True when the file carries a valid Authenticode signature
+    /// (digest + chain) against a root Windows trusts.</summary>
+    let verifyFile (path: string) : bool =
+        try
+            let mutable actionId = Guid("00AAC56B-CD44-11D0-8CC2-00C04FC295EE")
+
+            let mutable fileInfo = WINTRUST_FILE_INFO()
+            fileInfo.cbStruct <- uint32 (Marshal.SizeOf<WINTRUST_FILE_INFO>())
+            fileInfo.pcwszFilePath <- path
+            fileInfo.hFile <- IntPtr.Zero
+            fileInfo.pgKnownSubject <- IntPtr.Zero
+
+            let mutable data = WINTRUST_DATA()
+            data.cbStruct <- uint32 (Marshal.SizeOf<WINTRUST_DATA>())
+            data.dwUIChoice <- WTD_UI_NONE
+            data.fdwRevocationChecks <- WTD_REVOKE_NONE
+            data.dwUnionChoice <- WTD_CHOICE_FILE
+            data.dwStateAction <- WTD_STATEACTION_VERIFY
+
+            let fileInfoPtr = Marshal.AllocHGlobal(Marshal.SizeOf<WINTRUST_FILE_INFO>())
+
+            try
+                Marshal.StructureToPtr(fileInfo, fileInfoPtr, false)
+                data.pFile <- fileInfoPtr
+                WinVerifyTrust(IntPtr.Zero, &actionId, &data) = 0
+            finally
+                Marshal.FreeHGlobal(fileInfoPtr)
+        with _ ->
+            false
 
 /// <summary>
 /// F# port of the C# SysmonInstallState enum — same names, same values.
@@ -79,35 +162,25 @@ type SysmonInstallerService() =
 
     // The Sysmon64.exe cache lives in user-writable %TEMP% while this
     // installer runs elevated, so a pre-planted exe would be executed with
-    // admin rights. Only a Microsoft-signed binary may ever be run: the
-    // signer certificate must chain to a trusted root and pin to
-    // Microsoft Corporation. (Unsigned or foreign-signed files throw /
-    // fail the subject pin and return false.)
+    // admin rights. Only a Microsoft-signed binary may ever be run.
+    // WinVerifyTrust proves the file's Authenticode signature is intact
+    // (digest over the CURRENT bytes + signer chain); the subject pin then
+    // narrows the signer to Microsoft Corporation. Unsigned, tampered
+    // (signature blob kept, code changed), or foreign-signed files all
+    // fail here and are never executed.
     static let verifyMicrosoftSigned (exePath: string) : bool =
-        try
-            // CreateFromSignedFile returns the base X509Certificate; chain
-            // building needs the X509Certificate2 wrapper.
-            let signed =
-                System.Security.Cryptography.X509Certificates.X509Certificate.CreateFromSignedFile(exePath)
+        WinTrust.verifyFile exePath
+        && (
+            try
+                let subject =
+                    System.Security.Cryptography.X509Certificates.X509Certificate
+                        .CreateFromSignedFile(exePath)
+                        .Subject
 
-            use cert =
-                new System.Security.Cryptography.X509Certificates.X509Certificate2(signed)
-
-            use chain =
-                new System.Security.Cryptography.X509Certificates.X509Chain()
-
-            chain.ChainPolicy.RevocationMode <-
-                System.Security.Cryptography.X509Certificates.X509RevocationMode.NoCheck
-
-            let chainOk = chain.Build(cert)
-            let subject = cert.Subject
-
-            let isMicrosoft =
                 subject.IndexOf("Microsoft Corporation", StringComparison.OrdinalIgnoreCase) >= 0
-
-            chainOk && isMicrosoft
-        with _ ->
-            false
+            with _ ->
+                false
+        )
 
     static let runWithDetails (fileName: string) (arguments: string) : struct (string * string * int) =
         // Inbox tools (sc.exe, wevtutil.exe, reg.exe) are pinned to System32:
