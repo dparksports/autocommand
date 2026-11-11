@@ -151,8 +151,9 @@ Compress-Archive -Path "publish/v$relVersion/*" -DestinationPath $appZip
 
 # Standalone unblock script - separate downloadable asset for users who cannot
 # launch the app at all (Smart App Control / SmartScreen blocks on the
-# downloaded zip's Mark-of-the-Web).
-Copy-Item (Join-Path $repoRoot 'unblock-autocommand.ps1') $unblockPs1 -Force
+# downloaded zip's Mark-of-the-Web). Lives under scripts\ since the root
+# scripts moved there (f3d5cbe) - the release.ps1 reference was missed.
+Copy-Item (Join-Path $repoRoot 'scripts\unblock-autocommand.ps1') $unblockPs1 -Force
 
 $sums = @(
     "{0}  {1}" -f (Get-FileHash $appZip -Algorithm SHA256).Hash.ToLower(), (Split-Path $appZip -Leaf)
