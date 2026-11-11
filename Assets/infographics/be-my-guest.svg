@@ -1,47 +1,42 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="470" viewBox="0 0 1120 470" role="img" aria-label="Be My Guest: invite your AI assistant through a local bridge you start and stop">
-  <rect width="1120" height="470" fill="#0f172a"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="530" viewBox="0 0 1120 530" role="img" aria-label="Be My Guest: your AI assistant connects through a local bridge that only you start and stop">
+  <rect width="1120" height="530" fill="#0f172a"/>
+  <rect width="1120" height="6" fill="#22d3ee"/>
   <g font-family="Segoe UI, Arial, sans-serif">
-    <text x="56" y="64" font-size="32" font-weight="700" fill="#f1f5f9">Be My Guest — your AI assistant, invited</text>
-    <rect x="56" y="78" width="64" height="4" fill="#22d3ee"/>
+    <text x="56" y="78" font-size="42" font-weight="700" fill="#f1f5f9">Be My Guest — invite your AI</text>
+    <rect x="56" y="96" width="80" height="5" fill="#22d3ee"/>
 
-    <!-- diagram -->
-    <rect x="56" y="116" width="280" height="120" rx="12" fill="#1e293b" stroke="#334155"/>
-    <text x="88" y="152" font-size="17" font-weight="700" fill="#f1f5f9">You</text>
-    <text x="88" y="180" font-size="13.5" fill="#cbd5e1">in the Be My Guest tab,</text>
-    <text x="88" y="202" font-size="13.5" fill="#cbd5e1">pressing Start — or Stop.</text>
+    <rect x="56" y="132" width="280" height="132" rx="14" fill="#1e293b" stroke="#334155"/>
+    <text x="88" y="176" font-size="22" font-weight="700" fill="#f1f5f9">You</text>
+    <text x="88" y="212" font-size="16.5" fill="#cbd5e1">in the Be My Guest tab,</text>
+    <text x="88" y="238" font-size="16.5" fill="#cbd5e1">pressing Start — or Stop.</text>
 
-    <path d="M 348 176 L 388 176 L 388 166 L 408 176 L 388 186 L 388 176 Z" fill="#22d3ee"/>
+    <path d="M 352 198 L 352 184 L 374 198 L 352 212 Z" fill="#22d3ee"/>
 
-    <rect x="424" y="116" width="280" height="120" rx="12" fill="#1e293b" stroke="#22d3ee"/>
-    <text x="456" y="152" font-size="17" font-weight="700" fill="#f1f5f9">The session</text>
-    <text x="456" y="180" font-size="13.5" fill="#cbd5e1">a local bridge on your machine</text>
-    <text x="456" y="202" font-size="13.5" fill="#cbd5e1">— loopback only, grant-based</text>
+    <rect x="392" y="132" width="300" height="132" rx="14" fill="#1e293b" stroke="#22d3ee" stroke-width="2"/>
+    <text x="424" y="176" font-size="22" font-weight="700" fill="#f1f5f9">The session</text>
+    <text x="424" y="212" font-size="16.5" fill="#cbd5e1">a local bridge, loopback only,</text>
+    <text x="424" y="238" font-size="16.5" fill="#cbd5e1">grant-based, on your machine</text>
 
-    <path d="M 716 176 L 756 176 L 756 166 L 776 176 L 756 186 L 756 176 Z" fill="#475569"/>
-    <text x="736" y="160" font-size="12" fill="#64748b" text-anchor="middle">forwards</text>
+    <path d="M 708 198 L 708 184 L 730 198 L 708 212 Z" fill="#64748b"/>
 
-    <rect x="792" y="116" width="272" height="120" rx="12" fill="#1e293b" stroke="#334155"/>
-    <text x="824" y="152" font-size="17" font-weight="700" fill="#f1f5f9">Your assistant</text>
-    <text x="824" y="180" font-size="13.5" fill="#cbd5e1">any MCP client, via the small</text>
-    <text x="824" y="202" font-size="13.5" fill="#cbd5e1">unprivileged AgentProxy</text>
+    <rect x="748" y="132" width="316" height="132" rx="14" fill="#1e293b" stroke="#334155"/>
+    <text x="780" y="176" font-size="22" font-weight="700" fill="#f1f5f9">Your assistant</text>
+    <text x="780" y="212" font-size="16.5" fill="#cbd5e1">any MCP client, via the small</text>
+    <text x="780" y="238" font-size="16.5" fill="#cbd5e1">unprivileged AgentProxy</text>
 
-    <!-- facts row -->
-    <g font-size="13.5" fill="#cbd5e1">
-      <rect x="56" y="264" width="492" height="100" rx="12" fill="#1e293b" stroke="#334155"/>
-      <text x="88" y="298" font-size="15" font-weight="700" fill="#f1f5f9">Only you open the door</text>
-      <text x="88" y="326">MCP clients never activate anything. No session running?</text>
-      <text x="88" y="348">The proxy answers with setup guidance, nothing more.</text>
+    <rect x="56" y="292" width="492" height="128" rx="14" fill="#1e293b" stroke="#334155"/>
+    <text x="88" y="334" font-size="21" font-weight="700" fill="#f1f5f9">Only you open the door</text>
+    <text x="88" y="370" font-size="17" fill="#cbd5e1">MCP clients never activate anything.</text>
+    <text x="88" y="398" font-size="17" fill="#cbd5e1">No session? The proxy just says how to start one.</text>
 
-      <rect x="572" y="264" width="492" height="100" rx="12" fill="#1e293b" stroke="#334155"/>
-      <text x="604" y="298" font-size="15" font-weight="700" fill="#f1f5f9">It sees what you see</text>
-      <text x="604" y="326">Every capability is one the app already performs in front</text>
-      <text x="604" y="348">of you — and every tool call lands in the live activity log.</text>
-    </g>
+    <rect x="572" y="292" width="492" height="128" rx="14" fill="#1e293b" stroke="#334155"/>
+    <text x="604" y="334" font-size="21" font-weight="700" fill="#f1f5f9">It sees what you see</text>
+    <text x="604" y="370" font-size="17" fill="#cbd5e1">Every capability is one the app already</text>
+    <text x="604" y="398" font-size="17" fill="#cbd5e1">performs in front of you — and it's all logged.</text>
 
-    <rect x="56" y="384" width="1008" height="56" rx="12" fill="#1e293b" stroke="#334155"/>
-    <text x="88" y="418" font-size="13.5" fill="#94a3b8">One honest boundary: while a session runs its token lives in a local file — anything running as your user</text>
-    <text x="88" y="434" font-size="13.5" fill="#94a3b8">can read what the AI reads.</text>
+    <rect x="56" y="444" width="1008" height="52" rx="14" fill="#1e293b" stroke="#334155"/>
+    <text x="88" y="476" font-size="16.5" fill="#94a3b8">Honest boundary: while a session runs, anything running as your user can read what the AI reads.</text>
 
-    <text x="1064" y="462" font-size="13" fill="#64748b" text-anchor="end">AutoCommand · dparksports/autocommand</text>
+    <text x="1064" y="516" font-size="15" fill="#64748b" text-anchor="end">AutoCommand · dparksports/autocommand</text>
   </g>
 </svg>

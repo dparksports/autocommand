@@ -14,7 +14,7 @@ Keep your antivirus if you like it. They do different jobs. Many people run both
 
 ## Try it in five minutes
 
-![Download and unzip, run as administrator, look around — the whole tutorial](Assets/infographics/five-minutes.svg)
+![Three steps: download and unzip, run as administrator, look around](Assets/infographics/five-minutes.svg)
 
 1. **Download** `AutoCommand-v…-win-x64.zip` from [Releases](../../releases/latest) and unzip it anywhere. There is no installer; every release ships with SHA-256 checksums so you can verify what you downloaded.
 2. **Right-click `AutoCommand.exe` → Run as administrator.** The same reason Task Manager asks: to see the whole machine, not just your user. Windows may show a blue "protected your PC" screen because the app isn't from a big company — **More info → Run anyway**. It's open source; anyone can read exactly what it does, and that's rather the point.
@@ -51,7 +51,7 @@ Six read-only tools answer the questions a connection list can't:
 
 ## When something looks odd
 
-![See it, ask, stop — the svchost example](Assets/infographics/plain-english.svg)
+![The 2 a.m. svchost worry, answered by one row](Assets/infographics/plain-english.svg)
 
 Real example, from this app's own development machine: *"svchost.exe is uploading packets"* sounds alarming — it turned out to be Chrome's updater downloading from Google's own servers, launched by a scheduled task, and AutoCommand proved it in one row. No panic, no reinstall, no forum archaeology at midnight.
 

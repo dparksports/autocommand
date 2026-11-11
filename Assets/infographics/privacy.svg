@@ -1,49 +1,39 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="540" viewBox="0 0 1120 540" role="img" aria-label="What AutoCommand sends about you: nothing by default, three narrow lookups, everything else local">
-  <rect width="1120" height="540" fill="#0f172a"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="570" viewBox="0 0 1120 570" role="img" aria-label="What AutoCommand sends about you: nothing by default — three narrow lookups, everything else local">
+  <rect width="1120" height="570" fill="#0f172a"/>
+  <rect width="1120" height="6" fill="#22d3ee"/>
   <g font-family="Segoe UI, Arial, sans-serif">
-    <text x="56" y="64" font-size="32" font-weight="700" fill="#f1f5f9">What it sends about you: nothing, by default</text>
-    <rect x="56" y="78" width="64" height="4" fill="#22d3ee"/>
+    <text x="56" y="78" font-size="42" font-weight="700" fill="#f1f5f9">What it sends about you</text>
+    <rect x="56" y="96" width="80" height="5" fill="#22d3ee"/>
+    <text x="56" y="134" font-size="21" font-weight="600" fill="#34d399">Nothing, by default.</text>
 
-    <!-- leaves the machine -->
-    <rect x="56" y="112" width="492" height="336" rx="12" fill="#1e293b" stroke="#334155"/>
-    <text x="88" y="150" font-size="18" font-weight="700" fill="#22d3ee">What can leave the machine</text>
-    <g font-size="13.5" fill="#cbd5e1">
-      <text x="88" y="184" font-weight="600" fill="#e2e8f0">IP ownership — automatic, HTTPS only</text>
-      <text x="88" y="208">unknown destination IPs are asked at public RDAP</text>
-      <text x="88" y="230">registries, so rows say "Akamai", not bare numbers.</text>
-      <text x="88" y="252">The registry learns the queried IP. That's the payload.</text>
+    <rect x="56" y="164" width="492" height="344" rx="14" fill="#1e293b" stroke="#334155"/>
+    <text x="88" y="208" font-size="22" font-weight="700" fill="#22d3ee">Can leave the machine</text>
+    <g font-size="17.5" fill="#e2e8f0" font-weight="600">
+      <text x="88" y="252">Who owns this IP?</text>
+      <text x="88" y="316">Sysmon64.exe — on click</text>
+      <text x="88" y="380">DBX revocation list — Shields Up</text>
+    </g>
+    <g font-size="15.5" fill="#94a3b8">
+      <text x="88" y="278">public RDAP registries, HTTPS; they learn</text>
+      <text x="88" y="302">the IP and nothing else</text>
+      <text x="88" y="342">downloaded only when you click Install,</text>
+      <text x="88" y="366">Authenticode-verified before it runs</text>
+      <text x="88" y="406">Microsoft's blob, over HTTPS</text>
+    </g>
+    <text x="88" y="462" font-size="15.5" fill="#94a3b8">Plus one opt-in daily count — app, version,</text>
+    <text x="88" y="486" font-size="15.5" fill="#94a3b8">Windows build. No identifier. Off unless asked.</text>
 
-      <text x="88" y="292" font-weight="600" fill="#e2e8f0">Sysmon64.exe — only when you click Install</text>
-      <text x="88" y="316">downloaded from live.sysinternals.com and fully</text>
-      <text x="88" y="338">Authenticode-verified before it is ever run.</text>
-
-      <text x="88" y="378" font-weight="600" fill="#e2e8f0">Secure-boot DBX blob — only from Shields Up</text>
-      <text x="88" y="402">Microsoft's revocation list, over HTTPS.</text>
-
-      <text x="88" y="436" fill="#94a3b8">Plus one opt-in anonymous daily count — app, version,</text>
-      <text x="88" y="458" fill="#94a3b8">Windows build. No identifier of any kind. Off unless asked.</text>
+    <rect x="572" y="164" width="492" height="344" rx="14" fill="#1e293b" stroke="#334155"/>
+    <text x="604" y="208" font-size="22" font-weight="700" fill="#34d399">Stays on your machine</text>
+    <g font-size="17.5" fill="#cbd5e1">
+      <text x="604" y="252">Every connection, spawn, block,</text>
+      <text x="604" y="280">verdict — readable local files.</text>
+      <text x="604" y="336">Decrypted bodies are DPAPI-</text>
+      <text x="604" y="364">encrypted, your user only.</text>
+      <text x="604" y="420">No account. No cloud. The count</text>
+      <text x="604" y="448">server stores daily totals only.</text>
     </g>
 
-    <!-- stays local -->
-    <rect x="572" y="112" width="492" height="336" rx="12" fill="#1e293b" stroke="#334155"/>
-    <text x="604" y="150" font-size="18" font-weight="700" fill="#34d399">What stays on your machine</text>
-    <g font-size="13.5" fill="#cbd5e1">
-      <text x="604" y="184">Every connection, spawn, block and verdict — recorded</text>
-      <text x="604" y="206">in readable local files (Technical Notes lists them all).</text>
-
-      <text x="604" y="246">Decrypted request/response bodies, when you intercept</text>
-      <text x="604" y="268">TLS, are DPAPI-encrypted at rest — your user, only —</text>
-      <text x="604" y="290">while the metadata index stays greppable plaintext.</text>
-
-      <text x="604" y="330">No account. No cloud middleman. The counting server</text>
-      <text x="604" y="352">(if you opted in) stores daily totals — no per-user rows</text>
-      <text x="604" y="374">exist anywhere in the system.</text>
-
-      <text x="604" y="414">Changing your mind: withdraw consent in Settings, or</text>
-      <text x="604" y="436">delete one registry key. Uninstalling removes it entirely.</text>
-    </g>
-
-    <text x="56" y="494" font-size="14" fill="#94a3b8">Verify, don't trust: the counting worker's code is public in the repository, and PRIVACY.md spells out every lookup.</text>
-    <text x="1064" y="522" font-size="13" fill="#64748b" text-anchor="end">AutoCommand · dparksports/autocommand</text>
+    <text x="56" y="546" font-size="16.5" fill="#94a3b8">Verify, don't trust — the counting worker's code is public in the repo; PRIVACY.md spells out every lookup.</text>
   </g>
 </svg>

@@ -1,34 +1,35 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="380" viewBox="0 0 1120 380" role="img" aria-label="Where it came from: SystemMonitor, then AutoCommand II and III, then this one repository">
-  <rect width="1120" height="380" fill="#0f172a"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="420" viewBox="0 0 1120 420" role="img" aria-label="Where it came from: SystemMonitor, AutoCommand II and III, this repository">
+  <rect width="1120" height="420" fill="#0f172a"/>
+  <rect width="1120" height="6" fill="#22d3ee"/>
   <g font-family="Segoe UI, Arial, sans-serif">
-    <text x="56" y="64" font-size="32" font-weight="700" fill="#f1f5f9">Where it came from</text>
-    <rect x="56" y="78" width="64" height="4" fill="#22d3ee"/>
+    <text x="56" y="78" font-size="42" font-weight="700" fill="#f1f5f9">Where it came from</text>
+    <rect x="56" y="96" width="80" height="5" fill="#22d3ee"/>
 
-    <line x1="96" y1="200" x2="1024" y2="200" stroke="#334155" stroke-width="2"/>
+    <line x1="96" y1="220" x2="1024" y2="220" stroke="#334155" stroke-width="3"/>
 
-    <circle cx="146" cy="200" r="10" fill="#0f172a" stroke="#64748b" stroke-width="2"/>
-    <text x="146" y="156" font-size="17" font-weight="700" fill="#f1f5f9" text-anchor="middle">SystemMonitor</text>
-    <text x="146" y="240" font-size="13" fill="#94a3b8" text-anchor="middle">firmware, UEFI/DBX and</text>
-    <text x="146" y="262" font-size="13" fill="#94a3b8" text-anchor="middle">Defender forensics</text>
-    <text x="146" y="284" font-size="13" fill="#94a3b8" text-anchor="middle">dashboard</text>
+    <circle cx="146" cy="220" r="11" fill="#0f172a" stroke="#64748b" stroke-width="2.5"/>
+    <text x="146" y="168" font-size="21" font-weight="700" fill="#f1f5f9" text-anchor="middle">SystemMonitor</text>
+    <text x="146" y="262" font-size="16" fill="#94a3b8" text-anchor="middle">firmware &amp; secure-boot</text>
+    <text x="146" y="286" font-size="16" fill="#94a3b8" text-anchor="middle">forensics dashboard</text>
 
-    <circle cx="432" cy="200" r="10" fill="#0f172a" stroke="#94a3b8" stroke-width="2"/>
-    <text x="432" y="156" font-size="17" font-weight="700" fill="#f1f5f9" text-anchor="middle">AutoCommand II</text>
-    <text x="432" y="240" font-size="13" fill="#94a3b8" text-anchor="middle">core engines rebuilt</text>
-    <text x="432" y="262" font-size="13" fill="#94a3b8" text-anchor="middle">in F#</text>
+    <circle cx="432" cy="220" r="11" fill="#0f172a" stroke="#94a3b8" stroke-width="2.5"/>
+    <text x="432" y="168" font-size="21" font-weight="700" fill="#f1f5f9" text-anchor="middle">AutoCommand II</text>
+    <text x="432" y="262" font-size="16" fill="#94a3b8" text-anchor="middle">engines rebuilt</text>
+    <text x="432" y="286" font-size="16" fill="#94a3b8" text-anchor="middle">in F#</text>
 
-    <circle cx="718" cy="200" r="10" fill="#0f172a" stroke="#cbd5e1" stroke-width="2"/>
-    <text x="718" y="156" font-size="17" font-weight="700" fill="#f1f5f9" text-anchor="middle">AutoCommand III</text>
-    <text x="718" y="240" font-size="13" fill="#94a3b8" text-anchor="middle">the watch / contain /</text>
-    <text x="718" y="262" font-size="13" fill="#94a3b8" text-anchor="middle">harden shape appears</text>
+    <circle cx="718" cy="220" r="11" fill="#0f172a" stroke="#cbd5e1" stroke-width="2.5"/>
+    <text x="718" y="168" font-size="21" font-weight="700" fill="#f1f5f9" text-anchor="middle">AutoCommand III</text>
+    <text x="718" y="262" font-size="16" fill="#94a3b8" text-anchor="middle">watch · contain · harden</text>
+    <text x="718" y="286" font-size="16" fill="#94a3b8" text-anchor="middle">takes shape</text>
 
-    <circle cx="976" cy="200" r="12" fill="#22d3ee"/>
-    <text x="976" y="156" font-size="17" font-weight="700" fill="#f1f5f9" text-anchor="middle">This repository</text>
-    <text x="976" y="240" font-size="13" fill="#94a3b8" text-anchor="middle">everything consolidated —</text>
-    <text x="976" y="262" font-size="13" fill="#94a3b8" text-anchor="middle">one family tree</text>
+    <circle cx="976" cy="220" r="13" fill="#22d3ee"/>
+    <text x="976" y="168" font-size="21" font-weight="700" fill="#f1f5f9" text-anchor="middle">This repository</text>
+    <text x="976" y="262" font-size="16" fill="#94a3b8" text-anchor="middle">everything in one</text>
+    <text x="976" y="286" font-size="16" fill="#94a3b8" text-anchor="middle">family tree</text>
 
-    <text x="56" y="324" font-size="14" fill="#cbd5e1">The precursor's complete source tree and commit history live here under systemmonitor/ — and its classic</text>
-    <text x="56" y="348" font-size="14" fill="#cbd5e1">v3.x releases stay downloadable on the old Releases page.</text>
-    <text x="1064" y="368" font-size="13" fill="#64748b" text-anchor="end">AutoCommand · dparksports/autocommand</text>
+    <text x="56" y="356" font-size="17" fill="#cbd5e1">The precursor's full source and history live here under systemmonitor/;</text>
+    <text x="56" y="382" font-size="17" fill="#cbd5e1">its classic releases stay downloadable on the old Releases page.</text>
+
+    <text x="1064" y="404" font-size="15" fill="#64748b" text-anchor="end">AutoCommand · dparksports/autocommand</text>
   </g>
 </svg>

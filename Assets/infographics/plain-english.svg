@@ -32,7 +32,8 @@
       <text x="848" y="238">Chrome's updater,</text>
       <text x="848" y="268">talking to Google.</text>
     </g>
-    <text x="848" y="330" font-size="16" fill="#94a3b8">No reinstall. No midnight forums.</text>
+    <text x="848" y="316" font-size="16" fill="#94a3b8">No reinstall.</text>
+    <text x="848" y="342" font-size="16" fill="#94a3b8">No midnight forums.</text>
 
     <text x="56" y="434" font-size="16.5" fill="#64748b">Real example, from this app's own development machine.</text>
     <text x="1064" y="434" font-size="15" fill="#64748b" text-anchor="end">AutoCommand · dparksports/autocommand</text>

@@ -1,51 +1,38 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="640" viewBox="0 0 1120 640" role="img" aria-label="Stopping is safe: pre-block brief, reversible blocks, gates, containment proof, panic button, lockdown snapshots">
-  <rect width="1120" height="640" fill="#0f172a"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="680" viewBox="0 0 1120 680" role="img" aria-label="Stopping is safe: pre-block brief, reversible blocks, self-closing gates, containment proof, panic button, lockdown snapshots">
+  <rect width="1120" height="680" fill="#0f172a"/>
+  <rect width="1120" height="6" fill="#22d3ee"/>
   <g font-family="Segoe UI, Arial, sans-serif">
-    <text x="56" y="64" font-size="32" font-weight="700" fill="#f1f5f9">Stopping is safe — every stop is reversible</text>
-    <rect x="56" y="78" width="64" height="4" fill="#22d3ee"/>
+    <text x="56" y="78" font-size="42" font-weight="700" fill="#f1f5f9">Stopping is safe</text>
+    <rect x="56" y="96" width="80" height="5" fill="#22d3ee"/>
+    <text x="56" y="134" font-size="18.5" fill="#94a3b8">Every stop is reversible. Nothing is ever deleted along the way.</text>
 
-    <!-- the loop: brief -> block -> gate -> proof -->
-    <rect x="56" y="112" width="492" height="118" rx="12" fill="#1e293b" stroke="#334155"/>
-    <text x="88" y="148" font-size="18" font-weight="700" fill="#f1f5f9">1 · The pre-block brief</text>
-    <g font-size="13.5" fill="#cbd5e1">
-      <text x="88" y="178">Before you confirm, the brief says exactly what the rule will</text>
-      <text x="88" y="202">do — and a duplicate check keeps one block per target.</text>
-    </g>
+    <rect x="56" y="164" width="492" height="140" rx="14" fill="#1e293b" stroke="#334155"/>
+    <text x="88" y="208" font-size="23" font-weight="700" fill="#f1f5f9">1 · The pre-block brief</text>
+    <text x="88" y="248" font-size="18" fill="#cbd5e1">Says exactly what the rule will do —</text>
+    <text x="88" y="276" font-size="18" fill="#cbd5e1">before you confirm anything.</text>
 
-    <rect x="572" y="112" width="492" height="118" rx="12" fill="#1e293b" stroke="#334155"/>
-    <text x="604" y="148" font-size="18" font-weight="700" fill="#f1f5f9">2 · Block — one click, one undo</text>
-    <g font-size="13.5" fill="#cbd5e1">
-      <text x="604" y="178">Blocks are per IP or per program image, with the reason you</text>
-      <text x="604" y="202">gave, hit counts, and an undo — all in the Audit ledger.</text>
-    </g>
+    <rect x="572" y="164" width="492" height="140" rx="14" fill="#1e293b" stroke="#334155"/>
+    <text x="604" y="208" font-size="23" font-weight="700" fill="#f1f5f9">2 · Block, with undo</text>
+    <text x="604" y="248" font-size="18" fill="#cbd5e1">Per IP or per program. Your reason,</text>
+    <text x="604" y="276" font-size="18" fill="#cbd5e1">live hit counts, one-click undo.</text>
 
-    <rect x="56" y="254" width="492" height="118" rx="12" fill="#1e293b" stroke="#334155"/>
-    <text x="88" y="290" font-size="18" font-weight="700" fill="#f1f5f9">3 · Gates: temporary, self-closing unblocks</text>
-    <g font-size="13.5" fill="#cbd5e1">
-      <text x="88" y="320">Need a blocked thing to work for five minutes? A gate opens</text>
-      <text x="88" y="344">it for 1, 10, 30 or 60 minutes — then blocking comes back on.</text>
-    </g>
+    <rect x="56" y="328" width="492" height="140" rx="14" fill="#1e293b" stroke="#334155"/>
+    <text x="88" y="372" font-size="23" font-weight="700" fill="#f1f5f9">3 · Gates: temporary unblock</text>
+    <text x="88" y="412" font-size="18" fill="#cbd5e1">Open for 1, 10, 30 or 60 minutes —</text>
+    <text x="88" y="440" font-size="18" fill="#cbd5e1">then blocking returns by itself.</text>
 
-    <rect x="572" y="254" width="492" height="118" rx="12" fill="#1e293b" stroke="#334155"/>
-    <text x="604" y="290" font-size="18" font-weight="700" fill="#f1f5f9">4 · Proof the block actually holds</text>
-    <g font-size="13.5" fill="#cbd5e1">
-      <text x="604" y="320">Attempts (Sysmon) are joined against live sockets and the</text>
-      <text x="604" y="344">TLS archive: contained · stale flow · leak. Silence, proven.</text>
-    </g>
+    <rect x="572" y="328" width="492" height="140" rx="14" fill="#1e293b" stroke="#334155"/>
+    <text x="604" y="372" font-size="23" font-weight="700" fill="#f1f5f9">4 · Proof it holds</text>
+    <text x="604" y="412" font-size="18" fill="#cbd5e1">Attempts vs live sockets vs the TLS</text>
+    <text x="604" y="440" font-size="18" fill="#cbd5e1">archive: contained · stale · leak.</text>
 
-    <!-- panic button strip -->
-    <rect x="56" y="398" width="1008" height="92" rx="12" fill="#7f1d1d" stroke="#f87171" stroke-opacity="0.6"/>
-    <text x="88" y="436" font-size="20" font-weight="700" fill="#fecaca">Restore Internet — the panic button</text>
-    <text x="88" y="466" font-size="14.5" fill="#fecaca" opacity="0.9">Blocked something and lost connectivity? One click disables every block the app ever made — nothing is deleted.</text>
+    <rect x="56" y="492" width="1008" height="84" rx="14" fill="#7f1d1d" stroke="#f87171" stroke-opacity="0.6"/>
+    <text x="88" y="532" font-size="25" font-weight="700" fill="#fecaca">Restore Internet — the panic button</text>
+    <text x="88" y="560" font-size="17" fill="#fecaca" opacity="0.9">One click. Every block the app ever made, off. Nothing deleted.</text>
 
-    <!-- lockdown snapshot card -->
-    <rect x="56" y="514" width="1008" height="88" rx="12" fill="#1e293b" stroke="#334155"/>
-    <text x="88" y="550" font-size="18" font-weight="700" fill="#f1f5f9">Even the nuclear option photographs first</text>
-    <g font-size="13.5" fill="#cbd5e1">
-      <text x="88" y="578">"Restore defaults + lockdown" snapshots every firewall rule before the reset — and Restore snapshot brings</text>
-      <text x="88" y="600">your rules (and other software's) back. Windows and third-party rules are never matched by app cleanups.</text>
-    </g>
+    <rect x="56" y="596" width="1008" height="56" rx="14" fill="#1e293b" stroke="#334155"/>
+    <text x="88" y="630" font-size="17" fill="#94a3b8">Even the nuclear option photographs first: lockdown snapshots every rule, Restore snapshot brings them back.</text>
 
-    <text x="1064" y="624" font-size="13" fill="#64748b" text-anchor="end">AutoCommand · dparksports/autocommand</text>
+    <text x="1064" y="668" font-size="15" fill="#64748b" text-anchor="end">AutoCommand · dparksports/autocommand</text>
   </g>
 </svg>
