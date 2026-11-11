@@ -36,3 +36,7 @@ firebase_config.json
 # telemetry deploy secret (never commit; see telemetry/server/DEPLOY.md)
 telemetry/server/admin-token.txt
 __pycache__/
+
+# local-ci.ps1 suite scratch root (agent-sandbox temp redirect)
+.citmp/
+.ciprobe/
