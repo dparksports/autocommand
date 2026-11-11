@@ -411,13 +411,16 @@ namespace AutoCommand.Views
 
             string image = flow.Image ?? _image ?? $"pid:{flow.Pid}";
             var confirm = MessageBox.Show(
-                $"🛡 Intercept this process?\n\nTarget: {System.IO.Path.GetFileName(image)} (PID {flow.Pid})\n\n" +
+                $"🛡 Intercept this process?\n\nTarget: {System.IO.Path.GetFileName(image)} (PID {flow.Pid})\n" +
+                $"Scope: every process running from this exe, not just PID {flow.Pid} — browsers and\n" +
+                "multi-instance apps spawn new PIDs constantly, and firewall rules cannot\n" +
+                "distinguish PIDs (shared-host images like svchost are the exception: exact PID only).\n\n" +
                 "For the next 15 minutes (auto-reverts; fully reversible):\n" +
                 "  • A temporary 'AutoCommand Intercept CA' is trusted machine-wide, and removed\n" +
                 "    when the session ends.\n" +
                 "  • The system proxy (WinHTTP for services, WinINET for apps) points at a local\n" +
                 "    loopback proxy on this machine. Other apps' traffic is tunneled through\n" +
-                "    untouched — only the target PID is decrypted.\n" +
+                "    untouched — only processes in the scope above are decrypted.\n" +
                 "  • The target's QUIC (UDP 443) is blocked so it falls back to TCP/TLS.\n" +
                 "  • Decrypted conversations appear in this window as 'decrypted · intercept'.\n\n" +
                 "Certificate-pinned apps will fail their connections during the session — recorded\n" +

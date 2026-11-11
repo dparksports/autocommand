@@ -703,28 +703,11 @@ type AgentBridgeService (identity: AppIdentity, tools: IAgentTools,
             BufferedAppender.Append(feedPath, snapshot.ToJsonString())
         with _ -> () // best-effort feed
 
-    /// <summary>Phase 1: periodic full snapshot so offline agents can read
-    /// state from the file alone. F# port: like the C#, StartFeed/FeedLoop
-    /// are present but unreferenced (the C# never wired the feed loop into
-    /// Start); the snapshot now comes from IAgentTools.</summary>
-    member private _.FeedLoop (ct: CancellationToken) : Task =
-        task {
-            let mutable running = true
-            while running && not ct.IsCancellationRequested do
-                try
-                    let snapshotJson = tools.BuildMonitorSnapshot()
-                    if not (isNull snapshotJson) then
-                        this.AppendFeed(match JsonNode.Parse(snapshotJson) with
-                                        | :? JsonObject as o -> o
-                                        | _ -> JsonObject())
-                with _ -> ()
-                try
-                    do! Task.Delay(60_000, ct)
-                with _ -> running <- false
-        } :> Task
-
-    member private _.StartFeed () =
-        Task.Run(fun () -> this.FeedLoop(cts.Token)) |> ignore
+    // (A periodic full-snapshot feed loop once lived here, present but
+    // unreferenced in the C# original and never wired into Start. Removed
+    // in the 2026-11 dead-code pass: feed.jsonl carries the session-start
+    // snapshot written at Start(), and live state comes from
+    // IAgentTools/BuildMonitorSnapshot on demand.)
 
     // ── plumbing ──────────────────────────────────────────────────────
 

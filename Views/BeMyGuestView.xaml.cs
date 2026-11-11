@@ -150,8 +150,11 @@ namespace AutoCommand.Views
                 "live connections and their processes, svchost identities, PID provenance reports,\n" +
                 "Sysmon events and trace analysis. What it reads can be repeated by the assistant.\n\n" +
                 "• Read-only tools answer immediately while the session is on.\n" +
-                "• The only mutating actions are block gates — temporary unblocks that ask\n" +
-                "  you to confirm every single call in this app.\n" +
+                "• Mutating actions (block gates, Shields Up doors/presets, telemetry opt-outs)\n" +
+                "  each ask you to confirm every single call in this app.\n" +
+                "• Anything running as your user can read what the AI reads — the session\n" +
+                "  token lives in a local file; treat a hostile same-user program as able\n" +
+                "  to watch the telemetry too.\n" +
                 "• The session ends when you stop it or close AutoCommand.\n\n" +
                 "Start the session?",
                 "Be My Guest — consent", MessageBoxButton.YesNo, MessageBoxImage.Question, MessageBoxResult.No);

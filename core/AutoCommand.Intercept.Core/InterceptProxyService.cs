@@ -15,8 +15,12 @@ using AutoCommand.NetWatch.Core;
 namespace AutoCommand.Intercept.Core
 {
     /// <summary>
-    /// Layer 3: a local TLS-terminating intercept proxy, scoped to ONE pid
-    /// per session. Driverless by design — on Windows 11 26H2 the
+    /// Layer 3: a local TLS-terminating intercept proxy. Session scope is
+    /// one target PID PLUS every process running the same image path —
+    /// browsers and multi-instance apps spawn new PIDs constantly, so
+    /// exact-PID-only matching would decrypt almost nothing (shared-host
+    /// images like svchost are the deliberate exception: exact PID only,
+    /// never image-matched). Driverless by design — on Windows 11 26H2 the
     /// transparent-redirect route the open-source tools use (WinDivert)
     /// fights HVCI, Smart App Control and the 2026 cross-signing removal,
     /// while the system-proxy route below works everywhere because Windows

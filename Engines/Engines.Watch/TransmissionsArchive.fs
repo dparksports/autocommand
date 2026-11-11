@@ -36,8 +36,80 @@ open System.Collections.Generic
 open System.ComponentModel
 open System.IO
 open System.Runtime.InteropServices
+open System.Security.AccessControl
 open System.Security.Cryptography
+open System.Security.Principal
 open System.Text.Json
+
+/// <summary>
+/// DPAPI (crypt32, CurrentUser) — the at-rest protection for decrypted
+/// body blobs. Body files routinely carry session cookies, bearer tokens
+/// and credentials in POST payloads, so they are stored as DPAPI blobs,
+/// not plaintext. CurrentUser scope means this stops OTHER users (and
+/// copied-profile/stolen-file attacks), not malware already running as
+/// the same user — the same boundary every local secret here has; the
+/// per-user ACL on the bodies directory carries the same split.
+/// </summary>
+module private BodyDpapi =
+
+    [<Literal>]
+    let CRYPTPROTECT_UI_FORBIDDEN = 0x1
+
+    [<Struct; StructLayout(LayoutKind.Sequential)>]
+    type DATA_BLOB =
+        val mutable cbData: int
+        val mutable pbData: nativeint
+
+    [<DllImport("crypt32.dll", SetLastError = true, CharSet = CharSet.Unicode)>]
+    extern bool CryptProtectData(DATA_BLOB& pDataIn, string szDataDescr, nativeint pOptionalEntropy,
+                                 nativeint pvReserved, nativeint pPromptStruct, int dwFlags, DATA_BLOB& pDataOut)
+
+    [<DllImport("crypt32.dll", SetLastError = true, CharSet = CharSet.Unicode)>]
+    extern bool CryptUnprotectData(DATA_BLOB& pDataIn, nativeint ppszDataDescr, nativeint pOptionalEntropy,
+                                   nativeint pvReserved, nativeint pPromptStruct, int dwFlags, DATA_BLOB& pDataOut)
+
+    [<DllImport("kernel32.dll")>]
+    extern nativeint LocalFree(nativeint hMem)
+
+    let protect (plain: byte[]) : byte[] =
+        let mutable inBlob = DATA_BLOB()
+        inBlob.cbData <- plain.Length
+        inBlob.pbData <- Marshal.AllocHGlobal plain.Length
+        let mutable outBlob = DATA_BLOB()
+        try
+            Marshal.Copy(plain, 0, inBlob.pbData, plain.Length)
+            if not (CryptProtectData(&inBlob, "AutoCommand transmissions body", IntPtr.Zero,
+                                     IntPtr.Zero, IntPtr.Zero, CRYPTPROTECT_UI_FORBIDDEN, &outBlob)) then
+                raise (CryptographicException "CryptProtectData failed")
+            let cipher = Array.zeroCreate<byte> outBlob.cbData
+            Marshal.Copy(outBlob.pbData, cipher, 0, outBlob.cbData)
+            cipher
+        finally
+            Marshal.FreeHGlobal inBlob.pbData
+            if outBlob.pbData <> IntPtr.Zero then LocalFree outBlob.pbData |> ignore
+
+    /// <summary>Returns None on any failure (wrong scope, corrupted blob,
+    /// legacy plaintext) — the caller decides what that means.</summary>
+    let tryUnprotect (cipher: byte[]) : byte[] option =
+        try
+            let mutable inBlob = DATA_BLOB()
+            inBlob.cbData <- cipher.Length
+            inBlob.pbData <- Marshal.AllocHGlobal cipher.Length
+            let mutable outBlob = DATA_BLOB()
+            try
+                Marshal.Copy(cipher, 0, inBlob.pbData, cipher.Length)
+                if not (CryptUnprotectData(&inBlob, IntPtr.Zero, IntPtr.Zero,
+                                           IntPtr.Zero, IntPtr.Zero, CRYPTPROTECT_UI_FORBIDDEN, &outBlob)) then
+                    None
+                else
+                    let plain = Array.zeroCreate<byte> outBlob.cbData
+                    Marshal.Copy(outBlob.pbData, plain, 0, outBlob.cbData)
+                    Some plain
+            finally
+                Marshal.FreeHGlobal inBlob.pbData
+                if outBlob.pbData <> IntPtr.Zero then LocalFree outBlob.pbData |> ignore
+        with _ ->
+            None
 
 // ── record model (C# Core\Models\TransmissionRecord.cs) ───────────
 
@@ -156,9 +228,13 @@ type TransmissionRecord() =
 /// archive's shape: one readable, greppable JSONL index file per day
 /// under DataRoot\transmissions, plus full-request / full-response body
 /// blobs in bodies\ — no truncation, the >10 KB cases are exactly the
-/// ones that must be complete on disk. Each row carries a SHA-256 over
-/// both plaintext directions so "what was sent" stays provable after
-/// the fact.
+/// ones that must be complete on disk. Body blobs are stored DPAPI-
+/// encrypted (CurrentUser; see BodyDpapi) and the bodies directory is
+/// created current-user-only — decrypted payloads routinely carry
+/// credentials, so at rest they get the same hygiene as the TLS keylog.
+/// Each row carries a SHA-256 over both PLAINTEXT directions so
+/// "what was sent" stays provable after the fact (LoadBody decrypts for
+/// the viewer; pre-encryption legacy blobs still load).
 ///
 /// Retention: day files prune after DefaultRetainDays; the bodies
 /// folder additionally rotates oldest-day directories out once it
@@ -170,6 +246,28 @@ type TransmissionsArchiveService private () =
 
     static let gate = obj()
     static let mutable lastPruneUtc = DateTime.MinValue
+    static let mutable bodiesDirHardened = false
+
+    /// <summary>Creates the bodies directory with a current-user-only,
+    /// inheritable ACL (the TLS keylog's hygiene applied to the far more
+    /// sensitive store). One-shot, best-effort — the DPAPI wrapping is the
+    /// real at-rest protection; existing installs harden on next write.</summary>
+    static member private EnsureBodiesDir () =
+        Directory.CreateDirectory TransmissionsArchiveService.BodiesRoot |> ignore
+
+        if not bodiesDirHardened then
+            bodiesDirHardened <- true
+            try
+                let info = DirectoryInfo TransmissionsArchiveService.BodiesRoot
+                let security = info.GetAccessControl()
+                security.SetAccessRuleProtection(true, false) // nothing inherited: current user only
+                security.AddAccessRule(FileSystemAccessRule(
+                        WindowsIdentity.GetCurrent().User,
+                        FileSystemRights.FullControl,
+                        InheritanceFlags.ContainerInherit ||| InheritanceFlags.ObjectInherit,
+                        PropagationFlags.None, AccessControlType.Allow))
+                info.SetAccessControl security
+            with _ -> ()
 
     static member DefaultRetainDays = 30
     static member BodiesBudgetBytes = 256L * 1024L * 1024L
@@ -209,11 +307,11 @@ type TransmissionsArchiveService private () =
 
                 if hasContent then
                     record.Sha256 <- TransmissionsArchiveService.ComputeSha256(requestStream, responseStream)
-                    Directory.CreateDirectory TransmissionsArchiveService.BodiesRoot |> ignore
+                    TransmissionsArchiveService.EnsureBodiesDir ()
                     if requestStream <> null && requestStream.Length > 0 then
-                        File.WriteAllBytes(TransmissionsArchiveService.BodyPath(record, "request"), requestStream)
+                        File.WriteAllBytes(TransmissionsArchiveService.BodyPath(record, "request"), BodyDpapi.protect requestStream)
                     if responseStream <> null && responseStream.Length > 0 then
-                        File.WriteAllBytes(TransmissionsArchiveService.BodyPath(record, "response"), responseStream)
+                        File.WriteAllBytes(TransmissionsArchiveService.BodyPath(record, "response"), BodyDpapi.protect responseStream)
                 record.ArchiveDay <- record.TsUtc.ToString("yyyy-MM-dd")
 
                 // F# port: same keys, same insertion order, same
@@ -254,7 +352,15 @@ type TransmissionsArchiveService private () =
     static member LoadBody(id: string, day: string, direction: string) : byte[] =
         try
             let path = TransmissionsArchiveService.BodyPath(id, day, direction)
-            if File.Exists path then File.ReadAllBytes path else null
+            if File.Exists path then
+                let blob = File.ReadAllBytes path
+                // DPAPI blob since the at-rest change; a file that fails to
+                // unprotect is a legacy plaintext body from before it —
+                // still loadable, still viewable.
+                match BodyDpapi.tryUnprotect blob with
+                | Some plain -> plain
+                | None -> blob
+            else null
         with _ -> null
 
     static member private BodyPath(record: TransmissionRecord, direction: string) =

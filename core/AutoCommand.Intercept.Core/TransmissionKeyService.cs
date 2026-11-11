@@ -98,10 +98,74 @@ namespace AutoCommand.Intercept.Core
 
         // ── launch under watch ────────────────────────────────────────────
 
+        // ── de-elevated launch (advapi32) ───────────────────────────────
+        // AutoCommand runs requireAdministrator, and users casually pick
+        // BROWSERS to watch — inheriting the admin token would make every
+        // renderer exploit admin-owned and quietly erode the UAC boundary
+        // the OS tries to keep. The child is therefore launched with a
+        // LUA-filtered copy of this process's own token (the standard UAC
+        // de-elevation CreateRestrictedToken(LUA_TOKEN) performs: admin
+        // group filtered, medium integrity) — the ONLY thing the child
+        // needs from this process is the SSLKEYLOGFILE variable, and that
+        // travels in an explicit environment block.
+
+        private const uint TOKEN_DUPLICATE = 0x0002;
+        private const uint TOKEN_QUERY = 0x0008;
+        private const uint TOKEN_IMPERSONATE = 0x0004;
+        private const uint TOKEN_ASSIGN_PRIMARY = 0x0001;
+        private const uint TOKEN_ADJUST_DEFAULT = 0x0080;
+        private const uint LUA_TOKEN = 0x4;            // CreateRestrictedToken: UAC-style filtered token
+        private const uint CREATE_UNICODE_ENVIRONMENT = 0x400;
+        private static readonly int SecurityImpersonation = 2;
+        private static readonly int TokenPrimary = 1;
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct STARTUPINFO
+        {
+            public int cb;
+            public IntPtr lpReserved;
+            public IntPtr lpDesktop;
+            public IntPtr lpTitle;
+            public int dwX, dwY, dwXSize, dwYSize, dwXCountChars, dwYCountChars, dwFillAttribute, dwFlags;
+            public short wShowWindow;
+            public short cbReserved2;
+            public IntPtr lpReserved2;
+            public IntPtr hStdInput, hStdOutput, hStdError;
+        }
+
+        [StructLayout(LayoutKind.Sequential)]
+        private struct PROCESS_INFORMATION
+        {
+            public IntPtr hProcess;
+            public IntPtr hThread;
+            public int dwProcessId;
+            public int dwThreadId;
+        }
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern bool OpenProcessToken(IntPtr processHandle, uint desiredAccess, out IntPtr tokenHandle);
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern bool DuplicateTokenEx(IntPtr existingToken, uint desiredAccess,
+            IntPtr tokenAttributes, int impersonationLevel, int tokenType, out IntPtr newToken);
+
+        [DllImport("advapi32.dll", SetLastError = true)]
+        private static extern bool CreateRestrictedToken(IntPtr existingToken, uint flags,
+            int disableSidCount, IntPtr sidsToDisable, int deletePrivilegeCount, IntPtr privilegesToDelete,
+            int restrictSidCount, IntPtr sidsToRestrict, out IntPtr newToken);
+
+        [DllImport("advapi32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        private static extern bool CreateProcessWithTokenW(IntPtr hToken, uint dwLogonFlags,
+            string lpApplicationName, string lpCommandLine, uint dwCreationFlags, IntPtr lpEnvironment,
+            string lpCurrentDirectory, ref STARTUPINFO lpStartupInfo, out PROCESS_INFORMATION lpProcessInformation);
+
         /// <summary>
         /// Starts a program with SSLKEYLOGFILE pointing at AutoCommand's
-        /// keylog (its own environment only). AutoCommand runs elevated, so
-        /// the child inherits admin — flag that in the UI when it matters.
+        /// keylog (its own environment only), launched DE-ELEVATED (medium
+        /// integrity, admin group filtered) even though this app runs
+        /// elevated — a casually-picked browser must never inherit admin.
+        /// Returns the Process, or null when the child exited before its
+        /// handle could be resolved (nothing left to watch).
         /// </summary>
         public static Process LaunchUnderWatch(string exePath, string arguments, string workingDirectory)
         {
@@ -111,18 +175,62 @@ namespace AutoCommand.Intercept.Core
             TlsKeylogService.EnsureHygiene();
             TlsKeylogService.EnableKeylogging(); // clears any stale no-keylog flag
 
-            var psi = new ProcessStartInfo
+            // Explicit environment block: everything this process has, with
+            // SSLKEYLOGFILE pointed at the keylog. Built as a "K=V\0" string
+            // (double-null termination comes from the marshaler's final \0).
+            var vars = new System.Collections.Hashtable(Environment.GetEnvironmentVariables());
+            vars[EnvVarName] = KeylogTarget;
+            var block = new System.Text.StringBuilder();
+            foreach (System.Collections.DictionaryEntry e in vars)
+                block.Append(e.Key).Append('=').Append(e.Value).Append('\0');
+            block.Append('\0');
+            string envBlock = block.ToString();
+
+            IntPtr ownToken = IntPtr.Zero, primaryDup = IntPtr.Zero, luaToken = IntPtr.Zero;
+            IntPtr envPtr = IntPtr.Zero;
+            try
             {
-                FileName = exePath,
-                Arguments = arguments ?? "",
-                WorkingDirectory = string.IsNullOrEmpty(workingDirectory)
+                if (!OpenProcessToken(Process.GetCurrentProcess().Handle,
+                        TOKEN_DUPLICATE | TOKEN_QUERY | TOKEN_IMPERSONATE | TOKEN_ASSIGN_PRIMARY | TOKEN_ADJUST_DEFAULT,
+                        out ownToken))
+                    throw new InvalidOperationException("OpenProcessToken failed");
+
+                if (!DuplicateTokenEx(ownToken, 0x02000000 /* MAXIMUM_ALLOWED */, IntPtr.Zero,
+                        SecurityImpersonation, TokenPrimary, out primaryDup))
+                    throw new InvalidOperationException("DuplicateTokenEx failed");
+
+                if (!CreateRestrictedToken(primaryDup, LUA_TOKEN,
+                        0, IntPtr.Zero, 0, IntPtr.Zero, 0, IntPtr.Zero, out luaToken))
+                    throw new InvalidOperationException($"CreateRestrictedToken failed (error {Marshal.GetLastWin32Error()})");
+
+                var si = new STARTUPINFO { cb = Marshal.SizeOf<STARTUPINFO>() };
+                string commandLine = string.IsNullOrEmpty(arguments) ? exePath : $"\"{exePath}\" {arguments}";
+                string dir = string.IsNullOrEmpty(workingDirectory)
                     ? System.IO.Path.GetDirectoryName(exePath)
-                    : workingDirectory,
-                UseShellExecute = false, // required to touch the env block
-            };
-            psi.EnvironmentVariables[EnvVarName] = KeylogTarget;
-            return Process.Start(psi);
+                    : workingDirectory;
+                envPtr = Marshal.StringToHGlobalUni(envBlock);
+
+                if (!CreateProcessWithTokenW(luaToken, 0, null, commandLine,
+                        CREATE_UNICODE_ENVIRONMENT, envPtr, dir,
+                        ref si, out PROCESS_INFORMATION pi))
+                    throw new InvalidOperationException($"CreateProcessWithTokenW failed (error {Marshal.GetLastWin32Error()})");
+
+                CloseHandle(pi.hProcess);
+                CloseHandle(pi.hThread);
+                try { return Process.GetProcessById(pi.dwProcessId); }
+                catch { return null; } // exited instantly — no peek to open
+            }
+            finally
+            {
+                if (envPtr != IntPtr.Zero) Marshal.FreeHGlobal(envPtr);
+                if (ownToken != IntPtr.Zero) CloseHandle(ownToken);
+                if (primaryDup != IntPtr.Zero) CloseHandle(primaryDup);
+                if (luaToken != IntPtr.Zero) CloseHandle(luaToken);
+            }
         }
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern bool CloseHandle(IntPtr handle);
 
         /// <summary>Programs known to honor SSLKEYLOGFILE, for the launch
         /// dialog's hint text and the peek's coverage note.</summary>
