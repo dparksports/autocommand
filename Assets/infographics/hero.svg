@@ -1,45 +1,40 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="300" viewBox="0 0 1120 300" role="img" aria-label="AutoCommand — see what your Windows PC is really doing, and stop what you don't want">
-  <rect width="1120" height="300" fill="#0f172a"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="330" viewBox="0 0 1120 330" role="img" aria-label="AutoCommand — see what your Windows PC is really doing, and stop what you don't want">
+  <rect width="1120" height="330" fill="#0f172a"/>
   <rect width="1120" height="6" fill="#22d3ee"/>
   <g font-family="Segoe UI, Arial, sans-serif">
-    <text x="56" y="106" font-size="54" font-weight="700" fill="#f1f5f9">AutoCommand</text>
-    <text x="56" y="146" font-size="22" fill="#94a3b8">See what your Windows PC is really doing — and stop what you don't want.</text>
+    <text x="56" y="118" font-size="68" font-weight="700" fill="#f1f5f9">AutoCommand</text>
+    <text x="56" y="164" font-size="25" fill="#94a3b8">See what your Windows PC is really doing —</text>
+    <text x="56" y="198" font-size="25" fill="#94a3b8">and stop what you don't want.</text>
 
-    <g font-size="14" fill="#cbd5e1">
-      <rect x="56" y="188" width="160" height="32" rx="16" fill="#1e293b" stroke="#334155"/>
-      <text x="76" y="209">Free &amp; open source</text>
-      <rect x="228" y="188" width="112" height="32" rx="16" fill="#1e293b" stroke="#334155"/>
-      <text x="248" y="209">Local-first</text>
-      <rect x="352" y="188" width="150" height="32" rx="16" fill="#1e293b" stroke="#334155"/>
-      <text x="372" y="209">Reversible by design</text>
-      <rect x="514" y="188" width="116" height="32" rx="16" fill="#1e293b" stroke="#334155"/>
-      <text x="534" y="209">No installer</text>
+    <g font-size="17" fill="#cbd5e1">
+      <rect x="56" y="226" width="192" height="40" rx="20" fill="#1e293b" stroke="#334155"/>
+      <text x="84" y="252">Free &amp; open source</text>
+      <rect x="262" y="226" width="140" height="40" rx="20" fill="#1e293b" stroke="#334155"/>
+      <text x="290" y="252">Local-first</text>
+      <rect x="416" y="226" width="168" height="40" rx="20" fill="#1e293b" stroke="#334155"/>
+      <text x="444" y="252">Reversible stops</text>
+      <rect x="598" y="226" width="152" height="40" rx="20" fill="#1e293b" stroke="#334155"/>
+      <text x="626" y="252">No installer</text>
     </g>
 
-    <rect x="664" y="52" width="400" height="212" rx="12" fill="#1e293b" stroke="#334155"/>
-    <circle cx="688" cy="74" r="5" fill="#f87171"/>
-    <circle cx="706" cy="74" r="5" fill="#fbbf24"/>
-    <circle cx="724" cy="74" r="5" fill="#34d399"/>
-    <text x="1040" y="79" font-size="13" fill="#64748b" text-anchor="end">live, right now</text>
-    <line x1="680" y1="90" x2="1048" y2="90" stroke="#334155"/>
+    <rect x="796" y="56" width="268" height="236" rx="14" fill="#1e293b" stroke="#334155"/>
+    <circle cx="820" cy="80" r="5" fill="#f87171"/>
+    <circle cx="838" cy="80" r="5" fill="#fbbf24"/>
+    <circle cx="856" cy="80" r="5" fill="#34d399"/>
+    <text x="1036" y="86" font-size="15" fill="#64748b" text-anchor="end">live, right now</text>
+    <line x1="812" y1="98" x2="1048" y2="98" stroke="#334155"/>
 
-    <circle cx="700" cy="120" r="7" fill="#34d399"/>
-    <text x="718" y="125" font-size="15" font-weight="600" fill="#f1f5f9">chrome.exe</text>
-    <text x="718" y="143" font-size="13" fill="#94a3b8">update.google.com:443 · Google LLC · replied</text>
-    <rect x="976" y="106" width="56" height="24" rx="6" fill="#0b1220" stroke="#334155"/>
-    <text x="1004" y="122" font-size="12" fill="#94a3b8" text-anchor="middle">normal</text>
+    <circle cx="830" cy="136" r="8" fill="#34d399"/>
+    <text x="850" y="132" font-size="19" font-weight="600" fill="#f1f5f9">chrome.exe</text>
+    <text x="850" y="154" font-size="15.5" fill="#94a3b8">update.google.com · replied</text>
 
-    <circle cx="700" cy="164" r="7" fill="#fbbf24"/>
-    <text x="718" y="169" font-size="15" font-weight="600" fill="#f1f5f9">DiagTrack.exe</text>
-    <text x="718" y="187" font-size="13" fill="#94a3b8">Phone Home card: 3.1 connects/hr · inside band</text>
-    <rect x="976" y="150" width="56" height="24" rx="6" fill="#0b1220" stroke="#334155"/>
-    <text x="1004" y="166" font-size="12" fill="#94a3b8" text-anchor="middle">known</text>
+    <circle cx="830" cy="190" r="8" fill="#fbbf24"/>
+    <text x="850" y="186" font-size="19" font-weight="600" fill="#f1f5f9">DiagTrack.exe</text>
+    <text x="850" y="208" font-size="15.5" fill="#94a3b8">Windows telemetry · known talker</text>
 
-    <circle cx="700" cy="208" r="7" fill="#f87171"/>
-    <text x="718" y="213" font-size="15" font-weight="600" fill="#f1f5f9">update.exe</text>
-    <text x="718" y="231" font-size="13" fill="#94a3b8">sent packets · no reply yet · one click stops it</text>
-    <rect x="956" y="194" width="76" height="24" rx="6" fill="#7f1d1d" stroke="#f87171"/>
-    <text x="994" y="210" font-size="12" fill="#fecaca" text-anchor="middle">undoable</text>
+    <circle cx="830" cy="244" r="8" fill="#f87171"/>
+    <text x="850" y="240" font-size="19" font-weight="600" fill="#f1f5f9">update.exe</text>
+    <text x="850" y="262" font-size="15.5" fill="#94a3b8">sent · no reply · stop in 1 click</text>
   </g>
-  <text x="1064" y="284" font-size="13" fill="#64748b" text-anchor="end" font-family="Segoe UI, Arial, sans-serif">AutoCommand · dparksports/autocommand</text>
+  <text x="1064" y="312" font-size="15" fill="#64748b" text-anchor="end" font-family="Segoe UI, Arial, sans-serif">AutoCommand · dparksports/autocommand</text>
 </svg>

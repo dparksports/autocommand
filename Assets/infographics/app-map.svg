@@ -1,73 +1,64 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="660" viewBox="0 0 1120 660" role="img" aria-label="Where everything lives: the sidebar grouped into Watch, Contain and System">
-  <rect width="1120" height="660" fill="#0f172a"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="700" viewBox="0 0 1120 700" role="img" aria-label="Where everything lives: the sidebar grouped into Watch, Contain and System">
+  <rect width="1120" height="700" fill="#0f172a"/>
+  <rect width="1120" height="6" fill="#22d3ee"/>
   <g font-family="Segoe UI, Arial, sans-serif">
-    <text x="56" y="64" font-size="32" font-weight="700" fill="#f1f5f9">Where everything lives</text>
-    <rect x="56" y="78" width="64" height="4" fill="#22d3ee"/>
-    <text x="56" y="112" font-size="15.5" fill="#94a3b8">The sidebar groups its tools by the question you're asking, not by what they do internally.</text>
+    <text x="56" y="78" font-size="42" font-weight="700" fill="#f1f5f9">Where everything lives</text>
+    <rect x="56" y="96" width="80" height="5" fill="#22d3ee"/>
+    <text x="56" y="134" font-size="18.5" fill="#94a3b8">The sidebar is grouped by the question you're asking.</text>
 
-    <!-- sidebar panel -->
-    <rect x="56" y="140" width="380" height="452" rx="12" fill="#1e293b" stroke="#334155"/>
+    <!-- sidebar -->
+    <rect x="56" y="164" width="396" height="492" rx="14" fill="#1e293b" stroke="#334155"/>
 
-    <text x="84" y="176" font-size="12" font-weight="700" fill="#64748b" letter-spacing="2">WATCH</text>
-    <circle cx="94" cy="202" r="8" fill="none" stroke="#22d3ee" stroke-width="2"/>
-    <line x1="100" y1="208" x2="106" y2="214" stroke="#22d3ee" stroke-width="2"/>
-    <text x="116" y="207" font-size="15" fill="#f1f5f9">Process Monitor</text>
-    <text x="116" y="224" font-size="12" fill="#64748b">every connection · live · + Matrix rain</text>
-    <circle cx="94" cy="250" r="8" fill="#34d399" opacity="0.85"/>
-    <circle cx="91" cy="247" r="3" fill="#0f172a"/><circle cx="97" cy="247" r="3" fill="#0f172a"/>
-    <text x="116" y="255" font-size="15" fill="#f1f5f9">Spawn Watches</text>
-    <text x="116" y="272" font-size="12" fill="#64748b">who launched this? — caught at birth</text>
+    <text x="84" y="204" font-size="16" font-weight="700" fill="#64748b" letter-spacing="3">WATCH</text>
+    <circle cx="96" cy="234" r="9" fill="none" stroke="#22d3ee" stroke-width="2.5"/>
+    <line x1="103" y1="241" x2="111" y2="249" stroke="#22d3ee" stroke-width="2.5"/>
+    <text x="122" y="241" font-size="19.5" fill="#f1f5f9">Process Monitor</text>
+    <text x="122" y="264" font-size="15" fill="#64748b">every connection, live</text>
+    <circle cx="96" cy="294" r="9" fill="#34d399" opacity="0.85"/>
+    <circle cx="93" cy="291" r="3" fill="#0f172a"/><circle cx="99" cy="291" r="3" fill="#0f172a"/>
+    <text x="122" y="301" font-size="19.5" fill="#f1f5f9">Spawn Watches</text>
+    <text x="122" y="324" font-size="15" fill="#64748b">who launched this?</text>
 
-    <text x="84" y="310" font-size="12" font-weight="700" fill="#64748b" letter-spacing="2">CONTAIN</text>
-    <path d="M 94 332 l 9 -6 l 9 6 v 9 q 0 8 -9 11 q -9 -3 -9 -11 Z" fill="none" stroke="#fbbf24" stroke-width="2"/>
-    <text x="116" y="341" font-size="15" fill="#f1f5f9">Firewall</text>
-    <text x="116" y="358" font-size="12" fill="#64748b">profiles · lockdown · snapshot + restore</text>
-    <circle cx="94" cy="384" r="8" fill="none" stroke="#f87171" stroke-width="2.5"/>
-    <line x1="88" y1="390" x2="100" y2="378" stroke="#f87171" stroke-width="2.5"/>
-    <text x="116" y="389" font-size="15" fill="#f1f5f9">Blocks</text>
-    <text x="116" y="406" font-size="12" fill="#64748b">inventory · live hit counts · gates</text>
-    <rect x="87" y="424" width="14" height="17" rx="2" fill="none" stroke="#94a3b8" stroke-width="2"/>
-    <line x1="90" y1="429" x2="98" y2="429" stroke="#94a3b8" stroke-width="2"/>
-    <line x1="90" y1="433" x2="98" y2="433" stroke="#94a3b8" stroke-width="2"/>
-    <text x="116" y="437" font-size="15" fill="#f1f5f9">Audit</text>
-    <text x="116" y="454" font-size="12" fill="#64748b">everything the app did, one ledger</text>
-    <rect x="88" y="472" width="12" height="9" rx="2" fill="none" stroke="#34d399" stroke-width="2"/>
-    <path d="M 90 472 v -3 a 4 4 0 0 1 8 0 v 3" fill="none" stroke="#34d399" stroke-width="2"/>
-    <text x="116" y="483" font-size="15" fill="#f1f5f9">Shields Up</text>
-    <text x="116" y="500" font-size="12" fill="#64748b">doors · hardening · phone-home · startup</text>
+    <text x="84" y="362" font-size="16" font-weight="700" fill="#64748b" letter-spacing="3">CONTAIN</text>
+    <path d="M 96 386 l 11 -7 l 11 7 v 11 q 0 9 -11 13 q -11 -4 -11 -13 Z" fill="none" stroke="#fbbf24" stroke-width="2.5"/>
+    <text x="122" y="396" font-size="19.5" fill="#f1f5f9">Firewall</text>
+    <text x="122" y="419" font-size="15" fill="#64748b">profiles &amp; lockdown</text>
+    <circle cx="96" cy="449" r="9" fill="none" stroke="#f87171" stroke-width="3"/>
+    <line x1="89" y1="456" x2="103" y2="442" stroke="#f87171" stroke-width="3"/>
+    <text x="122" y="456" font-size="19.5" fill="#f1f5f9">Blocks</text>
+    <text x="122" y="479" font-size="15" fill="#64748b">what's stopped, and why</text>
+    <rect x="88" y="501" width="16" height="20" rx="3" fill="none" stroke="#94a3b8" stroke-width="2"/>
+    <line x1="92" y1="507" x2="100" y2="507" stroke="#94a3b8" stroke-width="2"/>
+    <line x1="92" y1="512" x2="100" y2="512" stroke="#94a3b8" stroke-width="2"/>
+    <text x="122" y="516" font-size="19.5" fill="#f1f5f9">Audit</text>
+    <text x="122" y="539" font-size="15" fill="#64748b">what the app did</text>
+    <rect x="89" y="561" width="14" height="11" rx="2" fill="none" stroke="#34d399" stroke-width="2"/>
+    <path d="M 91.5 561 v -4 a 4.5 4.5 0 0 1 9 0 v 4" fill="none" stroke="#34d399" stroke-width="2"/>
+    <text x="122" y="574" font-size="19.5" fill="#f1f5f9">Shields Up</text>
+    <text x="122" y="597" font-size="15" fill="#64748b">close Windows' doors</text>
 
-    <text x="84" y="534" font-size="12" font-weight="700" fill="#64748b" letter-spacing="2">SYSTEM</text>
-    <text x="94" y="565" font-size="12" font-weight="700" fill="#22d3ee">AI</text>
-    <text x="116" y="565" font-size="15" fill="#f1f5f9">Be My Guest</text>
-    <text x="116" y="582" font-size="12" fill="#64748b">invite your AI assistant, locally</text>
-    <circle cx="94" cy="608" r="7" fill="none" stroke="#94a3b8" stroke-width="2"/>
-    <circle cx="94" cy="608" r="2.5" fill="#94a3b8"/>
-    <text x="116" y="606" font-size="15" fill="#f1f5f9">Settings · Windows Update</text>
-    <text x="116" y="623" font-size="12" fill="#64748b">update the sanctioned way: lift, update, restore</text>
+    <text x="84" y="632" font-size="16" font-weight="700" fill="#64748b" letter-spacing="3">SYSTEM</text>
+    <text x="96" y="646" font-size="13" font-weight="700" fill="#22d3ee">AI</text>
+    <text x="122" y="645" font-size="19.5" fill="#f1f5f9">Be My Guest · Settings · Update</text>
 
-    <!-- right column: annotations -->
-    <rect x="472" y="140" width="592" height="132" rx="12" fill="#1e293b" stroke="#334155"/>
-    <text x="504" y="178" font-size="19" font-weight="700" fill="#f1f5f9">The status bar carries the panic button</text>
-    <g font-size="14.5" fill="#cbd5e1">
-      <text x="504" y="210">Blocked something and the internet broke? Restore Internet disables</text>
-      <text x="504" y="236">every block the app ever made — one click, nothing deleted.</text>
-    </g>
+    <!-- annotations -->
+    <rect x="488" y="164" width="576" height="140" rx="14" fill="#1e293b" stroke="#334155"/>
+    <text x="520" y="210" font-size="22" font-weight="700" fill="#f1f5f9">The panic button lives in the corner</text>
+    <text x="520" y="248" font-size="18" fill="#cbd5e1">Restore Internet undoes every block the</text>
+    <text x="520" y="276" font-size="18" fill="#cbd5e1">app ever made — one click, nothing deleted.</text>
 
-    <rect x="472" y="296" width="592" height="132" rx="12" fill="#1e293b" stroke="#334155"/>
-    <text x="504" y="334" font-size="19" font-weight="700" fill="#f1f5f9">Watching never stops because you looked away</text>
-    <g font-size="14.5" fill="#cbd5e1">
-      <text x="504" y="366">A feed runs until you stop it, not until you click to another tab. The</text>
-      <text x="504" y="392">Process Monitor's right panel replays live traffic as Matrix-style rain.</text>
-    </g>
+    <rect x="488" y="332" width="576" height="140" rx="14" fill="#1e293b" stroke="#334155"/>
+    <text x="520" y="378" font-size="22" font-weight="700" fill="#f1f5f9">Feeds keep running</text>
+    <text x="520" y="416" font-size="18" fill="#cbd5e1">A feed runs until you stop it — not until</text>
+    <text x="520" y="444" font-size="18" fill="#cbd5e1">you look away. Live traffic also plays as rain.</text>
 
-    <rect x="472" y="452" width="592" height="140" rx="12" fill="#1e293b" stroke="#334155"/>
-    <text x="504" y="490" font-size="19" font-weight="700" fill="#f1f5f9">One more door, behind a toggle</text>
-    <g font-size="14.5" fill="#cbd5e1">
-      <text x="504" y="522">Behind the Advanced-investigation toggle, Investigate joins everything</text>
-      <text x="504" y="548">the app recorded about one process into a single verdict — and a</text>
-      <text x="504" y="574">copyable report you can hand to anyone.</text>
-    </g>
+    <rect x="488" y="500" width="576" height="140" rx="14" fill="#1e293b" stroke="#334155"/>
+    <text x="520" y="546" font-size="22" font-weight="700" fill="#f1f5f9">Investigate</text>
+    <rect x="700" y="526" width="196" height="32" rx="16" fill="#0b1220" stroke="#334155"/>
+    <text x="798" y="548" font-size="14.5" fill="#94a3b8" text-anchor="middle">behind the Advanced toggle</text>
+    <text x="520" y="584" font-size="18" fill="#cbd5e1">Everything recorded about one process,</text>
+    <text x="520" y="612" font-size="18" fill="#cbd5e1">joined into one verdict — and one report.</text>
 
-    <text x="1064" y="644" font-size="13" fill="#64748b" text-anchor="end">AutoCommand · dparksports/autocommand</text>
+    <text x="1064" y="680" font-size="15" fill="#64748b" text-anchor="end">AutoCommand · dparksports/autocommand</text>
   </g>
 </svg>
