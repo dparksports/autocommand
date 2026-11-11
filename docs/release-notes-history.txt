@@ -17,6 +17,69 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.11 (2026-11-11)
+================================================================================
+
+# v2026.11.11 — The rain is text now
+
+The Rain pane's renderer is rewritten from bitmap composition to text
+rendering, ending the app's one recurring crash class by construction
+rather than by defense.
+
+## The crash class
+
+Three crashes in four days, one signature: `InvalidOperationException:
+Cannot call this method while the image is unlocked`, thrown from
+WriteableBitmap calls inside the Matrix rain pane's perfectly balanced
+Lock/try/finally (crash.log 2026-11-08 21:55, 2026-11-09 19:49, and
+2026-11-11 07:46 — the last one shipped in v2026.11.10.5). The trigger
+is render-device loss: display sleep/wake, session lock, monitor
+change. WPF tears down the bitmap's GPU textures and resets its lock
+bookkeeping mid-pass, so a bitmap the frame genuinely locked reads as
+unlocked at the next call. v2026.11.3.4's fix guarded Lock and Unlock;
+the third crash walked through AddDirtyRect — the one call between
+them. A protocol you have to defend call-by-call cannot be fully
+defended.
+
+## The fix: the pane no longer owns pixels
+
+The engine now draws every frame as glyph runs — WPF text rendering on
+DrawingVisuals — and holds no GPU resource of its own. There is no
+WriteableBitmap, no Lock/AddDirtyRect protocol, no unsafe code, and no
+manual device-pixel math (sizing is DIP-native; the per-DPI atlas
+rebuilds are gone too). A device loss is absorbed inside WPF's
+composition, invisible to the frame loop. The simulation is unchanged:
+event-driven columns, transmit budgets, edge-anchored ranking,
+entrance glide, the cinema deco wall, wakes etched into the frozen
+backdrop. Cinema trails fade by age at the exact curve the old
+per-pixel fade pass produced; the wake keeps its distance-stepped log
+fade. Bloom is a radial gradient behind the lead glyph instead of
+baked halo cells.
+
+- GlyphCase (the atlas replacement): installed families or the user's
+  own .ttf/.otf resolve per character through a CJK fallback chain, so
+  a matrix code font drops in via FontFile and Consolas can still
+  carry the katakana alphabet.
+- Hardening that ships first (same release window): all four
+  AddDirtyRect call sites had gained the same device-loss tolerance
+  the Lock/Unlock helpers already had, protecting interim bitmap
+  builds before the rewrite lands.
+
+## Inherited defect fixed in passing
+
+Charset "katakana" fell into the literal-alphabet branch of the old
+atlas and resolved to the four letters k-a-t-n; the named sets now
+always map to their alphabets (64 glyphs by default).
+
+## Verification
+
+RainSelfTest hosts the new canvas exactly the way the tab does:
+synthetic three-PID feed at 35-45 fps, zero dispatcher exceptions
+across the attach / tab-away / tab-return round-trip, and the PNG
+surface dump shows heads, age-faded trails, and PID labels. App builds
+clean in Debug and Release; the offline strict suites stay green.
+
+================================================================================
 v2026.11.10.6 (2026-11-10)
 ================================================================================
 
