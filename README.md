@@ -105,9 +105,9 @@ dotnet build AutoCommand.csproj -c Release
 dotnet publish AutoCommand.csproj -c Release -r win-x64 --self-contained
 
 # offline self-test suites (synthetic inputs, run anywhere) — eleven of them, e.g.
-dotnet run --project ContainSelfTest
-dotnet run --project NetWatchSelfTest
-dotnet run --project WslSelfTest
+dotnet run --project tests/ContainSelfTest
+dotnet run --project tests/NetWatchSelfTest
+dotnet run --project tests/WslSelfTest
 ```
 
 The `systemmonitor/` tree is the preserved precursor — it is excluded from the app build on purpose; don't expect it to compile into anything. Release automation lives in [`.github/workflows/`](.github/workflows/): every push runs the self-test gate (plus a dependency-vulnerability check), and a `v20…` tag builds and attaches the release zip with checksums — keeping one release per day. Bugs and ideas: see [SUPPORT.md](docs/SUPPORT.md); security reports: [SECURITY.md](docs/SECURITY.md) — please use private reporting.

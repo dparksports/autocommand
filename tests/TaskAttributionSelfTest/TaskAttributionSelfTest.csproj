@@ -15,11 +15,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Engines\Engines.Watch\Engines.Watch.fsproj" />
+    <ProjectReference Include="..\..\Engines\Engines.Watch\Engines.Watch.fsproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\core\AutoCommand.Forensics.Core\AutoCommand.Forensics.Core.csproj" />
+    <ProjectReference Include="..\..\core\AutoCommand.Forensics.Core\AutoCommand.Forensics.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>

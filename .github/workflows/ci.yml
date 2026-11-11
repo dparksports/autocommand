@@ -70,17 +70,17 @@ jobs:
           # run that reached it (both v2026.10.30.17-era runs sat
           # 'in_progress' 30+ minutes). Run it at the desk; the rest gate.
           $suites = @(
-            'NetWatchSelfTest',
-            'OneSettingsCadenceSelfTest',
-            'ContainSelfTest',
-            'ProxyInstallSelfTest',
-            'BridgeSelfTest',
-            'PyTraceSelfTest',
-            'InterceptSelfTest',
-            'HardenSelfTest',
-            'WslSelfTest',
-            'StartupHealthSelfTest',
-            'AllowListSelfTest'
+            'tests/NetWatchSelfTest',
+            'tests/OneSettingsCadenceSelfTest',
+            'tests/ContainSelfTest',
+            'tests/ProxyInstallSelfTest',
+            'tests/BridgeSelfTest',
+            'tests/PyTraceSelfTest',
+            'tests/InterceptSelfTest',
+            'tests/HardenSelfTest',
+            'tests/WslSelfTest',
+            'tests/StartupHealthSelfTest',
+            'tests/AllowListSelfTest',
           )
           foreach ($s in $suites) {
             Write-Host "== $s =="
@@ -93,6 +93,6 @@ jobs:
         shell: pwsh
         run: |
           Write-Host "== SiteDoctorSelfTest =="
-          dotnet run --project SiteDoctorSelfTest
+          dotnet run --project tests/SiteDoctorSelfTest
           Write-Host "== TaskAttributionSelfTest =="
-          dotnet run --project TaskAttributionSelfTest
+          dotnet run --project tests/TaskAttributionSelfTest

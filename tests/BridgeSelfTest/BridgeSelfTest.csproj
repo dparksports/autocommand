@@ -17,6 +17,6 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Engines\Engines.Bridge\Engines.Bridge.fsproj" />
+    <ProjectReference Include="..\..\Engines\Engines.Bridge\Engines.Bridge.fsproj" />
   </ItemGroup>
 </Project>

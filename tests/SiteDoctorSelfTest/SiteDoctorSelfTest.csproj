@@ -21,12 +21,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Engines\Engines.Watch\Engines.Watch.fsproj" />
+    <ProjectReference Include="..\..\Engines\Engines.Watch\Engines.Watch.fsproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\core\AutoCommand.Sitedoctor.Core\AutoCommand.Sitedoctor.Core.csproj" />
-    <ProjectReference Include="..\Engines\Engines.Diagnosis\Engines.Diagnosis.fsproj" />
+    <ProjectReference Include="..\..\core\AutoCommand.Sitedoctor.Core\AutoCommand.Sitedoctor.Core.csproj" />
+    <ProjectReference Include="..\..\Engines\Engines.Diagnosis\Engines.Diagnosis.fsproj" />
   </ItemGroup>
 
   <ItemGroup>

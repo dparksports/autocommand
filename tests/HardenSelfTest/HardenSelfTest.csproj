@@ -15,7 +15,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\ShieldsUp\ShieldsUp.Core\ShieldsUp.Core.csproj" />
-    <ProjectReference Include="..\Engines\Engines.Firewall\Engines.Firewall.fsproj" />
+    <ProjectReference Include="..\..\ShieldsUp\ShieldsUp.Core\ShieldsUp.Core.csproj" />
+    <ProjectReference Include="..\..\Engines\Engines.Firewall\Engines.Firewall.fsproj" />
   </ItemGroup>
 </Project>

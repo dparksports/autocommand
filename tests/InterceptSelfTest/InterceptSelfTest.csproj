@@ -16,7 +16,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\core\AutoCommand.Intercept.Core\AutoCommand.Intercept.Core.csproj" />
+    <ProjectReference Include="..\..\core\AutoCommand.Intercept.Core\AutoCommand.Intercept.Core.csproj" />
   </ItemGroup>
 
 </Project>

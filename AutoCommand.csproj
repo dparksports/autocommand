@@ -19,7 +19,7 @@
          remove does not reliably match its obj\ subtree (its generated
          AssemblyInfo.cs collides with GeneratedVersionInfo.cs, CS0579),
          while DefaultItemExcludes is applied at glob time and always does. -->
-    <DefaultItemExcludes>$(DefaultItemExcludes);BridgeSelfTest\**</DefaultItemExcludes>
+    <DefaultItemExcludes>$(DefaultItemExcludes);tests\BridgeSelfTest\**</DefaultItemExcludes>
   </PropertyGroup>
 
   <ItemGroup>
@@ -127,31 +127,31 @@
     <Page Remove="systemmonitor\**" />
     <EmbeddedResource Remove="systemmonitor\**" />
     <!-- Exclude scratch/test scripts — they define their own Main() -->
-    <Compile Remove="ScratchTest\**" />
+    <Compile Remove="tests\ScratchTest\**" />
     <Compile Remove="Sdk\**" />
     <!-- Self-test harness: links the app's services itself and has its own
          Main() (same reason as ScratchTest) -->
-    <Compile Remove="PyTraceSelfTest\**" />
-    <Compile Remove="TaskAttributionSelfTest\**" />
-    <Compile Remove="OneSettingsCadenceSelfTest\**" />
+    <Compile Remove="tests\PyTraceSelfTest\**" />
+    <Compile Remove="tests\TaskAttributionSelfTest\**" />
+    <Compile Remove="tests\OneSettingsCadenceSelfTest\**" />
     <!-- Intercept self-test: journal + CA mechanics offline (own Main()) -->
-    <Compile Remove="InterceptSelfTest\**" />
+    <Compile Remove="tests\InterceptSelfTest\**" />
     <!-- BITS tracer self-test: drives ParseMessage/Apply/stat/firewall
          logic offline with synthetic events (see BitsTraceSelfTest\) -->
     <Compile Remove="BitsTraceSelfTest\**" />
     <!-- Proxy install self-test: drives McpClientRegistration's install
-         decision logic with synthetic dirs (see ProxyInstallSelfTest\) -->
-    <Compile Remove="ProxyInstallSelfTest\**" />
+         decision logic with synthetic dirs (see tests\ProxyInstallSelfTest\) -->
+    <Compile Remove="tests\ProxyInstallSelfTest\**" />
     <!-- Net watch self-test: dual-family TCP table + Sysmon archive engine
-         (watermark dedupe, rotation, search, prune — see NetWatchSelfTest\) -->
-    <Compile Remove="NetWatchSelfTest\**" />
+         (watermark dedupe, rotation, search, prune — see tests\NetWatchSelfTest\) -->
+    <Compile Remove="tests\NetWatchSelfTest\**" />
     <!-- Site doctor self-test: fingerprint + verdict rules offline, and the
          dual-shape TLS probe against live loopback listeners — one that
-         answers handshakes, one that black-holes them (see SiteDoctorSelfTest\) -->
-    <Compile Remove="SiteDoctorSelfTest\**" />
+         answers handshakes, one that black-holes them (see tests\SiteDoctorSelfTest\) -->
+    <Compile Remove="tests\SiteDoctorSelfTest\**" />
     <!-- Spawn watch self-test: rule store, ingestion-time matching, the
          archive Appended hook and replay dedupe offline (own Main()) -->
-    <Compile Remove="WatchSelfTest\**" />
+    <Compile Remove="tests\WatchSelfTest\**" />
     <!-- Vendored engine: compiled through its own ProjectReference — without
          this exclusion the default glob would pull its .cs into the app
          assembly too (duplicate types, and the CLI's top-level Program). -->
@@ -165,7 +165,7 @@
          OneSettingsCadence\OneSettingsCadence.csproj); own Main() -->
     <!-- Contain self-test: the blocking/safety path — built test-first,
          before the phase 3 extraction (REWRITE.md); own Main() -->
-    <Compile Remove="ContainSelfTest\**" />
+    <Compile Remove="tests\ContainSelfTest\**" />
     <Compile Remove="OneSettingsCadence\**" />
     <!-- DnsFeedSelfTest: newest self-test folder (added after the last ii
          app build); same glob reason as the others -->
@@ -188,31 +188,31 @@
     <Compile Remove="ShieldsUp\**" />
     <!-- Rain self-test: asInvoker WPF harness over the rain engine with a
          synthetic feed — own Main(), same glob reason as every side project -->
-    <Compile Remove="RainSelfTest\**" />
+    <Compile Remove="tests\RainSelfTest\**" />
     <!-- Bridge self-test: wire-protocol harness over the F# bridge engine
          (session file ownership, one-dialect errors, no bare closes,
          escaping) — own Main(), same glob reason as every side project -->
-    <Compile Remove="BridgeSelfTest\**" />
+    <Compile Remove="tests\BridgeSelfTest\**" />
     <!-- Harden self-test: the vendored Shields Up core + the engine Shield
          Up whitelist, offline against a temp data root (own Main(), same
          glob reason as every side project) -->
-    <Compile Remove="HardenSelfTest\**" />
+    <Compile Remove="tests\HardenSelfTest\**" />
     <!-- WSL self-test: the WSL family matcher, wsl.exe list decoders,
          ss -tnp parser, host-guest join and the staged diagnosis verdicts,
          all offline with synthetic inputs (own Main(), same glob reason as
          every side project) -->
-    <Compile Remove="WslSelfTest\**" />
+    <Compile Remove="tests\WslSelfTest\**" />
     <!-- Allow-list self-test: the tamper-evident ledger + the surface
          verdict evaluators, offline against a temp ledger root (own
          Main(), same glob reason as every side project) -->
-    <Compile Remove="AllowListSelfTest\**" />
+    <Compile Remove="tests\AllowListSelfTest\**" />
     <!-- StartupHealthSelfTest: pins the logon-task health rules and the
-         liveness death record (see StartupHealthSelfTest\). Without this
+         liveness death record (see tests\StartupHealthSelfTest\). Without this
          line the app's **/*.cs glob compiles the test project's Program.cs
          and its generated obj AssemblyInfo.cs, which declares AssemblyVersion
          a second time and fails every -r publish with CS0579 - the same
          collision the BridgeSelfTest entry above documents. -->
-    <Compile Remove="StartupHealthSelfTest\**" />
+    <Compile Remove="tests\StartupHealthSelfTest\**" />
   </ItemGroup>
 
   <!-- Filter out Linux .so native binaries when publishing for Windows win-x64 -->

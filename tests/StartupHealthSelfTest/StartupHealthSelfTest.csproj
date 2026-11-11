@@ -17,8 +17,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\ShieldsUp\ShieldsUp.Core\ShieldsUp.Core.csproj" />
-    <ProjectReference Include="..\core\AutoCommand.Agent.Core\AutoCommand.Agent.Core.csproj" />
+    <ProjectReference Include="..\..\ShieldsUp\ShieldsUp.Core\ShieldsUp.Core.csproj" />
+    <ProjectReference Include="..\..\core\AutoCommand.Agent.Core\AutoCommand.Agent.Core.csproj" />
   </ItemGroup>
 
 </Project>

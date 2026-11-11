@@ -14,8 +14,8 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Engines\Engines.Watch\Engines.Watch.fsproj" />
-    <ProjectReference Include="..\core\AutoCommand.Agent.Core\AutoCommand.Agent.Core.csproj" />
+    <ProjectReference Include="..\..\Engines\Engines.Watch\Engines.Watch.fsproj" />
+    <ProjectReference Include="..\..\core\AutoCommand.Agent.Core\AutoCommand.Agent.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>

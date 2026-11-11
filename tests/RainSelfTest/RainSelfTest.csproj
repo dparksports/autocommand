@@ -16,7 +16,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\MatrixRain\AutoCommand.MatrixRain.Core\AutoCommand.MatrixRain.Core.csproj" />
+    <ProjectReference Include="..\..\MatrixRain\AutoCommand.MatrixRain.Core\AutoCommand.MatrixRain.Core.csproj" />
   </ItemGroup>
 
 </Project>

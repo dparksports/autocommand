@@ -19,12 +19,12 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Engines\Engines.Watch\Engines.Watch.fsproj" />
+    <ProjectReference Include="..\..\Engines\Engines.Watch\Engines.Watch.fsproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\core\AutoCommand.Contain.Core\AutoCommand.Contain.Core.csproj" />
-    <ProjectReference Include="..\Engines\Engines.Firewall\Engines.Firewall.fsproj" />
+    <ProjectReference Include="..\..\core\AutoCommand.Contain.Core\AutoCommand.Contain.Core.csproj" />
+    <ProjectReference Include="..\..\Engines\Engines.Firewall\Engines.Firewall.fsproj" />
   </ItemGroup>
 
 

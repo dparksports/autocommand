@@ -14,7 +14,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\core\AutoCommand.Forensics.Core\AutoCommand.Forensics.Core.csproj" />
+    <ProjectReference Include="..\..\core\AutoCommand.Forensics.Core\AutoCommand.Forensics.Core.csproj" />
   </ItemGroup>
 
 </Project>

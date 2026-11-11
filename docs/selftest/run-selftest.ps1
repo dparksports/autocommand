@@ -20,7 +20,7 @@ param([switch]$Tls12)
 $ErrorActionPreference = "Stop"
 $here = Split-Path -Parent $MyInvocation.MyCommand.Path
 $appDir = Resolve-Path (Join-Path $here "..\..")
-$harnessDir = Join-Path $appDir "PyTraceSelfTest"
+$harnessDir = Join-Path $appDir "tests\PyTraceSelfTest"
 $payloadPath = Join-Path $appDir "core\AutoCommand.Forensics.Core\PyTraceHook.py"
 
 $tmp = Join-Path ([System.IO.Path]::GetTempPath()) ("pytrace-selftest-" + [guid]::NewGuid().ToString("N").Substring(0, 8))

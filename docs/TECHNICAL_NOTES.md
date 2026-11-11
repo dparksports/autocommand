@@ -112,7 +112,7 @@ round-trip; the CLI self-elevates.
 
 Pure logic (parser, transform, drift detection, run-history field parsing and
 compliance bucketing — including the exact-match event namespace a typo once
-silently broke) has an offline self-test: `OneSettingsCadenceSelfTest`
+silently broke) has an offline self-test: `tests\OneSettingsCadenceSelfTest`
 (43 checks, no COM, no writes, no elevation).
 
 | Live external starts | While the tab is open, an `EventLogWatcher` over the scheduler channel flags launches that fired with no trigger event (100 without 107/108/119 — something called `Run()`), confirmed on a 3 s deadline so out-of-order trigger events do not false-alarm; EID 129 supplies the taskhostw PID, Sysmon EID 3/5 join the fetch destinations and exit (pure correlator unit-covered; degrades to starts-without-evidence when Sysmon is absent) |
@@ -227,7 +227,7 @@ Born from a real diagnosis (a site whose refreshes stalled for seconds): the arc
 * **`SiteProbeService`** — active, hard-capped in code (~21 operations): 5 DNS resolves of the same name (rotation = short-TTL steering), per-edge TCP timing plus **two TLS hello shapes** (Windows-default vs plain TLS 1.2-only — a server that answers one and drops the other is the "works in one app, hangs in another" signature), and control-host handshakes so "your line is fine" is measured. Every operation lands verbatim in the report's log; certificates are not validated (transport behavior is measured, no credentials flow, nothing is changed).
 * **`SiteVerdictService`** — rules in priority order: Blocked → LocalTlsBroken (every handshake fails *including controls* — the local stack, a real post-hardening condition) → HandshakeDropping → Steering → FarAway → Healthy (with an honest "fast now, but history shows bursts" split). Each verdict ships evidence lines and one reversible next step; nothing is auto-applied.
 
-Read-only `diagnose_site` on the agent bridge runs the same pipeline (~30 s, DNS sampling tightened to 3 s). `SiteDoctorSelfTest\` compiles the shipping sources and proves: all fingerprint signals, every verdict rule, live loopback detection of the black-hole handshake shape (a listener that accepts TCP and never answers), and the caps. One SKIP is by design: a machine whose schannel cannot host TLS ("platform does not support ephemeral keys", observed after OS hardening) cannot run the healthy-server half — it says so loudly and still validates the rest.
+Read-only `diagnose_site` on the agent bridge runs the same pipeline (~30 s, DNS sampling tightened to 3 s). `tests\SiteDoctorSelfTest\` compiles the shipping sources and proves: all fingerprint signals, every verdict rule, live loopback detection of the black-hole handshake shape (a listener that accepts TCP and never answers), and the caps. One SKIP is by design: a machine whose schannel cannot host TLS ("platform does not support ephemeral keys", observed after OS hardening) cannot run the healthy-server half — it says so loudly and still validates the rest.
 
 Related capture-honesty fix in the same work: `TcpStreamCaptureService` now requests `SIO_RCVALL_IPLEVEL` first (both directions at the IP layer, no NIC promiscuous dependency) with `RCVALL_ON` fallback, tallies inbound vs outbound packets per session, and the Transmissions tab shows a banner when the session is one-way — a 0 in Down then reads "not observed", not "nothing came back".
 
@@ -284,7 +284,7 @@ The proxy re-reads `session.json` on every message, so a session started after t
 powershell -File scripts\test-agent-proxy.ps1
 
 # install-decision logic (versioned refresh, locked files, fallbacks)
-dotnet run --project ProxyInstallSelfTest
+dotnet run --project tests/ProxyInstallSelfTest
 
 # bridge end-to-end (starts the elevated app headless - UAC prompt)
 powershell -File scripts\test-agent-bridge.ps1

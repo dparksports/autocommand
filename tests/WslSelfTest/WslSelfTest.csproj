@@ -16,7 +16,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\core\AutoCommand.NetWatch.Core\AutoCommand.NetWatch.Core.csproj" />
-    <ProjectReference Include="..\core\AutoCommand.Contain.Core\AutoCommand.Contain.Core.csproj" />
+    <ProjectReference Include="..\..\core\AutoCommand.NetWatch.Core\AutoCommand.NetWatch.Core.csproj" />
+    <ProjectReference Include="..\..\core\AutoCommand.Contain.Core\AutoCommand.Contain.Core.csproj" />
   </ItemGroup>
 </Project>

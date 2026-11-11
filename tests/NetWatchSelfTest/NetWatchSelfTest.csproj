@@ -19,11 +19,11 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\Engines\Engines.Watch\Engines.Watch.fsproj" />
+    <ProjectReference Include="..\..\Engines\Engines.Watch\Engines.Watch.fsproj" />
   </ItemGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\core\AutoCommand.NetWatch.Core\AutoCommand.NetWatch.Core.csproj" />
+    <ProjectReference Include="..\..\core\AutoCommand.NetWatch.Core\AutoCommand.NetWatch.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>

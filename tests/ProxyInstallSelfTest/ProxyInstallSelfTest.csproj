@@ -14,7 +14,7 @@
   </PropertyGroup>
 
   <ItemGroup>
-    <ProjectReference Include="..\core\AutoCommand.Agent.Core\AutoCommand.Agent.Core.csproj" />
+    <ProjectReference Include="..\..\core\AutoCommand.Agent.Core\AutoCommand.Agent.Core.csproj" />
   </ItemGroup>
 
 </Project>
