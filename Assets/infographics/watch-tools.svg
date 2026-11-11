@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="640" viewBox="0 0 1120 640" role="img" aria-label="Watch, beyond the list: Site Doctor, WSL doctor, Phone Home, Transmissions, Traces, Spawn Watches">
+  <rect width="1120" height="640" fill="#0f172a"/>
+  <g font-family="Segoe UI, Arial, sans-serif">
+    <text x="56" y="64" font-size="32" font-weight="700" fill="#f1f5f9">Watch — beyond the list</text>
+    <rect x="56" y="78" width="64" height="4" fill="#22d3ee"/>
+    <text x="56" y="112" font-size="15.5" fill="#94a3b8">Six tools, all read-only, all plain English. None of them changes anything by looking.</text>
+
+    <rect x="56" y="140" width="492" height="226" rx="12" fill="#1e293b" stroke="#334155"/>
+    <text x="88" y="178" font-size="18" font-weight="700" fill="#f1f5f9">"Why is this site slow?" — Site Doctor</text>
+    <g font-size="13.5" fill="#cbd5e1">
+      <text x="88" y="210">A 30-second, read-only check: DNS rotation sampling,</text>
+      <text x="88" y="234">per-edge TCP + two TLS hello shapes, a control host for</text>
+      <text x="88" y="258">comparison — and a pass that asks whether the page's other</text>
+      <text x="88" y="282">hosts (captcha, assets, APIs) were silently blocked.</text>
+      <text x="88" y="322" fill="#22d3ee">Verdict in one plain sentence; the math one click away.</text>
+    </g>
+
+    <rect x="572" y="140" width="492" height="226" rx="12" fill="#1e293b" stroke="#334155"/>
+    <text x="604" y="178" font-size="18" font-weight="700" fill="#f1f5f9">"Why is WSL offline?" — the staged diagnosis</text>
+    <g font-size="13.5" fill="#cbd5e1">
+      <text x="604" y="210">Host egress, a probe from inside the distro, the NAT</text>
+      <text x="604" y="234">gateway leg, the WSL/Hyper-V firewall layers — ending in</text>
+      <text x="604" y="258">one verdict: healthy, machine-wide outage, disabled</text>
+      <text x="604" y="282">family rules, or a block below the rule model.</text>
+      <text x="604" y="322" fill="#22d3ee">Read-only end to end — it never starts the utility VM.</text>
+    </g>
+
+    <rect x="56" y="390" width="322" height="200" rx="12" fill="#1e293b" stroke="#334155"/>
+    <text x="80" y="424" font-size="16.5" font-weight="700" fill="#f1f5f9">Phone Home</text>
+    <g font-size="12.5" fill="#cbd5e1">
+      <text x="80" y="454">Curated cards for Windows' own</text>
+      <text x="80" y="476">talkers (DiagTrack, CryptSvc,</text>
+      <text x="80" y="498">Delivery Optimization…): the story,</text>
+      <text x="80" y="520">measured connects/hr against a</text>
+      <text x="80" y="542">normal band, beacon regularity.</text>
+    </g>
+
+    <rect x="392" y="390" width="322" height="200" rx="12" fill="#1e293b" stroke="#334155"/>
+    <text x="416" y="424" font-size="16.5" font-weight="700" fill="#f1f5f9">Transmissions</text>
+    <g font-size="12.5" fill="#cbd5e1">
+      <text x="416" y="454">Recorded TLS conversations:</text>
+      <text x="416" y="476">process, SNI host, provider,</text>
+      <text x="416" y="498">bytes, decrypted-or-not.</text>
+      <text x="416" y="526">Decrypted bodies are DPAPI-</text>
+      <text x="416" y="548">encrypted at rest, your user only.</text>
+    </g>
+
+    <rect x="728" y="390" width="336" height="200" rx="12" fill="#1e293b" stroke="#334155"/>
+    <text x="752" y="424" font-size="16.5" font-weight="700" fill="#f1f5f9">Traces &amp; Spawn Watches</text>
+    <g font-size="12.5" fill="#cbd5e1">
+      <text x="752" y="454">Traces: watch any process or svchost</text>
+      <text x="752" y="476">service for hours — frequency, upload</text>
+      <text x="752" y="498">dominance, beacon regularity.</text>
+      <text x="752" y="526">Spawn Watches: prefilters evaluated</text>
+      <text x="752" y="548">the moment a process is born.</text>
+    </g>
+
+    <text x="1064" y="624" font-size="13" fill="#64748b" text-anchor="end">AutoCommand · dparksports/autocommand</text>
+  </g>
+</svg>

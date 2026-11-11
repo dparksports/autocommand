@@ -1,4 +1,4 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="620" viewBox="0 0 1120 620" role="img" aria-label="How to read one connection row">
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="620" viewBox="0 0 1120 620" role="img" aria-label="How to read one connection row, the right-click menu, and the TX-only lens">
   <rect width="1120" height="620" fill="#0f172a"/>
   <g font-family="Segoe UI, Arial, sans-serif">
     <text x="56" y="64" font-size="32" font-weight="700" fill="#f1f5f9">How to read one row</text>
@@ -9,7 +9,7 @@
     <text x="120" y="146" font-size="19" font-weight="600" fill="#f1f5f9">chrome.exe</text>
     <text x="120" y="172" font-size="13" fill="#94a3b8">started by your user · signed Google LLC</text>
     <text x="430" y="146" font-size="15.5" fill="#e2e8f0">→ update.google.com:443</text>
-    <text x="430" y="172" font-size="13" fill="#94a3b8">Mountain View, US · AS15169 Google</text>
+    <text x="430" y="172" font-size="13" fill="#94a3b8">Mountain View, US · AS15169 Google · RDAP</text>
     <text x="680" y="138" font-size="12.5" fill="#94a3b8">TX 12.4 KB/s</text>
     <rect x="680" y="146" width="140" height="12" rx="6" fill="#0b1220"/>
     <rect x="680" y="146" width="92" height="12" rx="6" fill="#22d3ee"/>
@@ -34,15 +34,31 @@
       <text x="1040" y="254" text-anchor="end">undo included</text>
     </g>
 
-    <rect x="56" y="300" width="1008" height="250" rx="12" fill="#1e293b" stroke="#334155"/>
-    <text x="88" y="344" font-size="20" font-weight="700" fill="#f1f5f9">The built-in lens: TX-only (no reply)</text>
-    <g font-size="15.5" fill="#cbd5e1">
-      <text x="88" y="382">A checkbox narrows the list to programs that sent packets and never heard one word back — the</text>
-      <text x="88" y="408">shape of a dead-end beacon or a blocked outbound call. It shows how many are out there before</text>
-      <text x="88" y="434">you switch it on.</text>
-      <text x="88" y="486">It is a lens, not a verdict: uncheck it and the full list is exactly where it was — nothing hidden</text>
-      <text x="88" y="512">while you were not looking.</text>
+    <!-- right-click menu card -->
+    <rect x="56" y="300" width="492" height="270" rx="12" fill="#1e293b" stroke="#334155"/>
+    <text x="88" y="340" font-size="20" font-weight="700" fill="#f1f5f9">Right-click a row</text>
+    <g font-size="14.5" fill="#cbd5e1">
+      <text x="88" y="376">Block the process · block the remote IP</text>
+      <text x="88" y="404">Trace: how was this PID spawned?</text>
+      <text x="88" y="432">Peer into this connection / this program</text>
+      <text x="88" y="460">Reveal the real process name (Sysmon)</text>
+      <text x="88" y="488">Scheduled-task details · disable the task</text>
+      <text x="88" y="516">Why is WSL offline? · kill · ignore</text>
     </g>
+    <text x="88" y="550" font-size="13" fill="#64748b">The row surprises you? That's the moment to click — not before.</text>
+
+    <!-- TX-only lens card -->
+    <rect x="572" y="300" width="492" height="270" rx="12" fill="#1e293b" stroke="#334155"/>
+    <text x="604" y="340" font-size="20" font-weight="700" fill="#f1f5f9">The built-in lens: TX-only (no reply)</text>
+    <g font-size="14.5" fill="#cbd5e1">
+      <text x="604" y="376">A checkbox narrows the list to programs that</text>
+      <text x="604" y="402">sent packets and never heard one word back —</text>
+      <text x="604" y="428">the shape of a dead-end beacon.</text>
+      <text x="604" y="470">It shows how many are out there before you</text>
+      <text x="604" y="496">switch it on. A lens, not a verdict: uncheck it</text>
+      <text x="604" y="522">and the full list is exactly where it was.</text>
+    </g>
+
     <text x="1064" y="604" font-size="13" fill="#64748b" text-anchor="end">AutoCommand · dparksports/autocommand</text>
   </g>
 </svg>

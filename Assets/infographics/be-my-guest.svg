@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="470" viewBox="0 0 1120 470" role="img" aria-label="Be My Guest: invite your AI assistant through a local bridge you start and stop">
+  <rect width="1120" height="470" fill="#0f172a"/>
+  <g font-family="Segoe UI, Arial, sans-serif">
+    <text x="56" y="64" font-size="32" font-weight="700" fill="#f1f5f9">Be My Guest — your AI assistant, invited</text>
+    <rect x="56" y="78" width="64" height="4" fill="#22d3ee"/>
+
+    <!-- diagram -->
+    <rect x="56" y="116" width="280" height="120" rx="12" fill="#1e293b" stroke="#334155"/>
+    <text x="88" y="152" font-size="17" font-weight="700" fill="#f1f5f9">You</text>
+    <text x="88" y="180" font-size="13.5" fill="#cbd5e1">in the Be My Guest tab,</text>
+    <text x="88" y="202" font-size="13.5" fill="#cbd5e1">pressing Start — or Stop.</text>
+
+    <path d="M 348 176 L 388 176 L 388 166 L 408 176 L 388 186 L 388 176 Z" fill="#22d3ee"/>
+
+    <rect x="424" y="116" width="280" height="120" rx="12" fill="#1e293b" stroke="#22d3ee"/>
+    <text x="456" y="152" font-size="17" font-weight="700" fill="#f1f5f9">The session</text>
+    <text x="456" y="180" font-size="13.5" fill="#cbd5e1">a local bridge on your machine</text>
+    <text x="456" y="202" font-size="13.5" fill="#cbd5e1">— loopback only, grant-based</text>
+
+    <path d="M 716 176 L 756 176 L 756 166 L 776 176 L 756 186 L 756 176 Z" fill="#475569"/>
+    <text x="736" y="160" font-size="12" fill="#64748b" text-anchor="middle">forwards</text>
+
+    <rect x="792" y="116" width="272" height="120" rx="12" fill="#1e293b" stroke="#334155"/>
+    <text x="824" y="152" font-size="17" font-weight="700" fill="#f1f5f9">Your assistant</text>
+    <text x="824" y="180" font-size="13.5" fill="#cbd5e1">any MCP client, via the small</text>
+    <text x="824" y="202" font-size="13.5" fill="#cbd5e1">unprivileged AgentProxy</text>
+
+    <!-- facts row -->
+    <g font-size="13.5" fill="#cbd5e1">
+      <rect x="56" y="264" width="492" height="100" rx="12" fill="#1e293b" stroke="#334155"/>
+      <text x="88" y="298" font-size="15" font-weight="700" fill="#f1f5f9">Only you open the door</text>
+      <text x="88" y="326">MCP clients never activate anything. No session running?</text>
+      <text x="88" y="348">The proxy answers with setup guidance, nothing more.</text>
+
+      <rect x="572" y="264" width="492" height="100" rx="12" fill="#1e293b" stroke="#334155"/>
+      <text x="604" y="298" font-size="15" font-weight="700" fill="#f1f5f9">It sees what you see</text>
+      <text x="604" y="326">Every capability is one the app already performs in front</text>
+      <text x="604" y="348">of you — and every tool call lands in the live activity log.</text>
+    </g>
+
+    <rect x="56" y="384" width="1008" height="56" rx="12" fill="#1e293b" stroke="#334155"/>
+    <text x="88" y="418" font-size="13.5" fill="#94a3b8">One honest boundary: while a session runs its token lives in a local file — anything running as your user</text>
+    <text x="88" y="434" font-size="13.5" fill="#94a3b8">can read what the AI reads.</text>
+
+    <text x="1064" y="462" font-size="13" fill="#64748b" text-anchor="end">AutoCommand · dparksports/autocommand</text>
+  </g>
+</svg>

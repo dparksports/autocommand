@@ -1,51 +1,47 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="560" viewBox="0 0 1120 560" role="img" aria-label="When something looks odd: see, ask, stop">
-  <rect width="1120" height="560" fill="#0f172a"/>
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="430" viewBox="0 0 1120 430" role="img" aria-label="When something looks odd: the svchost example, answered by one row">
+  <rect width="1120" height="430" fill="#0f172a"/>
   <g font-family="Segoe UI, Arial, sans-serif">
     <text x="56" y="64" font-size="32" font-weight="700" fill="#f1f5f9">When something looks odd: see, ask, stop</text>
     <rect x="56" y="78" width="64" height="4" fill="#22d3ee"/>
 
-    <g>
-      <rect x="56" y="110" width="296" height="310" rx="12" fill="#1e293b" stroke="#334155"/>
-      <text x="84" y="152" font-size="21" font-weight="700" fill="#fbbf24">See</text>
-      <rect x="84" y="170" width="2" height="64" fill="#fbbf24"/>
-      <g font-size="16.5" font-style="italic" fill="#f1f5f9">
-        <text x="100" y="192">"svchost.exe is</text>
-        <text x="100" y="216">uploading packets."</text>
-      </g>
-      <g font-size="15" fill="#cbd5e1">
-        <text x="84" y="268">Sounds alarming. Most of</text>
-        <text x="84" y="294">the time it is not — but</text>
-        <text x="84" y="320">you want proof, not a</text>
-        <text x="84" y="346">hunch.</text>
-      </g>
+    <!-- panel 1: the worry -->
+    <rect x="56" y="120" width="308" height="230" rx="12" fill="#1e293b" stroke="#334155"/>
+    <text x="88" y="160" font-size="19" font-weight="700" fill="#f87171">The 2 a.m. worry</text>
+    <g font-size="14.5" fill="#cbd5e1">
+      <text x="88" y="200">"svchost.exe is uploading</text>
+      <text x="88" y="226">packets."</text>
+      <text x="88" y="268">Sounds alarming. Forum</text>
+      <text x="88" y="294">archaeology at midnight.</text>
     </g>
 
-    <g>
-      <rect x="408" y="110" width="296" height="310" rx="12" fill="#1e293b" stroke="#334155"/>
-      <text x="436" y="152" font-size="21" font-weight="700" fill="#22d3ee">Ask</text>
-      <g font-size="15" fill="#cbd5e1">
-        <text x="436" y="192">Click the row — who started</text>
-        <text x="436" y="218">it, where it connects — or</text>
-        <text x="436" y="244">invite your AI assistant.</text>
-        <text x="436" y="296">The answer fits in one row:</text>
-        <text x="436" y="322">Chrome's updater, fetching</text>
-        <text x="436" y="348">from Google itself.</text>
-      </g>
+    <path d="M 380 235 L 380 227 L 396 235 L 380 243 Z" fill="#475569"/>
+
+    <!-- panel 2: the row -->
+    <rect x="424" y="120" width="348" height="230" rx="12" fill="#1e293b" stroke="#334155"/>
+    <text x="456" y="160" font-size="19" font-weight="700" fill="#22d3ee">One row answers it</text>
+    <circle cx="478" cy="192" r="7" fill="#fbbf24"/>
+    <text x="494" y="188" font-size="15" font-weight="600" fill="#f1f5f9">svchost.exe (netsvcs)</text>
+    <text x="494" y="206" font-size="13" fill="#94a3b8">hosting: Google Update</text>
+    <g font-size="13.5" fill="#cbd5e1">
+      <text x="456" y="240">→ 142.250.185.78:443</text>
+      <text x="456" y="262">AS15169 Google LLC · RDAP</text>
+      <text x="456" y="284">launched by: GoogleUpdateTaskMachineUA</text>
+      <text x="456" y="306">(a scheduled task — details one click away)</text>
     </g>
 
-    <g>
-      <rect x="760" y="110" width="296" height="310" rx="12" fill="#1e293b" stroke="#334155"/>
-      <text x="788" y="152" font-size="21" font-weight="700" fill="#f87171">Stop</text>
-      <g font-size="15" fill="#cbd5e1">
-        <text x="788" y="192">Do not want it? Block.</text>
-        <text x="788" y="218">Regret it? Undo.</text>
-        <text x="788" y="270">Internet broke? The Restore</text>
-        <text x="788" y="296">Internet button undoes</text>
-        <text x="788" y="322">every block in one click.</text>
-      </g>
+    <path d="M 788 235 L 788 227 L 804 235 L 788 243 Z" fill="#475569"/>
+
+    <!-- panel 3: the verdict -->
+    <rect x="832" y="120" width="268" height="230" rx="12" fill="#1e293b" stroke="#334155"/>
+    <text x="864" y="160" font-size="19" font-weight="700" fill="#34d399">No panic</text>
+    <g font-size="14.5" fill="#cbd5e1">
+      <text x="864" y="200">Chrome's updater,</text>
+      <text x="864" y="226">talking to Google.</text>
+      <text x="864" y="268">No reinstall. No</text>
+      <text x="864" y="294">midnight forums.</text>
     </g>
 
-    <text x="56" y="474" font-size="14" fill="#94a3b8">A real example from this app's own development machine — no panic, no reinstall, no forum archaeology at midnight.</text>
-    <text x="1064" y="540" font-size="13" fill="#64748b" text-anchor="end">AutoCommand · dparksports/autocommand</text>
+    <text x="56" y="392" font-size="13.5" fill="#64748b">Real example, from this app's own development machine. Still unsure? Invite your AI assistant to take a look — see Be My Guest.</text>
+    <text x="1064" y="414" font-size="13" fill="#64748b" text-anchor="end">AutoCommand · dparksports/autocommand</text>
   </g>
 </svg>
