@@ -17,6 +17,37 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.11.2 (2026-11-11)
+================================================================================
+
+# v2026.11.11.2 — The Last attempt column sorts again
+
+Fixes the Blocks tab's "Last attempt" column header ignoring clicks —
+the one dead column in an otherwise fully sortable header.
+
+## Root cause
+
+The sort header works by parsing each button's Tag string as a
+BlockSortColumn enum member name. The "Last attempt" header carried
+Tag="traffic", but the enum member is LastTraffic — the parse failed
+silently and the click returned early. Every other column's tag
+(status, target, service, class, created, containment) matched its
+enum member exactly, which is why only this column was dead.
+
+## The fix
+
+- Tag="lasttraffic", matching the enum member. The sort behavior
+  itself needed no change: freshest-first with "no traffic found"
+  nulls sinking in both directions was already implemented in
+  ApplyUserSort.
+- This also lines up with the persisted sort preference: SaveSortPref
+  writes "lasttraffic" (enum name lower-cased) and LoadSortPref parses
+  it back case-insensitively, so a saved "Last attempt" sort now
+  survives restarts.
+
+Builds clean; all offline self-test suites green.
+
+================================================================================
 v2026.11.11.1 (2026-11-11)
 ================================================================================
 

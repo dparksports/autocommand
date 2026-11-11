@@ -330,7 +330,7 @@
                     <Button Grid.Column="5" x:Name="HdrCreated" Style="{StaticResource SortHeaderBtn}" Tag="created"
                             Click="SortHeader_Click" Content="Created"
                             ToolTip="Sort by when the block was created — newest first. Click again for oldest first, a third time for the shipped order."/>
-                    <Button Grid.Column="6" x:Name="HdrTraffic" Style="{StaticResource SortHeaderBtn}" Tag="traffic"
+                    <Button Grid.Column="6" x:Name="HdrTraffic" Style="{StaticResource SortHeaderBtn}" Tag="lasttraffic"
                             Click="SortHeader_Click" Content="Last attempt"
                             ToolTip="Sort by last connection attempt — freshest first ('no traffic found' sinks to the bottom either way). Click again for oldest first, a third time for the shipped order."/>
                     <Button Grid.Column="7" x:Name="HdrContainment" Style="{StaticResource SortHeaderBtn}" Tag="containment"
