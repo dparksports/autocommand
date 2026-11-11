@@ -69,7 +69,15 @@ junction-path assertions now pass at the desk.
   the user-profile Temp, and every suite's scratch root lives under
   GetTempPath().
 
-Builds clean in Release and Debug; offline suites green at the desk.
+Builds clean in Release and Debug. Local gate (scripts\local-ci.ps1,
+medium integrity): ten of the eleven strict suites green. The one
+that is not - InterceptSelfTest - restores the live wininet proxy key
+as part of its run, and on a machine where the app's own interception
+tamper-guard holds that key the restore is denied; it needs a stock
+machine (its CI runs were green until the ci.yml script parse error
+of 2026-11-11, which is what this release's local gate replaces).
+BridgeSelfTest is green in isolation but flaky when run in-sequence
+next to the live app's MCP machinery; tracked for investigation.
 
 ================================================================================
 v2026.11.11.1 (2026-11-11)
