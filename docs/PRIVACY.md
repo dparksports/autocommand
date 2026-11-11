@@ -42,7 +42,7 @@ value to `no`). That withdraws consent permanently. Uninstalling the app
 removes the settings with it.
 
 **Everything else the app stores** stays on your machine, in readable files
-listed in the [Technical Notes](docs/TECHNICAL_NOTES.md).
+listed in the [Technical Notes](TECHNICAL_NOTES.md).
 
 **Network lookups, spelled out.** Three features reach the internet, each
 sending only what that feature needs:

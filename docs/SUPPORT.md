@@ -26,4 +26,4 @@ AutoCommand is built and maintained by one person ([Dan Park](https://magicpoint
 
 ## Contributing code
 
-PRs are welcome — pick a tab, keep the design rules in the [Technical Notes](docs/TECHNICAL_NOTES.md), and match the existing code style.
+PRs are welcome — pick a tab, keep the design rules in the [Technical Notes](TECHNICAL_NOTES.md), and match the existing code style.

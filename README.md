@@ -8,7 +8,7 @@
   [![Platform](https://img.shields.io/badge/Windows-10_%2F_11-0078D7?logo=windows)](../../releases/latest)
 </div>
 
-Antivirus matches files against a list of known-bad ones. That is a fine job — but it has nothing to say about the "clean" program phoning home more than it should, and it goes quiet exactly when your computer is acting weird. AutoCommand is the piece antivirus never gives you: **it shows you every program on your PC that talks to the internet, explains each one in plain English, and stops anything you don't want** — one click, undo included. It reports nothing about you to anyone (the only automatic outbound traffic asks public RDAP registries who owns an IP — the whole list is spelled out in [PRIVACY.md](PRIVACY.md)), costs nothing, and its data lives in readable local files.
+Antivirus matches files against a list of known-bad ones. That is a fine job — but it has nothing to say about the "clean" program phoning home more than it should, and it goes quiet exactly when your computer is acting weird. AutoCommand is the piece antivirus never gives you: **it shows you every program on your PC that talks to the internet, explains each one in plain English, and stops anything you don't want** — one click, undo included. It reports nothing about you to anyone (the only automatic outbound traffic asks public RDAP registries who owns an IP — the whole list is spelled out in [PRIVACY.md](docs/PRIVACY.md)), costs nothing, and its data lives in readable local files.
 
 Keep your antivirus if you like it. They do different jobs. Many people run both.
 
@@ -77,7 +77,7 @@ If you use an AI assistant, the **Be My Guest** tab can invite it to read the sa
 
 ![Nothing by default: three narrow lookups spelled out, everything else local](Assets/infographics/privacy.svg)
 
-**Nothing, by default.** Everything happens on your computer. Three features reach the internet, each sending only what that feature needs: automatic RDAP lookups (who owns this IP — HTTPS, the registry learns the queried IP and nothing else), the Sysmon download (only when you click Install, Authenticode-verified before it runs), and the secure-boot DBX blob (only from Shields Up). The one optional extra — an anonymous daily count with no identifiers, not even a random one — exists so the project can show a download graph, and it is off unless you say yes. Details, and how to withdraw consent, in [PRIVACY.md](PRIVACY.md).
+**Nothing, by default.** Everything happens on your computer. Three features reach the internet, each sending only what that feature needs: automatic RDAP lookups (who owns this IP — HTTPS, the registry learns the queried IP and nothing else), the Sysmon download (only when you click Install, Authenticode-verified before it runs), and the secure-boot DBX blob (only from Shields Up). The one optional extra — an anonymous daily count with no identifiers, not even a random one — exists so the project can show a download graph, and it is off unless you say yes. Details, and how to withdraw consent, in [PRIVACY.md](docs/PRIVACY.md).
 
 ## Built so you can experiment safely
 
@@ -110,7 +110,7 @@ dotnet run --project NetWatchSelfTest
 dotnet run --project WslSelfTest
 ```
 
-The `systemmonitor/` tree is the preserved precursor — it is excluded from the app build on purpose; don't expect it to compile into anything. Release automation lives in [`.github/workflows/`](.github/workflows/): every push runs the self-test gate (plus a dependency-vulnerability check), and a `v20…` tag builds and attaches the release zip with checksums — keeping one release per day. Bugs and ideas: see [SUPPORT.md](SUPPORT.md); security reports: [SECURITY.md](SECURITY.md) — please use private reporting.
+The `systemmonitor/` tree is the preserved precursor — it is excluded from the app build on purpose; don't expect it to compile into anything. Release automation lives in [`.github/workflows/`](.github/workflows/): every push runs the self-test gate (plus a dependency-vulnerability check), and a `v20…` tag builds and attaches the release zip with checksums — keeping one release per day. Bugs and ideas: see [SUPPORT.md](docs/SUPPORT.md); security reports: [SECURITY.md](docs/SECURITY.md) — please use private reporting.
 
 ## Common questions
 
@@ -119,7 +119,7 @@ The `systemmonitor/` tree is the preserved precursor — it is excluded from the
 | "A program I don't recognize is on the list" | Most are normal Windows parts. Double-click the row — it shows who started it and where it connects. Still unsure? Invite your AI assistant to take a look (Be My Guest). |
 | "It asked for Administrator permission" | That's how it sees system processes, not just yours. It never uses that permission without asking you first. |
 | "Should I remove my antivirus?" | Your call — they do different jobs. AutoCommand shows what's happening; antivirus scans files. Many people run both. |
-| "What does it send about me?" | Nothing, by default. The three narrow lookups and the optional anonymous count are spelled out above and in [PRIVACY.md](PRIVACY.md). |
+| "What does it send about me?" | Nothing, by default. The three narrow lookups and the optional anonymous count are spelled out above and in [PRIVACY.md](docs/PRIVACY.md). |
 | "I blocked something and the internet broke" | Breathe. The 🚑 **Restore Internet** button undoes every block the app made, in one click. |
 | "A gate is open and I'm done early" | Close it from Blocks — one click, blocking returns immediately. |
 

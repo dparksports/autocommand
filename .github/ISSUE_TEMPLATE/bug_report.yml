@@ -7,7 +7,7 @@ body:
       value: |
         Thanks for taking the time to report — AutoCommand is maintained by one person, and good reports are what keep it sharp.
 
-        **⚠️ Security problem? Do not file it here.** Anything that could let malware or another user bypass AutoCommand's protections belongs in private reporting — see [SECURITY.md](https://github.com/dparksports/autocommand-windows/blob/main/SECURITY.md).
+        **⚠️ Security problem? Do not file it here.** Anything that could let malware or another user bypass AutoCommand's protections belongs in private reporting — see [SECURITY.md](https://github.com/dparksports/autocommand/blob/master/docs/SECURITY.md).
 
   - type: checkboxes
     id: preflight
