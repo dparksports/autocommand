@@ -5,7 +5,7 @@
        matrix) and now embedded here as the Rain tab. It lives BESIDE the
        vendored engines rather than under core\ on purpose: core libraries
        are headless by house rule, and this one is WPF to the bone
-       (WriteableBitmap composition, glyph rasterization). The data side is
+       (GlyphRun text composition on DrawingVisuals). The data side is
        deliberately attachment-only — MatrixRainFeed reads the Process
        Monitor's live shared row table, so the app's single Sysmon watcher
        and sniffer remain the only source of truth. -->
@@ -14,12 +14,11 @@
     <UseWPF>true</UseWPF>
     <Nullable>disable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
-    <AllowUnsafeBlocks>true</AllowUnsafeBlocks>
     <AssemblyName>AutoCommand.MatrixRain.Core</AssemblyName>
     <RootNamespace>AutoCommand.Matrix</RootNamespace>
     <Company>AutoCommand</Company>
     <Product>AutoCommand.MatrixRain.Core</Product>
-    <Description>The Matrix-rain process-monitor face: per-PID rain columns rendered over a frozen katakana backdrop, lead-glyph bloom and log-stepped wake, attach-mode aggregation over the live monitor table.</Description>
+    <Description>The Matrix-rain process-monitor face: per-PID rain columns text-rendered as glyph runs over a frozen katakana backdrop, lead-glyph bloom and log-stepped wake, attach-mode aggregation over the live monitor table.</Description>
   </PropertyGroup>
 
   <ItemGroup>

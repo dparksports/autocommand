@@ -87,7 +87,7 @@ namespace AutoCommand.Views
             {
                 _cfg = MatrixRainConfig.LoadOrDefault();
                 _feed = new MatrixRainFeed(tracked);
-                _renderer = new MatrixRenderer(AmbientImage, RainImage, () => _feed.Latest, _cfg);
+                _renderer = new MatrixRenderer(RainCanvas, () => _feed.Latest, _cfg);
                 _renderer.ActiveColumnsChanged += ApplyColumnWidth;
                 ApplyColumnWidth();
                 _renderer.SetSurfaceSize(ActualWidth, ActualHeight);

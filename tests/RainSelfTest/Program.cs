@@ -65,10 +65,8 @@ namespace RainSelfTest
         {
             var logPath = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "rainselftest.log");
             var grid = new Grid { Background = new SolidColorBrush(Color.FromRgb(5, 8, 7)) };
-            var ambient = new Image();
-            var rain = new Image();
-            grid.Children.Add(ambient);
-            grid.Children.Add(rain);
+            var canvas = new AutoCommand.Matrix.MatrixRainCanvas();
+            grid.Children.Add(canvas);
             grid.Children.Add(_diag);
             Content = grid;
 
@@ -83,7 +81,7 @@ namespace RainSelfTest
                     _cfg = MatrixRainConfig.LoadOrDefault();
                     _cfg.Style = "cinema";   // self-test the movie look
                     _feed = new SynthFeed();
-                    _renderer = new MatrixRenderer(ambient, rain, () => _feed.Latest, _cfg);
+                    _renderer = new MatrixRenderer(canvas, () => _feed.Latest, _cfg);
                     _renderer.ActiveColumnsChanged += () =>
                         System.IO.File.AppendAllText(logPath,
                             $"[{DateTime.Now:HH:mm:ss.fff}] activeCols -> {_renderer.ActiveColumns}\n");

@@ -1,34 +1,32 @@
 using System;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.IO;
 using System.Linq;
 using System.Windows;
-using System.Windows.Controls;
 using System.Windows.Media;
 using System.Windows.Media.Imaging;
-using Image = System.Windows.Controls.Image;
+using Point = System.Windows.Point;
 
 namespace AutoCommand.Matrix
 {
     /// <summary>One falling stream inside a column: its head row and the
-    /// glyph currently shown there (plus the row it was drawn at last
-    /// frame — exact clearing, since there is no fade pass to eat stray
-    /// halo pixels). The wake is not drawn as part of the drop; each cell
-    /// the head vacates becomes a fading WakeCell over the etched
-    /// backdrop.</summary>
+    /// glyph currently shown there. The wake is not drawn as part of the
+    /// drop; each cell the head vacates becomes a fading WakeCell (over the
+    /// etched backdrop) in instrument style, or a time-faded trail cell in
+    /// cinema.</summary>
     internal sealed class RainDrop
     {
         public int Row;
-        public int LastRow = -1;
         public int GlyphIndex;
         public bool Rx;
     }
 
-    /// <summary>One character behind a lead: its grid row, its glyph, and
-    /// its current brightness. Brightness is stepped by DISTANCE behind the
-    /// lead (same color family as the lead, one log-step dimmer per
-    /// character) — never by time, so an idle stream freezes in place,
-    /// animating only when events move it.</summary>
+    /// <summary>One character behind a lead (instrument style): its grid
+    /// row, its glyph, and its current brightness. Brightness is stepped by
+    /// DISTANCE behind the lead (same color family as the lead, one
+    /// log-step dimmer per character) — never by time, so an idle stream
+    /// freezes in place, animating only when events move it.</summary>
     internal sealed class WakeCell
     {
         public int Row;
@@ -37,9 +35,28 @@ namespace AutoCommand.Matrix
         public bool Rx;
     }
 
+    /// <summary>One trail cell in cinema style: the glyph the lead stamped
+    /// as it vacated the row, and when — the frame draws it at 0.28^(age),
+    /// the same curve the bitmap engine's per-pixel fade pass produced,
+    /// without owning a single pixel.</summary>
+    internal sealed class CinemaCell
+    {
+        public int Row;
+        public int Glyph;
+        public double StampSec;
+    }
+
+    /// <summary>One trail cell of a decorative cinema stream.</summary>
+    internal sealed class DecoCell
+    {
+        public int Row;
+        public int Glyph;
+        public double StampSec;
+    }
+
     /// <summary>A decorative cinema stream — the movie's background rain:
-    /// continuous, its own speed, its own brightness, restarting at the
-    /// top after a breathing gap. Carries no data; it is the look.</summary>
+    /// continuous, its own speed, its own brightness, restarting at the top
+    /// after a breathing gap. Carries no data; it is the look.</summary>
     internal sealed class DecoStream
     {
         public double HeadRow;
@@ -47,6 +64,7 @@ namespace AutoCommand.Matrix
         public double WaitSec = -1; // >= 0: resting before restart
         public double Brightness;   // alpha scale for its green trail
         public int Glyph;
+        public readonly List<DecoCell> Trail = new(96);
     }
 
     /// <summary>A rain column: the per-PID state the snapshots feed.</summary>
@@ -72,6 +90,10 @@ namespace AutoCommand.Matrix
         public double Activity;
         public readonly List<RainDrop> Drops = new(4);
         public readonly List<WakeCell> Wake = new(32);
+        /// <summary>Cinema trail: rows this column's leads stamped, fading
+        /// by age. Ordered by stamp (front = oldest), so aging out is a
+        /// front-trim.</summary>
+        public readonly List<CinemaCell> CinemaTrail = new(128);
         /// <summary>Fractional fall-step accumulators: rows/sec sits below
         /// one row per frame at common rates (25/s at 60fps = 0.42 rows a
         /// frame), and flooring that per frame floors it to ZERO forever —
@@ -79,47 +101,54 @@ namespace AutoCommand.Matrix
         public double FallCarryTx, FallCarryRx;
         public int Slot;
         public int PrevSlot = -1;               // last frame's slot — re-slot compensation
-        public double XOffset;                  // device-px slide toward 0 (entrance / re-rank glide)
-        public double LastDrawnX = double.MinValue;  // where the column rendered last frame (ghost clearing)
+        public double XOffset;                  // DIP slide toward 0 (entrance / re-rank glide)
         public long TxBytes, RxBytes, TxPackets, RxPackets;
         public int Connections;
     }
 
     /// <summary>
-    /// The rain itself, in two stacked layers. The bottom layer is a dim
-    /// ambient backdrop of glyphs — steady brightness, drifting down far
-    /// slower than any stream. The top layer carries the falling streams:
-    /// each stream is a LEAD glyph — the single brightest cell, zLift-
-    /// scaled, shadowed, bloom-haloed — and its wake, the characters it has
-    /// passed, each fading on a logarithmic curve (brightness holds high,
-    /// then plunges) over the identical backdrop glyph etched beneath it,
-    /// so every completed fade resolves into a background character. There
-    /// is no per-pixel fade pass: decay is exact, per cell. Every TX packet
-    /// buys one falling glyph step in that PID's column; a traffic-blocked
-    /// PID spends its budget in red.
+    /// The rain itself, text-rendered in two stacked layers of a
+    /// MatrixRainCanvas. The bottom layer is a dim ambient backdrop of
+    /// glyphs — steady brightness, drifting down far slower than any
+    /// stream. The top layer carries the falling streams: each stream is a
+    /// LEAD glyph — the single brightest cell, zLift-scaled, shadowed,
+    /// bloom-haloed — and its wake, the characters it has passed, each
+    /// fading on a logarithmic curve (instrument: by trail distance, so an
+    /// idle stream freezes; cinema: by age, the movie's silky tail) over
+    /// the identical backdrop glyph etched beneath it.
+    ///
+    /// Every frame is REDRAWN FROM STATE as GlyphRuns: WPF owns
+    /// rasterization, the glyph caches and every GPU resource — there is
+    /// no WriteableBitmap, no Lock/AddDirtyRect bookkeeping, and a
+    /// render-device loss (display sleep/wake, session lock, monitor
+    /// change — the bitmap engine's three-time crash class, crash.log
+    /// 2026-11-08/09/11) is absorbed inside WPF's composition, invisible
+    /// to this loop. Sizing is DIP-native, so the per-DPI atlas rebuilds
+    /// are gone too.
+    ///
+    /// Every TX packet buys one falling glyph step in that PID's column; a
+    /// traffic-blocked PID spends its budget in red.
     /// </summary>
     public sealed class MatrixRenderer : IDisposable
     {
-        private readonly Image _image;
-        private readonly Image _ambientImage;
+        private readonly MatrixRainCanvas _canvas;
         private readonly Func<IReadOnlyList<PidSnapshot>> _latestSource;
         private readonly Random _rand = new();
 
         private MatrixRainConfig _cfg;
-        private GlyphAtlas _atlas;
-        private WriteableBitmap _bmp;
-        private WriteableBitmap _bgBmp;      // the ambient backdrop layer
+        private GlyphCase _case;
 
         // Backdrop state: a per-cell glyph grid — FROZEN by default; the
         // only changes are real ones (falling wakes etching in) unless
-        // drift is explicitly enabled.
+        // drift is explicitly enabled. Redrawn only when dirty.
         private int[,] _ambientGrid;         // [col,row] glyph index, -1 = empty
         private int _ambientCols, _ambientRows;
         private double _driftAccumSec;
+        private bool _ambientDirty;
         private readonly List<(int Slot, int Row, int Glyph)> _pendingEtches = new();
 
-        private int _w, _h;              // device pixels
-        private int _bandH;              // label band height (device px)
+        private double _w, _h;           // DIPs
+        private double _bandH;           // label band height (DIP)
         private int _gridCols, _gridRows;
 
         private readonly Dictionary<int, RainColumn> _columns = new();
@@ -141,6 +170,14 @@ namespace AutoCommand.Matrix
         private const int PidLabelRows = 6;   // PIDs up to 6 digits, vertically
         private const double ActivityDecayPerSnapshot = 0.97;  // ~2.3 s half-life at 100 ms snapshots
         private const double ResortSeconds = 2.0;
+        /// <summary>Cinema trail lifetime: 0.28^t bottoms out just under
+        /// the visibility threshold here (the fade curve the bitmap
+        /// engine's per-pixel multiply produced).</summary>
+        private const double TrailLifeSeconds = 4.4;
+        /// <summary>Trail/wake alpha quantization: cells land in one of
+        /// this many opacity classes so a whole class draws as one
+        /// GlyphRun per owning typeface.</summary>
+        private const int AlphaClasses = 12;
 
         // Log-fade curve over TRAIL DISTANCE: F(d) = ln(1 + k(D-d))/ln(9),
         // with k*D == 8 so the shape is constant whatever the length — the
@@ -155,29 +192,26 @@ namespace AutoCommand.Matrix
         // timer over decayed scores, which made idle columns shift.
         private bool _rankDirty;
 
-        private bool _rainClearPending;   // full rain-layer reset (atlas rebuild, column retirement)
+        private bool _rainClearPending;   // full rain-layer reset (case rebuild, column retirement)
 
-        public MatrixRenderer(Image ambientImage, Image rainImage, Func<IReadOnlyList<PidSnapshot>> latest, MatrixRainConfig cfg)
+        public MatrixRenderer(MatrixRainCanvas canvas, Func<IReadOnlyList<PidSnapshot>> latest, MatrixRainConfig cfg)
         {
-            _ambientImage = ambientImage;
-            _image = rainImage;
+            _canvas = canvas;
             _latestSource = latest;
             _frameTimer.Tick += (s, e) => Frame(null, EventArgs.Empty);
             ApplyConfig(cfg);
         }
 
-        public GlyphAtlas Atlas => _atlas;
-
         /// <summary>Hot-applies config: font/color/charset changes rebuild
-        /// the atlas; rates and caps take effect on the next frame.</summary>
+        /// the case; rates and caps take effect on the next frame.</summary>
         public void ApplyConfig(MatrixRainConfig cfg)
         {
             bool rebuild = _cfg == null || cfg.VisualsDifferFrom(_cfg);
             _cfg = cfg;
-            if (rebuild || _atlas == null)
+            if (rebuild || _case == null)
             {
-                _atlas = GlyphAtlas.Build(cfg, DpiScale);
-                // Cell metrics changed — stale pixels would smear; reset.
+                _case = GlyphCase.Build(cfg);
+                // Cell metrics changed — stale trails would smear; reset.
                 _rainClearPending = true;
             }
             // Trail length in characters: the configured wake lifetime at
@@ -187,112 +221,29 @@ namespace AutoCommand.Matrix
             RecomputeGrid();
         }
 
-        private double DpiScale
-        {
-            get
-            {
-                var src = PresentationSource.FromVisual(_image);
-                return src?.CompositionTarget?.TransformToDevice.M11 ?? 1.0;
-            }
-        }
+        // ------------------------------------------------------------------
+        // Layout
+        // ------------------------------------------------------------------
 
-        /// <summary>(Re)sizes the rain surface to device pixels; called on
-        /// load, dock changes and DPI changes.</summary>
+        /// <summary>(Re)sizes the rain surface, in DIPs — WPF owns device
+        /// pixels, so no per-DPI atlas rebuild, no surface recreation; the
+        /// grid just re-derives from the new cell counts.</summary>
         public void SetSurfaceSize(double dipWidth, double dipHeight)
         {
-            double scale = DpiScale;
-
-            // The atlas is typically first built before the window has a
-            // presentation source (scale reads as 1.0) — rebuild it once the
-            // real per-monitor scale is known, so glyph cells match the
-            // surface pixel-for-pixel.
-            if (_atlas != null && Math.Abs(scale - _atlas.BuiltWithScale) > 0.01)
-            {
-                _atlas = GlyphAtlas.Build(_cfg, scale);
-                RecomputeGrid();
-            }
-
-            int w = Math.Max(1, (int)Math.Ceiling(dipWidth * scale));
-            int h = Math.Max(1, (int)Math.Ceiling(dipHeight * scale));
-            if (w == _w && h == _h && _bmp != null) return;
+            double w = Math.Max(1, dipWidth), h = Math.Max(1, dipHeight);
+            if (w == _w && h == _h && _case != null) return;
 
             _w = w; _h = h;
-            _bmp = new WriteableBitmap(w, h, 96, 96, PixelFormats.Pbgra32, null);
-            _image.Source = _bmp;
-            _image.Stretch = Stretch.Fill;
-            _bgBmp = new WriteableBitmap(w, h, 96, 96, PixelFormats.Pbgra32, null);
-            _ambientImage.Source = _bgBmp;
-            _ambientImage.Stretch = Stretch.Fill;
+            _rainClearPending = true;
             RecomputeGrid();
-        }
-
-        /// <summary>
-        /// Replaces both rain surfaces after a render-device loss (display
-        /// sleep/wake, session lock, monitor mode change): WPF tears down the
-        /// bitmaps' GPU textures and resets their lock bookkeeping, so the
-        /// next Lock/Unlock throws InvalidOperationException. Same-size
-        /// rebuild — grid geometry is unchanged; the rain layer starts from
-        /// a clean slate and the ambient field repaints in full.
-        /// </summary>
-        private void RebuildSurfaces()
-        {
-            if (_rebuildingSurfaces || _w == 0 || _h == 0) return;
-            // Reentrancy guard: the ambient repaint below locks/unlocks the
-            // fresh bitmap, and if the device is STILL lost that unlock would
-            // recurse into this method — bail instead and let the next tick
-            // try again.
-            _rebuildingSurfaces = true;
-            try
-            {
-                _bmp = new WriteableBitmap(_w, _h, 96, 96, PixelFormats.Pbgra32, null);
-                _image.Source = _bmp;
-                _bgBmp = new WriteableBitmap(_w, _h, 96, 96, PixelFormats.Pbgra32, null);
-                _ambientImage.Source = _bgBmp;
-                _rainClearPending = true;
-                RedrawAmbientFull();
-            }
-            finally { _rebuildingSurfaces = false; }
-        }
-
-        private bool _rebuildingSurfaces;
-
-        /// <summary>Lock that tolerates the device-loss state: false means
-        /// the surface was dead and has been replaced — callers skip this
-        /// pass; the next tick draws into the fresh bitmap.</summary>
-        private bool LockSurface(WriteableBitmap bmp)
-        {
-            try { bmp.Lock(); return true; }
-            catch (InvalidOperationException) { RebuildSurfaces(); return false; }
-        }
-
-        /// <summary>Unlock twin of <see cref="LockSurface"/>: a device loss
-        /// mid-pass resets the lock state, so the Unlock of a completed draw
-        /// can be the call that discovers it.</summary>
-        private void UnlockSurface(WriteableBitmap bmp)
-        {
-            try { bmp.Unlock(); }
-            catch (InvalidOperationException) { RebuildSurfaces(); }
-        }
-
-        /// <summary>Dirty-rect twin of the lock helpers: device loss can
-        /// reset the lock bookkeeping BETWEEN a successful Lock and this
-        /// call, so AddDirtyRect throws on a bitmap this pass genuinely
-        /// locked (crash.log 2026-11-11 07:46, from Frame — the third
-        /// occurrence of the class; the 2026-11-09 fix guarded only Lock/
-        /// Unlock). Treat it identically: fresh surfaces, skip the pass —
-        /// the frame's pixels are gone either way.</summary>
-        private void DirtySurface(WriteableBitmap bmp)
-        {
-            try { bmp.AddDirtyRect(new Int32Rect(0, 0, _w, _h)); }
-            catch (InvalidOperationException) { RebuildSurfaces(); }
         }
 
         private void RecomputeGrid()
         {
-            if (_atlas == null || _w == 0) return;
-            _bandH = _cfg.ShowLabels ? 3 + PidLabelRows * _atlas.LabelCellH + 3 : 0;
-            _gridCols = Math.Max(1, _w / _atlas.CellW);
-            _gridRows = Math.Max(1, (_h - _bandH) / _atlas.CellH);
+            if (_case == null || _w == 0 || _h == 0) return;
+            _bandH = _cfg.ShowLabels ? 3 + PidLabelRows * _case.LabelCellH + 3 : 0;
+            _gridCols = Math.Max(1, (int)(_w / _case.CellW));
+            _gridRows = Math.Max(1, (int)((_h - _bandH) / _case.CellH));
             // the deco wall is sized to the ALIVE column count every frame
             // (see Frame) — not to the grid width: the pane carries exactly
             // as many columns as there are alive processes
@@ -309,7 +260,7 @@ namespace AutoCommand.Matrix
             if (!Cinema) { _deco = Array.Empty<DecoStream>(); return; }
             int n = Math.Min(_activeCols, _gridCols);
             if (_deco.Length == n) return;
-            int glyphs = _atlas.GlyphChars.Length;
+            int glyphs = _case.GlyphChars.Length;
             var old = _deco;
             _deco = new DecoStream[n];
             for (int c = 0; c < n; c++)
@@ -358,21 +309,26 @@ namespace AutoCommand.Matrix
 
         public int LiveColumns => _columns.Count;
         public double LastFps => _fpsEma;
-        public int SurfaceWidth => _w;
-        public int SurfaceHeight => _h;
-        public long DebugDraws;
-        public int DebugDrops;
-        public double DebugBudget;
+        public int SurfaceWidth => (int)_w;
+        public int SurfaceHeight => (int)_h;
         private double _fpsEma;
+        /// <summary>Glyph cells drawn in the last frame.</summary>
+        public long DebugDraws;
+        /// <summary>Timer ticks skipped by the frame-rate cap (the surface
+        /// already has its frames).</summary>
+        public long DebugDrops;
+        /// <summary>0..1 — the fraction of the 15 ms tick budget left after
+        /// the last frame's draw.</summary>
+        public double DebugBudget;
 
         /// <summary>The alive, capped column count — the host panel sizes
         /// itself to exactly this many cells, so the pane carries no gap
         /// strip beside the rain.</summary>
         public int ActiveColumns => _activeCols;
 
-        /// <summary>One cell's width in DIP (the renderer works in device
-        /// pixels; WPF layout wants DIP).</summary>
-        public double CellWidthDip => _atlas == null ? 0 : _atlas.CellW / DpiScale;
+        /// <summary>One cell's width in DIP (the whole renderer works in
+        /// DIPs — WPF scales to the device).</summary>
+        public double CellWidthDip => _case == null ? 0 : _case.CellW;
 
         /// <summary>Raised on the UI thread when the alive-column count or
         /// the cell metrics change.</summary>
@@ -386,185 +342,229 @@ namespace AutoCommand.Matrix
             ActiveColumnsChanged?.Invoke();
         }
 
-        public void DumpRainPng(string path)
-        {
-            if (_bmp == null) return;
-            try
-            {
-                var stride = _w * 4;
-                var buf = new byte[stride * _h];
-                _bmp.CopyPixels(buf, stride, 0);
-                var src = BitmapSource.Create(_w, _h, 96, 96, PixelFormats.Pbgra32, null, buf, stride);
-                var enc = new PngBitmapEncoder();
-                enc.Frames.Add(BitmapFrame.Create(src));
-                using var fs = System.IO.File.Create(path);
-                enc.Save(fs);
-            }
-            catch { }
-        }
         // ------------------------------------------------------------------
         // Frame
         // ------------------------------------------------------------------
 
         private void Frame(object sender, EventArgs e)
         {
-            if (_bmp == null || _w == 0 || _h == 0) return;
+            if (_case == null || _w <= 0 || _h <= 0) return;
 
             double now = _clock.Elapsed.TotalSeconds;
             double dt = now - _lastFrameSec;
 
-            // Big surfaces (the full-desktop dock) render at 30 fps — a
-            // 2M-pixel fade pass every vsync buys nothing visually.
+            // Big surfaces (the full-desktop dock) render at 30 fps —
+            // twice the work every vsync buys nothing visually.
             int fps = _w * _h > 1_500_000 ? 30 : 60;
-            if (dt < 1.0 / fps - 0.0005) return;
+            if (dt < 1.0 / fps - 0.0005) { DebugDrops++; return; }
             _lastFrameSec = now;
             dt = Math.Clamp(dt, 0.001, 0.25);
             _fpsEma = _fpsEma <= 0 ? 1.0 / dt : _fpsEma * 0.9 + (1.0 / dt) * 0.1;
 
             ConsumeSnapshot();
+            UpdateActiveColumns();
+            if (Cinema) SyncDecoWall();
+            Simulate(now, dt);
 
-            if (!LockSurface(_bmp)) return; // device loss — fresh surfaces, retry next tick
-            try
-            {
-                int stride = _bmp.BackBufferStride;
+            var sw = Stopwatch.StartNew();
+            using (var dc = _canvas.OpenRain())
+                DrawRain(dc, now);
 
-                // No per-pixel fade pass anymore: decay is managed per cell
-                // (wake glyphs at exact log-curve alpha, heads redrawn each
-                // frame), so the layer only changes where cells change. A
-                // full reset happens only when cell metrics change or a
-                // column retires.
-                if (_rainClearPending)
-                {
-                    unsafe { new Span<byte>((void*)_bmp.BackBuffer, _h * stride).Clear(); }
-                    foreach (var c in _columns.Values) c.Wake.Clear();
-                    _rainClearPending = false;
-                }
-
-                if (_cfg.ShowLabels)
-                    unsafe { new Span<byte>((void*)_bmp.BackBuffer, _bandH * stride).Clear(); }
-
-                // CINEMA: the movie's body — fade the whole rain layer (the
-                // silky trail decay), then keep every column's decorative
-                // stream falling. The data columns draw on top after this.
-                UpdateActiveColumns();
-                if (Cinema)
-                {
-                    FadeCinema(dt);
-                    SyncDecoWall();
-                    StepAndDrawDeco(dt, stride);
-                }
-
-                // Re-rank only after REAL events (traffic, attempts,
-                // arrivals, retirements) — an idle pane is a still pane;
-                // decayed scores never shuffle columns on their own. The
-                // 2 s cadence just paces how promptly event-driven
-                // promotions animate.
-                _resortAccumSec += dt;
-                if (_orderedColumns.Count == 0 || (_rankDirty && _resortAccumSec >= ResortSeconds))
-                {
-                    _resortAccumSec = 0;
-                    _rankDirty = false;
-                    _orderedColumns = _columns.Values
-                        .OrderByDescending(c => c.Activity)
-                        .ThenBy(c => c.Seq)
-                        .ToList();
-                }
-
-                // Edge-anchored slots: the most-active column hugs the edge
-                // the pane is docked against — rightmost when docked right,
-                // leftmost when docked left — and the pane carries exactly
-                // ALIVE-count columns (never more than the under-ten cap):
-                // an IP leaves the monitor's table, its column leaves the
-                // pane. Etched wakes belong to grid cells, so a head that
-                // changes columns leaves its old wake behind as ordinary
-                // backdrop.
-                int maxSlots = Math.Min(_alivePidCount, Math.Min(_cfg.MaxColumns, _gridCols));
-                bool busiestAtLeft = _cfg.Dock == "left";
-
-                int idx = 0;
-                List<RainColumn> slotless = null;
-                foreach (var col in _orderedColumns)
-                {
-                    if (!_columns.TryGetValue(col.Pid, out var cur) || !cur.Alive) continue;
-                    if (idx >= maxSlots)
-                    {
-                        // beyond the alive cap: no slot this frame
-                        slotless ??= new List<RainColumn>();
-                        slotless.Add(cur);
-                        continue;
-                    }
-                    int newSlot = busiestAtLeft ? idx : _gridCols - 1 - idx;
-                    idx++;
-
-                    if (col.PrevSlot < 0)
-                    {
-                        // A new id: its column slides OUT from the docked
-                        // edge into place instead of popping into existence.
-                        col.XOffset = busiestAtLeft
-                            ? -(double)(newSlot * _atlas.CellW)
-                            : (double)(_w - newSlot * _atlas.CellW);
-                    }
-                    else if (col.PrevSlot != newSlot)
-                    {
-                        // Re-ranked: compensate so the rendered position is
-                        // continuous, then glide to the new slot.
-                        col.XOffset += (col.PrevSlot - newSlot) * (double)_atlas.CellW;
-                    }
-                    col.PrevSlot = newSlot;
-                    col.Slot = newSlot;
-
-                    if (_cfg.ShowLabels) DrawPidLabel(col, stride);
-                    StepColumn(col, dt);
-                    if (Cinema) RenderColumnCinema(col);
-                    else RenderColumn(col);
-                }
-
-                // A column that lost its slot (died, or beyond the cap):
-                // clear its strip once — in instrument style nothing would
-                // decay it, and the label band needs the explicit wipe in
-                // either style.
-                if (slotless != null)
-                    foreach (var col in slotless)
-                    {
-                        if (col.PrevSlot >= 0)
-                        {
-                            ClearColumnStrip(col, stride);
-                            col.PrevSlot = -1;
-                            col.Slot = -1;
-                        }
-                    }
-
-                DirtySurface(_bmp);
-            }
-            finally
-            {
-                UnlockSurface(_bmp);
-            }
-
-            if (!Cinema)
-            {
+            if (!Cinema && _pendingEtches.Count > 0)
                 ApplyPendingEtches();
-                TickAmbient(dt);
+            TickAmbient(dt);
+
+            if (_ambientDirty)
+            {
+                _ambientDirty = false;
+                using (var adc = _canvas.OpenAmbient())
+                    DrawAmbient(adc);
             }
+            sw.Stop();
+            DebugBudget = Math.Clamp(1.0 - sw.Elapsed.TotalMilliseconds / 15.0, 0.0, 1.0);
         }
 
         // ------------------------------------------------------------------
-        // Cinema style — the movie look
+        // Simulation — the state the draw pass renders
         // ------------------------------------------------------------------
 
-        /// <summary>The classic trail decay: multiply the rain layer (below
-        /// the label band) toward transparent, so every stream leaves the
-        /// movie's silky green tail.</summary>
-        private unsafe void FadeCinema(double dt)
+        private void Simulate(double nowSec, double dt)
         {
-            int f = (int)Math.Clamp(Math.Pow(0.28, dt) * 256.0, 0, 255);
-            int stride = _bmp.BackBufferStride;
-            byte* start = (byte*)_bmp.BackBuffer + _bandH * stride;
-            long byteCount = (long)(_h - _bandH) * stride;
-            if (byteCount <= 0) return;
-            byte* end = start + byteCount;
-            for (byte* p = start; p < end; p++)
-                if (*p != 0) *p = (byte)((*p * f) >> 8);
+            // Re-rank only after REAL events (traffic, attempts,
+            // arrivals, retirements) — an idle pane is a still pane;
+            // decayed scores never shuffle columns on their own. The
+            // 2 s cadence just paces how promptly event-driven
+            // promotions animate.
+            _resortAccumSec += dt;
+            if (_orderedColumns.Count == 0 || (_rankDirty && _resortAccumSec >= ResortSeconds))
+            {
+                _resortAccumSec = 0;
+                _rankDirty = false;
+                _orderedColumns = _columns.Values
+                    .OrderByDescending(c => c.Activity)
+                    .ThenBy(c => c.Seq)
+                    .ToList();
+            }
+
+            // Edge-anchored slots: the most-active column hugs the edge
+            // the pane is docked against — rightmost when docked right,
+            // leftmost when docked left — and the pane carries exactly
+            // ALIVE-count columns (never more than the under-ten cap):
+            // an IP leaves the monitor's table, its column leaves the
+            // pane. Etched wakes belong to grid cells, so a head that
+            // changes columns leaves its old wake behind as ordinary
+            // backdrop.
+            int maxSlots = Math.Min(_alivePidCount, Math.Min(_cfg.MaxColumns, _gridCols));
+            bool busiestAtLeft = _cfg.Dock == "left";
+
+            int idx = 0;
+            foreach (var col in _orderedColumns)
+            {
+                if (!_columns.TryGetValue(col.Pid, out var cur) || !cur.Alive) continue;
+                if (idx >= maxSlots)
+                {
+                    // beyond the alive cap: no slot this frame. There is no
+                    // strip to wipe — the pane redraws from state, and an
+                    // unslotted column simply is not drawn.
+                    if (cur.PrevSlot >= 0) { cur.Slot = -1; cur.PrevSlot = -1; }
+                    continue;
+                }
+                int newSlot = busiestAtLeft ? idx : _gridCols - 1 - idx;
+                idx++;
+
+                if (col.PrevSlot < 0)
+                {
+                    // A new id: its column slides OUT from the docked
+                    // edge into place instead of popping into existence.
+                    col.XOffset = busiestAtLeft
+                        ? -(newSlot * _case.CellW)
+                        : _w - newSlot * _case.CellW;
+                }
+                else if (col.PrevSlot != newSlot)
+                {
+                    // Re-ranked: compensate so the rendered position is
+                    // continuous, then glide to the new slot.
+                    col.XOffset += (col.PrevSlot - newSlot) * _case.CellW;
+                }
+                col.PrevSlot = newSlot;
+                col.Slot = newSlot;
+
+                StepColumn(col, dt, nowSec);
+            }
+
+            if (Cinema) StepDeco(dt, nowSec);
+        }
+
+        private void StepColumn(RainColumn col, double dt, double nowSec)
+        {
+            // No synthetic animation: blocked-but-silent columns simply ARE
+            // (red label, frozen stream) — they animate again on real
+            // connection attempts. Easing of an event's slide continues:
+
+            // Entrance / re-rank glide: ease the slide toward rest.
+            if (col.XOffset != 0)
+            {
+                col.XOffset *= Math.Exp(-dt * 6.0);
+                if (Math.Abs(col.XOffset) < 0.75) col.XOffset = 0;
+            }
+
+            if (!col.Exited)
+            {
+                // Fall-speed ceiling, rows/sec, FRACTIONAL by accumulation:
+                // 25 rows/s at 60fps is 0.42 rows per frame — an integer
+                // cast of that is 0 every frame and the rain never falls.
+                // The carry banks fractions and spends whole rows.
+                col.FallCarryTx += dt * _cfg.FallRowsPerSecond;
+                int capTx = (int)col.FallCarryTx;
+                col.FallCarryTx -= capTx;
+                StepDrops(col, capTx, rx: false, nowSec);
+
+                if (_cfg.RxMode)
+                {
+                    col.FallCarryRx += dt * _cfg.FallRowsPerSecond * 0.5;
+                    int capRx = (int)col.FallCarryRx;
+                    col.FallCarryRx -= capRx;
+                    StepDrops(col, capRx, rx: true, nowSec);
+                }
+            }
+
+            // Cinema trails age out from the front (oldest stamp first).
+            while (col.CinemaTrail.Count > 0 && nowSec - col.CinemaTrail[0].StampSec > TrailLifeSeconds)
+                col.CinemaTrail.RemoveAt(0);
+        }
+
+        private void StepDrops(RainColumn col, int maxAdvance, bool rx, double nowSec)
+        {
+            double budget = Math.Min(rx ? col.RxBudget : col.Budget, 600);
+            int glyphCount = _case.GlyphChars.Length;
+            int sameColor = 0;
+            for (int i = col.Drops.Count - 1; i >= 0; i--)
+                if (col.Drops[i].Rx == rx) sameColor++;
+
+            if (budget >= 1.0 && sameColor < MaxDropsPerColor &&
+                (sameColor == 0 || budget > 30))
+            {
+                col.Drops.Add(new RainDrop { Row = -1, Rx = rx, GlyphIndex = _rand.Next(glyphCount) });
+                budget -= 1.0;
+            }
+
+            // Only the newest drop of each color carries the budget — traffic
+            // is the story, and one live head per burst tells it.
+            RainDrop lead = null;
+            for (int i = col.Drops.Count - 1; i >= 0; i--)
+                if (col.Drops[i].Rx == rx) { lead = col.Drops[i]; break; }
+
+            int advance = lead == null ? 0 : (int)Math.Min(Math.Floor(budget), maxAdvance);
+            budget -= advance;
+
+            if (advance > 0)
+            {
+                for (int i = 0; i < advance; i++)
+                {
+                    if (lead.Row >= 0)
+                    {
+                        if (Cinema)
+                        {
+                            // the vacated character begins its time-faded
+                            // life — the frame loop draws it at 0.28^age,
+                            // the movie's silky tail
+                            col.CinemaTrail.Add(new CinemaCell
+                            {
+                                Row = lead.Row,
+                                Glyph = lead.GlyphIndex,
+                                StampSec = nowSec
+                            });
+                        }
+                        else
+                        {
+                            // The vacated character begins its logarithmic
+                            // distance-fade — drawn over the identical
+                            // backdrop glyph etched beneath it, so the
+                            // completed fade resolves into a background
+                            // character.
+                            if (_cfg.Ambient && _ambientGrid != null)
+                                _pendingEtches.Add((col.Slot, lead.Row, lead.GlyphIndex));
+                            col.Wake.Add(new WakeCell
+                            {
+                                Row = lead.Row,
+                                Glyph = lead.GlyphIndex,
+                                Rx = rx
+                            });
+                        }
+                    }
+                    lead.Row++;
+                    if (lead.Row >= _gridRows)
+                    {
+                        col.Drops.Remove(lead);
+                        break;
+                    }
+                    // A fresh character takes the lead position.
+                    lead.GlyphIndex = _rand.Next(glyphCount);
+                }
+            }
+
+            if (rx) col.RxBudget = budget;
+            else col.Budget = budget;
         }
 
         /// <summary>The decorative wall of rain: one continuous stream per
@@ -572,10 +572,9 @@ namespace AutoCommand.Matrix
         /// after a breathing gap — green trails, white tips, occasional
         /// mid-trail glyph mutation, exactly the film's texture. Carries no
         /// data; the PID columns fall over it brighter and bloomed.</summary>
-        private unsafe void StepAndDrawDeco(double dt, int stride)
+        private void StepDeco(double dt, double nowSec)
         {
-            byte* dstBase = (byte*)_bmp.BackBuffer;
-            int n = _atlas.GlyphChars.Length;
+            int n = _case.GlyphChars.Length;
 
             for (int c = 0; c < _deco.Length && c < _gridCols; c++)
             {
@@ -583,8 +582,8 @@ namespace AutoCommand.Matrix
                 // the wall lives exactly where the data does: the alive
                 // columns hugging the docked edge
                 int edge = _cfg.Dock == "left" ? 0 : _gridCols - _deco.Length;
-                int x = (edge + c) * _atlas.CellW;
-                if (x + _atlas.CellW > _w) break;
+                double x = (edge + c) * _case.CellW;
+                if (x + _case.CellW > _w) break;
 
                 if (s.WaitSec >= 0)
                 {
@@ -595,6 +594,7 @@ namespace AutoCommand.Matrix
                         s.Speed = 9 + _rand.NextDouble() * 17;
                         s.Brightness = 0.85 + _rand.NextDouble() * 0.15;
                         s.Glyph = _rand.Next(n);
+                        s.Trail.Clear();
                     }
                     continue;
                 }
@@ -609,250 +609,41 @@ namespace AutoCommand.Matrix
                     continue;
                 }
 
-                // green where the head has crossed — each cell is CLEARED
-                // first: the previous pass's decayed glyph must not bleed
-                // through the new glyph's antialiased pixels (two letters
-                // in one cell is overwriting, not rain)
+                // green where the head has crossed
                 for (int r = Math.Max(0, prevRow + 1); r <= newRow && r < _gridRows; r++)
-                {
-                    int cy = _bandH + r * _atlas.CellH;
-                    ClearCell(dstBase, stride, x, cy, _atlas.CellW, _atlas.CellH, _w, _h);
-                    BlitClipped(dstBase, stride, _atlas.Trail[_rand.Next(n)],
-                        _atlas.CellW, _atlas.CellH, x, cy,
-                        _w, _h, (int)(256 * s.Brightness));
-                }
+                    s.Trail.Add(new DecoCell { Row = r, Glyph = _rand.Next(n), StampSec = nowSec });
 
-                // the white tip
-                if (newRow >= 0 && newRow < _gridRows)
-                {
-                    int ty = _bandH + newRow * _atlas.CellH;
-                    ClearCell(dstBase, stride, x, ty, _atlas.CellW, _atlas.CellH, _w, _h);
-                    BlitClipped(dstBase, stride, _atlas.Head[s.Glyph],
-                        _atlas.CellW, _atlas.CellH, x, ty,
-                        _w, _h, 244);
-                    DebugDraws++;
-                }
-
-                // mid-trail mutation — the film's shimmer
+                // mid-trail mutation — the film's shimmer: the cell gets a
+                // fresh glyph and a fresh stamp, moved to the trail's end
+                // to keep the front-aging order.
                 if (newRow > 4 && _rand.NextDouble() < 0.12)
                 {
                     int mr = newRow - _rand.Next(1, Math.Min(16, newRow));
-                    if (mr >= 0)
-                    {
-                        int my = _bandH + mr * _atlas.CellH;
-                        ClearCell(dstBase, stride, x, my, _atlas.CellW, _atlas.CellH, _w, _h);
-                        BlitClipped(dstBase, stride, _atlas.Trail[_rand.Next(n)],
-                            _atlas.CellW, _atlas.CellH, x, my,
-                            _w, _h, (int)(256 * s.Brightness));
-                    }
+                    if (mr >= 0 && RestampDeco(s, mr, nowSec) == null)
+                        s.Trail.Add(new DecoCell { Row = mr, Glyph = _rand.Next(n), StampSec = nowSec });
                 }
+
+                // the trail ages out from the front (oldest stamp first)
+                while (s.Trail.Count > 0 && nowSec - s.Trail[0].StampSec > TrailLifeSeconds)
+                    s.Trail.RemoveAt(0);
             }
         }
 
-        /// <summary>Data columns in cinema: the lead redraws every frame —
-        /// bloom halo and the bright lifted glyph — and each row it vacates
-        /// is stamped bold green (the fade pass turns that into the trail).
-        /// No per-cell wake bookkeeping; no backdrop etches.</summary>
-        private unsafe void RenderColumnCinema(RainColumn col)
+        /// <summary>Re-stamps an existing trail cell (mutation shimmer):
+        /// fresh stamp, moved to the list's end. Returns the moved cell, or
+        /// null if that row carries no cell yet.</summary>
+        private static DecoCell RestampDeco(DecoStream s, int row, double nowSec)
         {
-            if (col.Drops.Count == 0) return;
-            var (headSet, _) = GlyphSetsFor(col, rx: false);
-            byte* dstBase = (byte*)_bmp.BackBuffer;
-            int stride = _bmp.BackBufferStride;
-            int cw = _atlas.LiftCellW, ch = _atlas.LiftCellH;
-            int x = ColumnX(col) + (_atlas.CellW - cw) / 2;
-            if (x < 0) return;
-
-            for (int i = col.Drops.Count - 1; i >= 0; i--)
-            {
-                var d = col.Drops[i];
-                if (d.Row < 0 || d.Row >= _gridRows) continue;
-                int y = _bandH + d.Row * _atlas.CellH + (_atlas.CellH - ch) / 2;
-
-                if (_atlas.HasBloom)
+            for (int i = 0; i < s.Trail.Count; i++)
+                if (s.Trail[i].Row == row)
                 {
-                    var bloom = d.Rx ? _atlas.RxBloom
-                              : col.Blocked ? _atlas.BlockedHeadBloom
-                              : _atlas.HeadBloom;
-                    int bw = _atlas.BloomCellW, bh = _atlas.BloomCellH;
-                    BlitClipped(dstBase, stride, bloom[d.GlyphIndex],
-                        bw, bh, x + (cw - bw) / 2, y + (ch - bh) / 2, _w, _h, 256);
+                    var cell = s.Trail[i];
+                    s.Trail.RemoveAt(i);
+                    s.Trail.Add(cell);
+                    cell.StampSec = nowSec;
+                    return cell;
                 }
-                // clear the STANDARD cell before the sharp glyph: the lead
-                // must REPLACE the wall glyph under it, not blend with its
-                // ghost (clearing the larger lift rect would nick the
-                // neighboring cells' glyph edges)
-                ClearCell(dstBase, stride, ColumnX(col),
-                    _bandH + d.Row * _atlas.CellH, _atlas.CellW, _atlas.CellH, _w, _h);
-                BlitClipped(dstBase, stride, headSet[d.GlyphIndex], cw, ch, x, y, _w, _h, 256);
-            }
-        }
-
-        /// <summary>A vacated data-lead row in cinema: bold green, full
-        /// strength — stamped into a CLEARED cell so it replaces the wall
-        /// glyph instead of superimposing on it.</summary>
-        private unsafe void DrawGreenCell(RainColumn col, int row, int glyphIndex, int alpha)
-        {
-            if (row < 0 || row >= _gridRows) return;
-            int x = ColumnX(col);
-            if (x < 0) return;
-            byte* dstBase = (byte*)_bmp.BackBuffer;
-            int stride = _bmp.BackBufferStride;
-            int y = _bandH + row * _atlas.CellH;
-            ClearCell(dstBase, stride, x, y, _atlas.CellW, _atlas.CellH, _w, _h);
-            BlitClipped(dstBase, stride,
-                _atlas.Trail[glyphIndex], _atlas.CellW, _atlas.CellH,
-                x, y, _w, _h, alpha);
-        }
-
-        /// <summary>Zeroes a cell rect (clipped to the surface) — replacement
-        /// semantics for stamps on the ever-occupied cinema wall. Without it
-        /// the over-blend keeps a fraction of the previous glyph's
-        /// antialiased pixels: two letters in one cell.</summary>
-        private static unsafe void ClearCell(byte* dstBase, int stride, int x, int y, int w, int h, int maxW, int maxH)
-        {
-            int cw = Math.Min(w, maxW - x);
-            int ch = Math.Min(h, maxH - y);
-            if (cw <= 0 || ch <= 0) return;
-            byte* d = dstBase + y * stride + x * 4;
-            for (int r = 0; r < ch; r++, d += stride)
-                for (int c = 0; c < cw * 4; c++)
-                    d[c] = 0;
-        }
-
-        /// <summary>Wipes a column's full strip (its last drawn grid cell,
-        /// label band included) — for a column that just lost its slot.</summary>
-        private unsafe void ClearColumnStrip(RainColumn col, int stride)
-        {
-            int x = ColumnX(col);
-            if (x < 0) return;
-            ClearCell((byte*)_bmp.BackBuffer, stride, x, 0, _atlas.CellW, _h, _w, _h);
-        }
-
-        /// <summary>Writes this frame's wake into the backdrop: each cell a
-        /// lead glyph vacated takes that glyph as a steady ambient
-        /// character — from here on it is indistinguishable from the
-        /// background field (same color, same size, and it drifts and
-        /// mutates with the field like every other backdrop cell).</summary>
-        private unsafe void ApplyPendingEtches()
-        {
-            if (_pendingEtches.Count == 0) return;
-            if (_bgBmp == null || _ambientGrid == null) { _pendingEtches.Clear(); return; }
-
-            if (!LockSurface(_bgBmp)) { _pendingEtches.Clear(); return; }
-            try
-            {
-                byte* dstBase = (byte*)_bgBmp.BackBuffer;
-                int stride = _bgBmp.BackBufferStride;
-                foreach (var (slot, row, glyph) in _pendingEtches)
-                {
-                    if (slot >= _ambientCols || row >= _ambientRows) continue;
-                    _ambientGrid[slot, row] = glyph;
-                    int x = slot * _atlas.CellW, y = _bandH + row * _atlas.CellH;
-                    ClearCell(dstBase, stride, x, y, _atlas.CellW, _atlas.CellH);
-                    BlitClipped(dstBase, stride, _atlas.Ambient[glyph],
-                        _atlas.CellW, _atlas.CellH, x, y, _w, _h, 256);
-                }
-                DirtySurface(_bgBmp);
-            }
-            finally { UnlockSurface(_bgBmp); }
-            _pendingEtches.Clear();
-        }
-
-        // ------------------------------------------------------------------
-        // Ambient backdrop — the slow, steady-brightness glyph field
-        // ------------------------------------------------------------------
-
-        /// <summary>(Re)builds the backdrop grid after a resize or an atlas
-        /// rebuild; disabled ambient clears its surface.</summary>
-        private void RebuildAmbientGrid()
-        {
-            if (_bgBmp == null || _atlas == null) return;
-            if (Cinema || !_cfg.Ambient)
-            {
-                // Cinema is pure black behind the rain — the movie has no
-                // backdrop field.
-                _ambientGrid = null;
-                if (!LockSurface(_bgBmp)) return;
-                try
-                {
-                    unsafe { new Span<byte>((void*)_bgBmp.BackBuffer, _h * _bgBmp.BackBufferStride).Clear(); }
-                    DirtySurface(_bgBmp);
-                }
-                finally { UnlockSurface(_bgBmp); }
-                return;
-            }
-
-            _ambientCols = Math.Max(1, _w / _atlas.CellW);
-            _ambientRows = Math.Max(1, (_h - _bandH) / _atlas.CellH);
-            _ambientGrid = new int[_ambientCols, _ambientRows];
-            for (int c = 0; c < _ambientCols; c++)
-                for (int r = 0; r < _ambientRows; r++)
-                    _ambientGrid[c, r] = _rand.NextDouble() <= _cfg.AmbientDensity
-                        ? _rand.Next(_atlas.GlyphChars.Length) : -1;
-            RedrawAmbientFull();
-        }
-
-        private unsafe void RedrawAmbientFull()
-        {
-            if (_bgBmp == null) return;
-            if (!LockSurface(_bgBmp)) return;
-            try
-            {
-                new Span<byte>((void*)_bgBmp.BackBuffer, _h * _bgBmp.BackBufferStride).Clear();
-                if (_ambientGrid != null)
-                {
-                    byte* dstBase = (byte*)_bgBmp.BackBuffer;
-                    int stride = _bgBmp.BackBufferStride;
-                    for (int c = 0; c < _ambientCols; c++)
-                        for (int r = 0; r < _ambientRows; r++)
-                            BlitAmbientCell(dstBase, stride, c, r);
-                }
-                DirtySurface(_bgBmp);
-            }
-            finally { UnlockSurface(_bgBmp); }
-        }
-
-        private unsafe void BlitAmbientCell(byte* dstBase, int stride, int c, int r)
-        {
-            int idx = _ambientGrid[c, r];
-            if (idx < 0) return;
-            BlitClipped(dstBase, stride, _atlas.Ambient[idx], _atlas.CellW, _atlas.CellH,
-                c * _atlas.CellW, _bandH + r * _atlas.CellH, _w, _h, 256);
-        }
-
-        /// <summary>The backdrop's life — which is to say, almost none: by
-        /// default it is FROZEN (ambientDriftSeconds 0). A background that
-        /// randomly changes under the rain breaks the illusion; the only
-        /// backdrop changes are real ones — falling wakes etching their
-        /// characters in. Opt-in drift eases the whole field down one row
-        /// at a time.</summary>
-        private void TickAmbient(double dt)
-        {
-            if (!_cfg.Ambient || _bgBmp == null || _ambientGrid == null) return;
-            if (_cfg.AmbientDriftSeconds <= 0) return;
-
-            _driftAccumSec += dt;
-            if (_driftAccumSec < _cfg.AmbientDriftSeconds) return;
-            _driftAccumSec = 0;
-
-            for (int c = 0; c < _ambientCols; c++)
-            {
-                for (int r = _ambientRows - 1; r > 0; r--)
-                    _ambientGrid[c, r] = _ambientGrid[c, r - 1];
-                _ambientGrid[c, 0] = _rand.NextDouble() <= _cfg.AmbientDensity
-                    ? _rand.Next(_atlas.GlyphChars.Length) : -1;
-            }
-            RedrawAmbientFull();
-        }
-
-        private unsafe void ClearCell(byte* dstBase, int stride, int x, int y, int w, int h)
-        {
-            // Bounds-guarded: sliding columns can hand us rects that poke
-            // past the surface, and a negative write would corrupt memory.
-            if (x < 0 || y < 0 || w <= 0 || h <= 0 || x + w > _w || y + h > _h) return;
-            for (int r = 0; r < h; r++)
-                new Span<byte>(dstBase + (y + r) * stride + x * 4, w * 4).Clear();
+            return null;
         }
 
         /// <summary>A new snapshot from the engine: convert absolute counter
@@ -954,150 +745,270 @@ namespace AutoCommand.Matrix
             }
         }
 
+        // ------------------------------------------------------------------
+        // Drawing — state to GlyphRuns, every frame, nothing retained
+        // ------------------------------------------------------------------
+
+        private long _frameDraws;
+
+        private void DrawRain(DrawingContext dc, double nowSec)
+        {
+            if (_rainClearPending)
+            {
+                foreach (var c in _columns.Values) c.CinemaTrail.Clear();
+                foreach (var d in _deco) d.Trail.Clear();
+                _rainClearPending = false;
+            }
+
+            _frameDraws = 0;
+
+            if (Cinema) DrawCinemaTrails(dc, nowSec);
+            else DrawInstrumentWake(dc);
+
+            DrawLabels(dc);
+            DrawHeads(dc);
+
+            DebugDraws = _frameDraws;
+        }
+
+        /// <summary>Dim layers first, bright heads last — the movie's depth.
+        /// Trail cells fade by age (0.28^t, the fade pass's curve); alpha
+        /// quantizes into classes so each class draws as one GlyphRun per
+        /// owning typeface.</summary>
+        private void DrawCinemaTrails(DrawingContext dc, double nowSec)
+        {
+            double ppd = _canvas.PixelsPerDip;
+            var batches = new Dictionary<(Brush brush, int cls), GlyphBatch>();
+            const double fadeBase = 0.28;
+
+            // the wall
+            int edge = _cfg.Dock == "left" ? 0 : _gridCols - _deco.Length;
+            for (int c = 0; c < _deco.Length && c < _gridCols; c++)
+            {
+                double x = (edge + c) * _case.CellW;
+                if (x + _case.CellW > _w) break;
+                var s = _deco[c];
+                foreach (var cell in s.Trail)
+                {
+                    if (cell.Row < 0 || cell.Row >= _gridRows) continue;
+                    double alpha = Math.Pow(fadeBase, nowSec - cell.StampSec) * s.Brightness;
+                    AddTrailCell(batches, x, cell.Row, cell.Glyph, alpha, _case.Trail, ppd);
+                }
+            }
+
+            // the data streams over it
+            foreach (var col in _columns.Values)
+            {
+                double x = ColumnX(col);
+                if (col.Slot < 0 || x < 0 || x + _case.CellW > _w) continue;
+                foreach (var cell in col.CinemaTrail)
+                {
+                    if (cell.Row < 0 || cell.Row >= _gridRows) continue;
+                    double alpha = Math.Pow(fadeBase, nowSec - cell.StampSec);
+                    AddTrailCell(batches, x, cell.Row, cell.Glyph, alpha, _case.Trail, ppd);
+                }
+            }
+
+            FlushBatches(dc, batches);
+        }
+
+        private void AddTrailCell(Dictionary<(Brush, int), GlyphBatch> batches,
+            double x, int row, int glyph, double alpha, Brush brush, double ppd)
+        {
+            if (alpha <= 0.008) return;
+            int cls = (int)Math.Clamp(alpha * AlphaClasses, 0, AlphaClasses - 1);
+            if (!batches.TryGetValue((brush, cls), out var b))
+                batches[(brush, cls)] = b = new GlyphBatch(_case.Em, ppd);
+            PlaceGlyph(b, glyph, x, _bandH + row * _case.CellH, _case.CellW, _case.CellH, _case.Em);
+        }
+
+        /// <summary>Instrument wake: characters behind the lead — same
+        /// brightness family as the lead, dimmer incrementally by distance.
+        /// Idle streams freeze: with no lead the staircase keeps its last
+        /// alpha. Outlived cells leave the list here (the draw pass is the
+        /// only place distances are known).</summary>
+        private void DrawInstrumentWake(DrawingContext dc)
+        {
+            double ppd = _canvas.PixelsPerDip;
+            var batches = new Dictionary<(Brush, int), GlyphBatch>();
+
+            foreach (var col in _columns.Values)
+            {
+                double x = ColumnX(col);
+                if (col.Slot < 0 || x < 0 || x + _case.CellW > _w) continue;
+
+                // The lead row of each color anchors its wake's distances.
+                int leadTx = -1, leadRx = -1;
+                for (int i = 0; i < col.Drops.Count; i++)
+                {
+                    var d = col.Drops[i];
+                    if (d.Row < 0) continue;
+                    if (d.Rx) { if (d.Row > leadRx) leadRx = d.Row; }
+                    else { if (d.Row > leadTx) leadTx = d.Row; }
+                }
+
+                for (int i = col.Wake.Count - 1; i >= 0; i--)
+                {
+                    var w = col.Wake[i];
+                    int anchor = w.Rx ? leadRx : leadTx;
+                    if (anchor >= 0)
+                    {
+                        int dist = anchor - w.Row;
+                        if (dist > _wakeCharLength || w.Row < 0 || w.Row >= _gridRows)
+                        {
+                            col.Wake.RemoveAt(i);
+                            continue;
+                        }
+                        w.Alpha = WakeAlphaByDistance(dist);
+                    }
+                    if (w.Alpha <= 0.004) continue;
+
+                    var brush = w.Rx ? _case.Rx : col.Blocked ? _case.BlockedHead : _case.Head;
+                    int cls = (int)Math.Clamp(w.Alpha * AlphaClasses, 0, AlphaClasses - 1);
+                    if (!batches.TryGetValue((brush, cls), out var b))
+                        batches[(brush, cls)] = b = new GlyphBatch(_case.Em, ppd);
+                    PlaceGlyph(b, w.Glyph, x, _bandH + w.Row * _case.CellH, _case.CellW, _case.CellH, _case.Em);
+                }
+            }
+
+            FlushBatches(dc, batches);
+        }
+
         /// <summary>The PID reads vertically down its column — a rain column
         /// is one glyph wide, so sideways labels would spill into the
-        /// neighbor's rain. Hover (when not click-through) shows the full
-        /// story: name, counters, block state.</summary>
-        private unsafe void DrawPidLabel(RainColumn col, int stride)
+        /// neighbor's rain. Blocked PIDs read their digits red.</summary>
+        private void DrawLabels(DrawingContext dc)
         {
-            int x = ColumnX(col) + Math.Max(0, (_atlas.CellW - _atlas.LabelCellW) / 2);
-            if (x < 0) return;
+            if (!_cfg.ShowLabels) return;
 
-            string digits = col.Pid.ToString();
-            if (digits.Length > PidLabelRows) digits = digits.Substring(digits.Length - PidLabelRows);
+            var normal = new GlyphBatch(_case.LabelEm, _canvas.PixelsPerDip);
+            var blocked = new GlyphBatch(_case.LabelEm, _canvas.PixelsPerDip);
+            int n = 0, bCount = 0;
 
-            byte* dstBase = (byte*)_bmp.BackBuffer;
-            var font = col.Blocked ? _atlas.LabelDigitsBlocked : _atlas.LabelDigits;
-            for (int i = 0; i < digits.Length; i++)
+            foreach (var col in _columns.Values)
             {
-                int y = 3 + i * _atlas.LabelCellH;
-                BlitClipped(dstBase, stride, font[digits[i] - '0'],
-                    _atlas.LabelCellW, _atlas.LabelCellH, x, y, _w, _h, 256);
-            }
-        }
+                if (col.Slot < 0) continue;
+                double x = ColumnX(col) + Math.Max(0, (_case.CellW - _case.LabelCellW) / 2);
+                if (x < 0) continue;
 
-        private void StepColumn(RainColumn col, double dt)
-        {
-            // No synthetic animation: blocked-but-silent columns simply ARE
-            // (red label, frozen stream) — they animate again on real
-            // connection attempts. Easing of an event's slide continues:
+                string digits = col.Pid.ToString();
+                if (digits.Length > PidLabelRows) digits = digits.Substring(digits.Length - PidLabelRows);
 
-            // Entrance / re-rank glide: ease the slide toward rest.
-            if (col.XOffset != 0)
-            {
-                col.XOffset *= Math.Exp(-dt * 6.0);
-                if (Math.Abs(col.XOffset) < 0.75) col.XOffset = 0;
-            }
-
-            if (!col.Exited)
-            {
-                // Fall-speed ceiling, rows/sec, FRACTIONAL by accumulation:
-                // 25 rows/s at 60fps is 0.42 rows per frame — an integer
-                // cast of that is 0 every frame and the rain never falls.
-                // The carry banks fractions and spends whole rows.
-                col.FallCarryTx += dt * _cfg.FallRowsPerSecond;
-                int capTx = (int)col.FallCarryTx;
-                col.FallCarryTx -= capTx;
-                StepDrops(col, capTx, rx: false);
-
-                if (_cfg.RxMode)
+                var batch = col.Blocked ? blocked : normal;
+                for (int i = 0; i < digits.Length; i++)
                 {
-                    col.FallCarryRx += dt * _cfg.FallRowsPerSecond * 0.5;
-                    int capRx = (int)col.FallCarryRx;
-                    col.FallCarryRx -= capRx;
-                    StepDrops(col, capRx, rx: true);
-                }
-            }
-        }
-
-        private void StepDrops(RainColumn col, int maxAdvance, bool rx)
-        {
-            double budget = Math.Min(rx ? col.RxBudget : col.Budget, 600);
-            int glyphCount = _atlas.GlyphChars.Length;
-            int sameColor = 0;
-            for (int i = col.Drops.Count - 1; i >= 0; i--)
-                if (col.Drops[i].Rx == rx) sameColor++;
-
-            if (budget >= 1.0 && sameColor < MaxDropsPerColor &&
-                (sameColor == 0 || budget > 30))
-            {
-                col.Drops.Add(new RainDrop { Row = -1, Rx = rx, GlyphIndex = _rand.Next(glyphCount) });
-                budget -= 1.0;
-            }
-
-            // Only the newest drop of each color carries the budget — traffic
-            // is the story, and one live head per burst tells it.
-            RainDrop lead = null;
-            for (int i = col.Drops.Count - 1; i >= 0; i--)
-                if (col.Drops[i].Rx == rx) { lead = col.Drops[i]; break; }
-
-            int advance = lead == null ? 0 : (int)Math.Min(Math.Floor(budget), maxAdvance);
-            budget -= advance;
-
-            if (advance > 0)
-            {
-                for (int i = 0; i < advance; i++)
-                {
-                    if (lead.Row >= 0)
-                    {
-                        if (Cinema)
-                        {
-                            // bold green where the lead passed — the fade
-                            // pass shapes it into the movie's trail
-                            DrawGreenCell(col, lead.Row, lead.GlyphIndex, 256);
-                        }
-                        else
-                        {
-                            // The vacated character begins its logarithmic
-                            // fade — drawn over the identical backdrop glyph
-                            // etched beneath it, so the completed fade
-                            // resolves into a background character.
-                            if (_cfg.Ambient && _ambientGrid != null)
-                                _pendingEtches.Add((col.Slot, lead.Row, lead.GlyphIndex));
-                            col.Wake.Add(new WakeCell
-                            {
-                                Row = lead.Row,
-                                Glyph = lead.GlyphIndex,
-                                Rx = rx
-                            });
-                        }
-                    }
-                    lead.Row++;
-                    if (lead.Row >= _gridRows)
-                    {
-                        // Instrument keeps exact per-cell clearing (no fade
-                        // pass there); cinema's fade eats the residue.
-                        if (!Cinema) ClearHeadRect(ColumnX(col), lead.Row - 1);
-                        col.Drops.Remove(lead);
-                        break;
-                    }
-                    // A fresh character takes the lead position.
-                    lead.GlyphIndex = _rand.Next(glyphCount);
+                    int d = digits[i] - '0';
+                    var f = _case.Digits[d];
+                    batch.Add(f,
+                        x + (_case.LabelCellW - f.Advance) / 2,
+                        3 + i * _case.LabelCellH + _case.LabelCellH * 0.5 + _case.LabelEm * 0.36);
+                    if (col.Blocked) bCount++; else n++;
                 }
             }
 
-            if (rx) col.RxBudget = budget;
-            else col.Budget = budget;
+            if (n > 0) { normal.Flush(dc, _case.Label); _frameDraws += n; }
+            if (bCount > 0) { blocked.Flush(dc, _case.LabelBlocked); _frameDraws += bCount; }
         }
 
-        private (byte[][] head, byte[][] trail) GlyphSetsFor(RainColumn col, bool rx)
+        /// <summary>The lead glyphs — the single brightest cells: bloom
+        /// halo, the zLift shadow (instrument), the crisp glyph on top. In
+        /// cinema the decorative wall's white tips ride along.</summary>
+        private void DrawHeads(DrawingContext dc)
         {
-            if (rx) return (_atlas.RxLift, _atlas.RxLift);
-            return col.Blocked
-                ? (_atlas.BlockedHeadLift, _atlas.BlockedLift)
-                : (_atlas.HeadLift, _atlas.TrailLift);
+            double ppd = _canvas.PixelsPerDip;
+
+            if (Cinema)
+            {
+                // the wall's white tips
+                int edge = _cfg.Dock == "left" ? 0 : _gridCols - _deco.Length;
+                var tipBatch = new GlyphBatch(_case.Em, ppd);
+                int tips = 0;
+                for (int c = 0; c < _deco.Length && c < _gridCols; c++)
+                {
+                    double x = (edge + c) * _case.CellW;
+                    if (x + _case.CellW > _w) break;
+                    var s = _deco[c];
+                    int row = (int)s.HeadRow;
+                    if (s.WaitSec >= 0 || row < 0 || row >= _gridRows) continue;
+                    PlaceGlyph(tipBatch, s.Glyph, x, _bandH + row * _case.CellH, _case.CellW, _case.CellH, _case.Em);
+                    tips++;
+                }
+                if (tips > 0)
+                {
+                    dc.PushOpacity(244.0 / 255.0);
+                    tipBatch.Flush(dc, _case.Head);
+                    dc.Pop();
+                    _frameDraws += tips;
+                }
+            }
+
+            foreach (var col in _columns.Values)
+            {
+                if (col.Slot < 0) continue;
+                double x = ColumnX(col);
+                if (x < 0 || x + _case.CellW > _w) continue;
+                for (int i = col.Drops.Count - 1; i >= 0; i--)
+                    DrawHead(dc, col, col.Drops[i], x, ppd);
+            }
         }
 
-        // ------------------------------------------------------------------
-        // Per-column rendering: log-fading wake, bloomed lead
-        // ------------------------------------------------------------------
+        private void DrawHead(DrawingContext dc, RainColumn col, RainDrop d, double x, double ppd)
+        {
+            if (d.Row < 0 || d.Row >= _gridRows) return;
+
+            double em = _case.LiftEm;
+            double scale = em / _case.Em;
+            double cw = _case.CellW * scale, ch = _case.CellH * scale;
+            double gx = x + (_case.CellW - cw) / 2;
+            double gy = _bandH + d.Row * _case.CellH + (_case.CellH - ch) / 2;
+
+            Brush head = d.Rx ? _case.Rx : col.Blocked ? _case.BlockedHead : _case.Head;
+            Brush bloom = d.Rx ? _case.RxBloom : col.Blocked ? _case.BlockedHeadBloom : _case.HeadBloom;
+
+            // depth first (instrument), glow second, the crisp glyph on top
+            if (!Cinema && _case.Shadow != null)
+            {
+                int so = Math.Max(1, (int)((cw - _case.CellW) / 2));
+                var sb = new GlyphBatch(em, ppd);
+                PlaceGlyph(sb, d.GlyphIndex, gx + so, gy + so + 1, cw, ch, em);
+                sb.Flush(dc, _case.Shadow);
+            }
+            if (bloom != null)
+                dc.DrawEllipse(bloom, null, new Point(gx + cw / 2, gy + ch / 2), cw * 0.65, ch * 0.65);
+
+            var b = new GlyphBatch(em, ppd);
+            PlaceGlyph(b, d.GlyphIndex, gx, gy, cw, ch, em);
+            b.Flush(dc, head);
+            _frameDraws++;
+        }
+
+        /// <summary>Places a charset glyph centered in a cell: horizontal by
+        /// advance, vertical by baseline at the em's cap-middle.</summary>
+        private void PlaceGlyph(GlyphBatch b, int glyph, double cellLeft, double cellTop,
+            double cellW, double cellH, double em)
+        {
+            var f = _case.Faces[glyph];
+            double adv = f.Advance * (em / _case.Em);
+            b.Add(f,
+                cellLeft + (cellW - adv) / 2,
+                cellTop + cellH * 0.5 + em * 0.36);
+        }
+
+        private static void FlushBatches(DrawingContext dc, Dictionary<(Brush brush, int cls), GlyphBatch> batches)
+        {
+            foreach (var kv in batches)
+            {
+                dc.PushOpacity((kv.Key.cls + 0.5) / AlphaClasses);
+                kv.Value.Flush(dc, kv.Key.brush);
+                dc.Pop();
+            }
+        }
 
         /// <summary>Incremental dimming by TRAIL DISTANCE — the character
         /// right behind the lead is ~full lead brightness (same color
         /// family, capped a hair under so the lead stays strictly
         /// brightest), each further character one log-step dimmer, gone at
-        /// the trail length. No time decay: idle streams freeze in place
-        /// and animate only when events move them.</summary>
+        /// the trail length.</summary>
         private double WakeAlphaByDistance(int dist)
         {
             double d = _wakeCharLength;
@@ -1107,191 +1018,121 @@ namespace AutoCommand.Matrix
             return Math.Clamp(f, 0, 1) * (248.0 / 256.0);
         }
 
-        /// <summary>The column's pixel x this frame: its slot plus any
-        /// slide offset still easing toward rest.</summary>
-        private int ColumnX(RainColumn col) =>
-            col.Slot * _atlas.CellW + (int)Math.Round(col.XOffset);
+        /// <summary>The column's x this frame: its slot plus any slide
+        /// offset still easing toward rest.</summary>
+        private double ColumnX(RainColumn col) =>
+            col.Slot * _case.CellW + col.XOffset;
 
-        private unsafe void RenderColumn(RainColumn col)
+        // ------------------------------------------------------------------
+        // Ambient backdrop — the slow, steady-brightness glyph field
+        // ------------------------------------------------------------------
+
+        /// <summary>(Re)builds the backdrop grid after a resize or a case
+        /// rebuild; disabled ambient clears its layer.</summary>
+        private void RebuildAmbientGrid()
         {
-            byte* dstBase = (byte*)_bmp.BackBuffer;
-            int stride = _bmp.BackBufferStride;
-
-            int xNow = ColumnX(col);
-            int xPrev = col.LastDrawnX == double.MinValue ? xNow : (int)col.LastDrawnX;
-            bool moved = xNow != xPrev;
-
-            // The lead row of each color anchors its wake's distances; with
-            // no lead (idle stream) the staircase freezes where it was.
-            int leadTx = -1, leadRx = -1;
-            for (int i = 0; i < col.Drops.Count; i++)
+            if (Cinema || !_cfg.Ambient)
             {
-                var d = col.Drops[i];
-                if (d.Row < 0) continue;
-                if (d.Rx) { if (d.Row > leadRx) leadRx = d.Row; }
-                else { if (d.Row > leadTx) leadTx = d.Row; }
+                // Cinema is pure black behind the rain — the movie has no
+                // backdrop field.
+                _ambientGrid = null;
+                _ambientDirty = true;
+                return;
             }
 
-            // The wake: characters behind the lead — same brightness family
-            // as the lead, dimmer incrementally by distance — drawn over the
-            // identical (dim) backdrop glyph etched beneath. While the
-            // column glides, its previous position is cleared too.
-            for (int i = col.Wake.Count - 1; i >= 0; i--)
-            {
-                var w = col.Wake[i];
-                int y = _bandH + w.Row * _atlas.CellH;
+            _ambientCols = Math.Max(1, (int)(_w / _case.CellW));
+            _ambientRows = Math.Max(1, (int)((_h - _bandH) / _case.CellH));
+            _ambientGrid = new int[_ambientCols, _ambientRows];
+            for (int c = 0; c < _ambientCols; c++)
+                for (int r = 0; r < _ambientRows; r++)
+                    _ambientGrid[c, r] = _rand.NextDouble() <= _cfg.AmbientDensity
+                        ? _rand.Next(_case.GlyphChars.Length) : -1;
+            _ambientDirty = true;
+        }
 
-                int anchor = w.Rx ? leadRx : leadTx;
-                if (anchor >= 0)
+        private void DrawAmbient(DrawingContext dc)
+        {
+            if (_ambientGrid == null) return;
+            var b = new GlyphBatch(_case.Em, _canvas.PixelsPerDip);
+            for (int c = 0; c < _ambientCols; c++)
+                for (int r = 0; r < _ambientRows; r++)
                 {
-                    int dist = anchor - w.Row;
-                    if (dist > _wakeCharLength || w.Row < 0 || w.Row >= _gridRows)
-                    {
-                        if (moved)
-                            ClearCell(dstBase, stride, xPrev, y, _atlas.CellW, _atlas.CellH);
-                        ClearCell(dstBase, stride, xNow, y, _atlas.CellW, _atlas.CellH);
-                        col.Wake.RemoveAt(i);
-                        continue;
-                    }
-                    w.Alpha = WakeAlphaByDistance(dist);
+                    int idx = _ambientGrid[c, r];
+                    if (idx < 0) continue;
+                    PlaceGlyph(b, idx, c * _case.CellW, _bandH + r * _case.CellH, _case.CellW, _case.CellH, _case.Em);
                 }
-
-                var set = w.Rx ? _atlas.Rx : col.Blocked ? _atlas.BlockedHead : _atlas.Head;
-                if (moved)
-                    ClearCell(dstBase, stride, xPrev, y, _atlas.CellW, _atlas.CellH);
-                ClearCell(dstBase, stride, xNow, y, _atlas.CellW, _atlas.CellH);
-                if (xNow >= 0 && xNow + _atlas.CellW <= _w && w.Alpha > 0.004)
-                    BlitClipped(dstBase, stride, set[w.Glyph], _atlas.CellW, _atlas.CellH,
-                        xNow, y, _w, _h, (int)(256 * w.Alpha));
-            }
-
-            // The lead(s): shadow, soft bloom, the single brightest glyph —
-            // redrawn every frame, with last frame's bounds cleared.
-            for (int i = col.Drops.Count - 1; i >= 0; i--)
-                RenderHead(col, col.Drops[i], xNow, xPrev);
-
-            col.LastDrawnX = xNow;
+            b.Flush(dc, _case.Ambient);
         }
 
-        /// <summary>The rectangle a lead occupies: its glyph cell inflated
-        /// to cover the bloom halo and the shadow's offset, at a given
-        /// column pixel base. Clearing exactly this removes everything the
-        /// head drew — with no fade pass, precision is what prevents
-        /// residue.</summary>
-        private (int x, int y, int w, int h) HeadRect(int xBase, int row)
+        /// <summary>Writes this frame's wake into the backdrop: each cell a
+        /// lead glyph vacated takes that glyph as a steady ambient
+        /// character — from here on it is indistinguishable from the
+        /// background field (same color, same size, and it drifts and
+        /// mutates with the field like every other backdrop cell).</summary>
+        private void ApplyPendingEtches()
         {
-            int cw = _atlas.LiftCellW, ch = _atlas.LiftCellH;
-            int x = xBase + (_atlas.CellW - cw) / 2;
-            int y = _bandH + row * _atlas.CellH + (_atlas.CellH - ch) / 2;
-            int bw = _atlas.HasBloom ? _atlas.BloomCellW : cw;
-            int bh = _atlas.HasBloom ? _atlas.BloomCellH : ch;
-            int so = _atlas.HasLift ? Math.Max(1, (cw - _atlas.CellW) / 2) : 0;
-            return (Math.Min(x, x + (cw - bw) / 2),
-                    Math.Min(y, y + (ch - bh) / 2),
-                    Math.Max(cw, bw) + so,
-                    Math.Max(ch, bh) + so + 1);
+            if (_ambientGrid == null) { _pendingEtches.Clear(); return; }
+            foreach (var (slot, row, glyph) in _pendingEtches)
+                if (slot >= 0 && slot < _ambientCols && row >= 0 && row < _ambientRows)
+                    _ambientGrid[slot, row] = glyph;
+            _pendingEtches.Clear();
+            _ambientDirty = true;   // one full-layer redraw per etch batch
         }
 
-        private unsafe void ClearHeadRect(int xBase, int row)
+        /// <summary>The backdrop's life — which is to say, almost none: by
+        /// default it is FROZEN (ambientDriftSeconds 0). A background that
+        /// randomly changes under the rain breaks the illusion; the only
+        /// backdrop changes are real ones — falling wakes etching their
+        /// characters in. Opt-in drift eases the whole field down one row
+        /// at a time.</summary>
+        private void TickAmbient(double dt)
         {
-            var (x, y, w, h) = HeadRect(xBase, row);
-            int cx = Math.Max(0, x), cy = Math.Max(0, y);
-            int cw = Math.Min(w, _w - cx), ch = Math.Min(h, _h - cy);
-            if (cw <= 0 || ch <= 0) return;
-            ClearCell((byte*)_bmp.BackBuffer, _bmp.BackBufferStride, cx, cy, cw, ch);
-        }
+            if (!_cfg.Ambient || _ambientGrid == null) return;
+            if (_cfg.AmbientDriftSeconds <= 0) return;
 
-        private unsafe void RenderHead(RainColumn col, RainDrop drop, int xNow, int xPrev)
-        {
-            if (drop.Row < 0 || drop.Row >= _gridRows) { drop.LastRow = drop.Row; return; }
-            var (headSet, _) = GlyphSetsFor(col, drop.Rx);
+            _driftAccumSec += dt;
+            if (_driftAccumSec < _cfg.AmbientDriftSeconds) return;
+            _driftAccumSec = 0;
 
-            // Clear everything the head drew last frame (previous row and
-            // or previous column position), then its current bounds.
-            if (drop.LastRow >= 0 && (drop.LastRow != drop.Row || xPrev != xNow))
-                ClearHeadRect(xPrev, drop.LastRow);
-            ClearHeadRect(xNow, drop.Row);
-            drop.LastRow = drop.Row;
-
-            // Sliding in from off-pane: stay clear of the surface edge.
-            if (xNow < 0) return;
-
-            byte* dstBase = (byte*)_bmp.BackBuffer;
-            int stride = _bmp.BackBufferStride;
-            int cw = _atlas.LiftCellW, ch = _atlas.LiftCellH;
-            int x = xNow + (_atlas.CellW - cw) / 2;
-            int y = _bandH + drop.Row * _atlas.CellH + (_atlas.CellH - ch) / 2;
-            int so = _atlas.HasLift ? Math.Max(1, (cw - _atlas.CellW) / 2) : 0;
-
-            // depth first, glow second, the crisp glyph on top
-            if (_atlas.HasLift)
-                BlitClipped(dstBase, stride, _atlas.ShadowLift[drop.GlyphIndex],
-                    cw, ch, x + so, y + so + 1, _w, _h, 256);
-
-            if (_atlas.HasBloom)
+            for (int c = 0; c < _ambientCols; c++)
             {
-                var bloom = drop.Rx ? _atlas.RxBloom
-                          : col.Blocked ? _atlas.BlockedHeadBloom
-                          : _atlas.HeadBloom;
-                int bw = _atlas.BloomCellW, bh = _atlas.BloomCellH;
-                BlitClipped(dstBase, stride, bloom[drop.GlyphIndex],
-                    bw, bh, x + (cw - bw) / 2, y + (ch - bh) / 2, _w, _h, 256);
+                for (int r = _ambientRows - 1; r > 0; r--)
+                    _ambientGrid[c, r] = _ambientGrid[c, r - 1];
+                _ambientGrid[c, 0] = _rand.NextDouble() <= _cfg.AmbientDensity
+                    ? _rand.Next(_case.GlyphChars.Length) : -1;
             }
-
-            BlitClipped(dstBase, stride, headSet[drop.GlyphIndex], cw, ch, x, y, _w, _h, 256);
-        }
-
-        /// <summary>Source-over blend of a premultiplied glyph cell onto the
-        /// surface (both Pbgra32, channel order identical). copyW/copyH may
-        /// be smaller than the source cell for edge clipping; srcW keeps the
-        /// source rows aligned through the clipped columns; alphaScale
-        /// (0..256) scales the glyph's alpha — the wake's log curve rides
-        /// on this instead of pre-baked fade levels.</summary>
-        private static unsafe void Blit(byte* dstBase, int stride, byte[] src, int srcW, int copyW, int copyH, int x, int y, int alphaScale)
-        {
-            byte* dst = dstBase + y * stride + x * 4;
-            int si = 0;
-            for (int r = 0; r < copyH; r++, dst += stride)
-            {
-                byte* d = dst;
-                for (int c = 0; c < copyW; c++, d += 4, si += 4)
-                {
-                    int sa = (src[si + 3] * alphaScale) >> 8;
-                    if (sa == 0) continue;
-                    if (sa == 255)
-                    {
-                        d[0] = src[si]; d[1] = src[si + 1]; d[2] = src[si + 2]; d[3] = 255;
-                        continue;
-                    }
-                    int inv = 255 - sa;
-                    d[0] = (byte)(src[si] + ((d[0] * inv) >> 8));
-                    d[1] = (byte)(src[si + 1] + ((d[1] * inv) >> 8));
-                    d[2] = (byte)(src[si + 2] + ((d[2] * inv) >> 8));
-                    d[3] = (byte)(sa + ((d[3] * inv) >> 8));
-                }
-                si += (srcW - copyW) * 4;
-            }
-        }
-
-        /// <summary>Blit with right/bottom clipping against the surface.</summary>
-        private static unsafe void BlitClipped(byte* dstBase, int stride, byte[] src, int srcW, int srcH, int x, int y, int maxW, int maxH, int alphaScale)
-        {
-            int w = Math.Min(srcW, maxW - x);
-            int h = Math.Min(srcH, maxH - y);
-            if (w <= 0 || h <= 0) return;
-            Blit(dstBase, stride, src, srcW, w, h, x, y, alphaScale);
+            _ambientDirty = true;
         }
 
         // ------------------------------------------------------------------
-        // Hover
+        // Diagnostics
         // ------------------------------------------------------------------
+
+        public void DumpRainPng(string path)
+        {
+            if (_case == null || _w <= 0 || _h <= 0) return;
+            try
+            {
+                // One software render of the canvas (both layers) — no GPU
+                // dependency, no lock protocol; the exact pixels on screen.
+                var rtb = new RenderTargetBitmap(
+                    (int)Math.Ceiling(_w), (int)Math.Ceiling(_h), 96, 96, PixelFormats.Pbgra32);
+                rtb.Render(_canvas);
+                rtb.Freeze();
+                var enc = new PngBitmapEncoder();
+                enc.Frames.Add(BitmapFrame.Create(rtb));
+                using var fs = File.Create(path);
+                enc.Save(fs);
+            }
+            catch { }
+        }
 
         /// <summary>Human story of the column under a DIP x — the window
         /// turns it into a tooltip when the overlay takes mouse input.</summary>
         public string DescribeColumnAt(double dipX)
         {
-            if (_atlas == null) return null;
-            int slot = (int)((dipX * DpiScale) / _atlas.CellW);
+            if (_case == null) return null;
+            int slot = (int)(dipX / _case.CellW);
             foreach (var col in _columns.Values)
                 if (col.Slot == slot)
                     return

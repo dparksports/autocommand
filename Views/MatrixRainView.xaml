@@ -1,17 +1,18 @@
 <UserControl x:Class="AutoCommand.Views.MatrixRainView"
              xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
              xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:matrix="clr-namespace:AutoCommand.Matrix;assembly=AutoCommand.MatrixRain.Core"
              ContextMenuOpening="OnContextMenuOpening">
     <!-- The Rain tab: the Process Monitor's data as Matrix rain — one column
          per PID, every falling glyph a transmit, blocked PIDs red. The scene
-         is its own night (the app chrome is light; the rain is not). Two
-         stacked surfaces (frozen backdrop below, falling rain above), fed by
-         MatrixRainFeed over the monitor's live shared row table, styled by
-         the same matrix_rain.json the standalone overlay reads. Right-click
-         for the animation menu (speed, charset, zLift, wake, bloom...). -->
+         is its own night (the app chrome is light; the rain is not). One
+         text-rendered canvas (frozen backdrop below, falling rain above —
+         glyph runs, no bitmaps), fed by MatrixRainFeed over the monitor's
+         live shared row table, styled by the same matrix_rain.json the
+         standalone overlay reads. Right-click for the animation menu
+         (speed, charset, zLift, wake, bloom...). -->
     <Grid Background="#050807">
-        <Image x:Name="AmbientImage" />
-        <Image x:Name="RainImage" />
+        <matrix:MatrixRainCanvas x:Name="RainCanvas" />
         <TextBlock x:Name="DiagText" Text="rain: attaching..."
                    FontFamily="Consolas" FontSize="10.5"
                    Foreground="#5A7A62" Margin="8,0,0,6"
