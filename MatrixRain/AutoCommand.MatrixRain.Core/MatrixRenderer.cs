@@ -274,6 +274,19 @@ namespace AutoCommand.Matrix
             catch (InvalidOperationException) { RebuildSurfaces(); }
         }
 
+        /// <summary>Dirty-rect twin of the lock helpers: device loss can
+        /// reset the lock bookkeeping BETWEEN a successful Lock and this
+        /// call, so AddDirtyRect throws on a bitmap this pass genuinely
+        /// locked (crash.log 2026-11-11 07:46, from Frame — the third
+        /// occurrence of the class; the 2026-11-09 fix guarded only Lock/
+        /// Unlock). Treat it identically: fresh surfaces, skip the pass —
+        /// the frame's pixels are gone either way.</summary>
+        private void DirtySurface(WriteableBitmap bmp)
+        {
+            try { bmp.AddDirtyRect(new Int32Rect(0, 0, _w, _h)); }
+            catch (InvalidOperationException) { RebuildSurfaces(); }
+        }
+
         private void RecomputeGrid()
         {
             if (_atlas == null || _w == 0) return;
@@ -521,7 +534,7 @@ namespace AutoCommand.Matrix
                         }
                     }
 
-                _bmp.AddDirtyRect(new Int32Rect(0, 0, _w, _h));
+                DirtySurface(_bmp);
             }
             finally
             {
@@ -740,7 +753,7 @@ namespace AutoCommand.Matrix
                     BlitClipped(dstBase, stride, _atlas.Ambient[glyph],
                         _atlas.CellW, _atlas.CellH, x, y, _w, _h, 256);
                 }
-                _bgBmp.AddDirtyRect(new Int32Rect(0, 0, _w, _h));
+                DirtySurface(_bgBmp);
             }
             finally { UnlockSurface(_bgBmp); }
             _pendingEtches.Clear();
@@ -764,7 +777,7 @@ namespace AutoCommand.Matrix
                 try
                 {
                     unsafe { new Span<byte>((void*)_bgBmp.BackBuffer, _h * _bgBmp.BackBufferStride).Clear(); }
-                    _bgBmp.AddDirtyRect(new Int32Rect(0, 0, _w, _h));
+                    DirtySurface(_bgBmp);
                 }
                 finally { UnlockSurface(_bgBmp); }
                 return;
@@ -795,7 +808,7 @@ namespace AutoCommand.Matrix
                         for (int r = 0; r < _ambientRows; r++)
                             BlitAmbientCell(dstBase, stride, c, r);
                 }
-                _bgBmp.AddDirtyRect(new Int32Rect(0, 0, _w, _h));
+                DirtySurface(_bgBmp);
             }
             finally { UnlockSurface(_bgBmp); }
         }
