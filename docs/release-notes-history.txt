@@ -17,6 +17,56 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.11.1 (2026-11-11)
+================================================================================
+
+# v2026.11.11.1 — The bridge works where the proxy actually lives
+
+Fixes the MCP bridge defect that made every assistant tool call answer
+"AutoCommand is not running or its AI session is off" while the app ran
+with an active AI session (field report 2026-11-11: AutoClaw, ZCode and
+the app's own preflight all affected; every `source_autocommand_*` tool
+dead despite a fresh session.json and a beating heartbeat).
+
+## Root cause
+
+The proxy's impostor guard (added in the 2026-11-09 security pass)
+checked that the session pid's exe lives one directory above the proxy's
+own folder — true in the release zip layout. But MCP auto-registration
+(v2026.11.10) deploys the proxy to
+%LOCALAPPDATA%\AutoCommand\tools\v<version>\ while the app runs from
+wherever the zip was extracted, so the check rejected the GENUINE app on
+every message and every call fell through to offline guidance. The
+"stale — its app pid is gone" log line fired while the pid was alive,
+which is what hid the bug.
+
+## The fix
+
+- session.json now records the app's own exe path, written by the app
+  when a session starts. The proxy requires an EXACT full-path match —
+  a strictly stronger impostor check than the directory guess, and
+  correct in every install layout. Legacy session files (no exe field)
+  fall back to the process-name guard.
+- The one-level-up directory heuristic is gone from the proxy.
+- Wake-on-knock resolves the app from agent\app_path.txt (written at
+  app startup), then by walking up from the proxy folder — it used to
+  look for an AutoCommand.exe that cannot exist in the deployed layout.
+- The two offline states finally say different things: "no AI session
+  is active" vs "AutoCommand is no longer running". The stale log line
+  names which state fired, with the paths it compared.
+- The deployed tools dir no longer carries a debug PDB (neither does
+  the release zip).
+- scripts\test-agent-proxy.ps1 repaired — it had been red since the
+  security pass landed (fabricated a dead pid yet expected forwarding,
+  expected the retired 6-tool surface, and deadlocked on the 31-tool
+  list). New coverage: the field-bug layout (proxy and "app" in
+  unrelated directories) must forward; legacy and mismatched-exe
+  sessions must stay offline; the two offline messages must differ.
+
+BridgeSelfTest pins the new session.json exe field. All three suites
+green.
+
+================================================================================
 v2026.11.11 (2026-11-11)
 ================================================================================
 
