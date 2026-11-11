@@ -10,6 +10,8 @@
 #   - assets: AutoCommand-v<ver>-win-x64.zip, unblock-autocommand.ps1,
 #     SHA256SUMS.txt (computed for the CI-built zip, uploaded --clobber
 #     so the sums always match the zip they shipped with)
+#   - prune-releases.ps1 -Apply as the last step, so the Releases page keeps
+#     one release per day (the fresh tag is always its day's highest build)
 # No secrets needed: GITHUB_TOKEN with contents:write attaches to
 # releases in this repo. Public repo -> free windows-latest minutes.
 
@@ -114,3 +116,9 @@ jobs:
             publish/unblock-autocommand.ps1 `
             publish/SHA256SUMS.txt `
             --clobber --repo $Env:GITHUB_REPOSITORY
+
+      - name: Prune same-day releases (keep highest build per day)
+        shell: pwsh
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: ./prune-releases.ps1 -Apply
