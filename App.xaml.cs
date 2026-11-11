@@ -500,6 +500,20 @@ namespace AutoCommand
 
                 AutoCommand.Agent.Core.LivenessService.StartHeartbeat(agentDir);
 
+                // The deployed AgentProxy (in %LOCALAPPDATA%\AutoCommand\tools\)
+                // cannot guess where this exe lives — the app may run from an
+                // extracted release zip anywhere. Record it so wake-on-knock
+                // can launch the right thing. Best-effort: a failed write only
+                // means "knock cannot open the app", never a broken startup.
+                try
+                {
+                    string exePath = Environment.ProcessPath;
+                    if (!string.IsNullOrEmpty(exePath))
+                        System.IO.File.WriteAllText(
+                            System.IO.Path.Combine(agentDir, "app_path.txt"), exePath);
+                }
+                catch { /* wake is optional; startup must never fail here */ }
+
                 Services.FreshSetupService.EnsureStartupTaskHealthy();
 
                 if (_startupDeath != null)

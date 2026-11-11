@@ -50,7 +50,10 @@ try
         "pid=" + sessionNode?["pid"]);
     int port = sessionNode["port"].GetValue<int>();
     string token = sessionNode["token"].GetValue<string>();
-    Check("1c session.json embeds no tool list (tools/list is authoritative)",
+    Check("1c Start writes this process's exe path (the proxy's layout-proof session identity)",
+        string.Equals(sessionNode?["exe"]?.GetValue<string>(), Environment.ProcessPath, StringComparison.OrdinalIgnoreCase),
+        "exe=" + sessionNode?["exe"]);
+    Check("1d session.json embeds no tool list (tools/list is authoritative)",
         sessionNode.ContainsKey("tools") == false);
 
     // raw HTTP/1.1, one request per connection — exactly what hand-rolled

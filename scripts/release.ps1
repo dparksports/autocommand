@@ -130,6 +130,10 @@ Step "Publishing self-contained single-file AgentProxy (tools)"
 dotnet publish AgentProxy\AutoCommand.AgentProxy.csproj -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true /p:PublishTrimmed=true /p:EnableCompressionInSingleFile=true -o "publish/v$relVersion/tools/AgentProxy"
 Assert-Exit 'dotnet publish proxy'
 
+# Debug symbols have no business in the zip (or in the deployed tools dir
+# the app copies this into) - the single-file exe is all the proxy ships
+Remove-Item "publish/v$relVersion/tools/AgentProxy/*.pdb" -ErrorAction SilentlyContinue
+
 # -- Verify the binaries carry the csproj version - the whole point -----------
 $exe = "publish/v$relVersion/AutoCommand.exe"
 $binaryVersion = (Get-Item $exe).VersionInfo.ProductVersion

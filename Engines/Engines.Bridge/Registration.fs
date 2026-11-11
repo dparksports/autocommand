@@ -537,7 +537,12 @@ type McpClientCatalog (identity: AppIdentity, mcpId: string, proxyExeName: strin
                     try
                         Directory.CreateDirectory(target) |> ignore
                         for file in Directory.GetFiles(src) do
-                            File.Copy(file, Path.Combine(target, Path.GetFileName(file)), overwrite = true)
+                            // publish output carries debug pdbs next to the
+                            // exe; the deployed tools dir ships release bits
+                            // only (field observation: a stray AgentProxy.pdb
+                            // in tools\current)
+                            if not (file.EndsWith(".pdb", StringComparison.OrdinalIgnoreCase)) then
+                                File.Copy(file, Path.Combine(target, Path.GetFileName(file)), overwrite = true)
                         let marker = JsonObject()
                         marker["version"] <- JsonValue.Create(appVersion)
                         marker["copiedUtc"] <- JsonValue.Create(DateTime.UtcNow.ToString("o"))

@@ -11,6 +11,14 @@
 #   6. error codes: dead-port forward -32603, unknown method -32601,
 #      malformed JSON -32700 with id null
 #   7. hostile DOTNET_ROOT: empty folder and (when present) a real .NET 8 root
+#   8. session identity: a live pid whose exe lives in a directory unrelated
+#      to the proxy's own must FORWARD (the 2026-11-11 field bug: deployed
+#      proxies rejected the real app via a one-level-up directory guess),
+#      legacy files without an exe and mismatched exes stay offline, and the
+#      two offline states give different guidance
+# The proxy is pointed at a THROWAWAY agent dir (AC_AGENT_DIR): the fake
+# session.json names a live pid, and the machine's real proxies re-read
+# session.json on every message - they must never see the fake one.
 # Pure ASCII on purpose: Windows PowerShell 5.1 reads BOM-less scripts as
 # ANSI and non-ASCII corrupts execution (see release.ps1's note).
 $ErrorActionPreference = 'Stop'
@@ -34,21 +42,27 @@ $proxySize = (Get-Item $proxy).Length
 Check '0a proxy is a single-file self-contained bundle (sanity)' ($proxySize -gt 10MB) "size $proxySize bytes"
 
 # -- helpers ------------------------------------------------------------------
-$agentDir = Join-Path $env:LOCALAPPDATA 'AutoCommand\agent'
+$agentDir = Join-Path $env:TEMP ('agentproxy-smoke-' + [guid]::NewGuid().ToString('N'))
 $sessionPath = Join-Path $agentDir 'session.json'
-$hadSessionFile = Test-Path $sessionPath
 
 function Invoke-ProxyLines([string[]]$lines, [hashtable]$envOverrides = $null) {
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $proxy
     $psi.RedirectStandardInput = $true; $psi.RedirectStandardOutput = $true; $psi.RedirectStandardError = $true
     $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true
+    $psi.EnvironmentVariables['AC_AGENT_DIR'] = $agentDir
     if ($envOverrides) { foreach ($k in $envOverrides.Keys) { $psi.EnvironmentVariables[$k] = $envOverrides[$k] } }
     $p = [System.Diagnostics.Process]::Start($psi)
+    # Drain stdout/stderr CONCURRENTLY with the write phase: the 31-tool
+    # offline tools/list is ~14KB, larger than the pipe buffer - reading
+    # only after WaitForExit deadlocks the proxy mid-response (the harness
+    # bug that hid behind the old 6-tool surface)
+    $outTask = $p.StandardOutput.ReadToEndAsync()
+    $errTask = $p.StandardError.ReadToEndAsync()
     foreach ($l in $lines) { $p.StandardInput.WriteLine($l) }
     $p.StandardInput.Close()
     if (-not $p.WaitForExit(30000)) { $p.Kill(); throw 'proxy did not exit after stdin closed' }
-    [pscustomobject]@{ Stdout = $p.StandardOutput.ReadToEnd(); Stderr = $p.StandardError.ReadToEnd() }
+    [pscustomobject]@{ Stdout = $outTask.Result; Stderr = $errTask.Result }
 }
 
 # a raw-socket JSON-RPC mock "bridge": accepts exactly $accepts connections,
@@ -100,11 +114,14 @@ function Start-Mock([int]$port, [int]$accepts, [string]$capturePath) {
 
 function Set-Session([int]$port, [string]$token) {
     New-Item -ItemType Directory -Force -Path $agentDir | Out-Null
-    @{ port = $port; token = $token; pid = 12345 } | ConvertTo-Json | Set-Content $sessionPath
+    # pid + exe name THIS live process: the session identity check must
+    # accept an app whose exe lives in a directory unrelated to the proxy's
+    # own folder. powershell plays the app; its exe path is the identity.
+    @{ port = $port; token = $token; pid = $PID; exe = (Get-Process -Id $PID).Path } |
+        ConvertTo-Json | Set-Content $sessionPath
 }
 
 try {
-    if ($hadSessionFile) { Rename-Item $sessionPath "$sessionPath.smoketest-backup" }
 
     # == 1. offline stdio =====================================================
     "--- OFFLINE ---"
@@ -120,7 +137,10 @@ try {
     $call = $msgs | Where-Object { $_.id -eq 3 }
     Check '1a initialize answers serverInfo autocommand' ($init.result.serverInfo.name -eq 'autocommand') ''
     Check '1b serverInfo carries a version' ($init.result.serverInfo.version -and $init.result.serverInfo.version.Length -gt 0) $init.result.serverInfo.version
-    Check '1c six offline tools listed' (@($tools.result.tools).Count -eq 6) ((@($tools.result.tools | ForEach-Object { $_.name }) -join ', '))
+    $toolNames = @($tools.result.tools | ForEach-Object { $_.name })
+    Check '1c offline tools list is the full surface (25+, first and last present)' `
+        ($toolNames.Count -ge 25 -and $toolNames -contains 'get_monitor_rows' -and $toolNames -contains 'diagnose_wsl') `
+        ("$($toolNames.Count) tools")
     Check '1d offline call answers guidance with isError=true' ($call.result.isError -eq $true) ''
 
     # == 2. protocol matrix + lifecycle =======================================
@@ -143,7 +163,7 @@ try {
         '{"jsonrpc":"2.0","id":8,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"t"}}}',
         '{"jsonrpc":"2.0","id":9,"method":"tools/list"}'
     )).Stdout -split "`n" | Where-Object { $_.Trim() } | ForEach-Object { $_ | ConvertFrom-Json }
-    Check '2d initialize then tools/list succeeds' (@(($seq | Where-Object { $_.id -eq 9 }).result.tools).Count -eq 6) ''
+    Check '2d initialize then tools/list succeeds' (@(($seq | Where-Object { $_.id -eq 9 }).result.tools).Count -ge 25) ''
 
     # == 3. online forwarding against a mock listener =========================
     '--- ONLINE (mock listener) ---'
@@ -173,15 +193,18 @@ try {
     $capC = Join-Path $env:TEMP 'agent-mockC-received.txt'
     Remove-Item $capB, $capC -ErrorAction SilentlyContinue
     # initialize happens while still OFFLINE (answered by the proxy itself),
-    # so mockB sees exactly ONE forwarded connection — the post-flip call.
+    # so each mock sees TWO forwarded connections once the session points at
+    # it: the resync initialize the proxy replays upstream (a fresh bridge
+    # instance never saw the client's handshake) + the actual call.
     # mockC takes over after the session restarts onto a new port/token.
-    $mockB = Start-Mock 47956 1 $capB
-    $mockC = Start-Mock 47957 1 $capC
+    $mockB = Start-Mock 47956 2 $capB
+    $mockC = Start-Mock 47957 2 $capC
 
     $psi = New-Object System.Diagnostics.ProcessStartInfo
     $psi.FileName = $proxy
     $psi.RedirectStandardInput = $true; $psi.RedirectStandardOutput = $true
     $psi.UseShellExecute = $false; $psi.CreateNoWindow = $true
+    $psi.EnvironmentVariables['AC_AGENT_DIR'] = $agentDir
     $proc = [System.Diagnostics.Process]::Start($psi)
 
     # before any initialize: a call must be refused, NOT generate a flip notification
@@ -201,14 +224,17 @@ try {
     $proc.WaitForExit(20000) | Out-Null
     $live = $proc.StandardOutput.ReadToEnd() -split "`n" | Where-Object { $_.Trim() } | ForEach-Object { $_ | ConvertFrom-Json }
 
-    $notifIdx = -1; $resp3Idx = -1
+    $firstNotifIdx = -1; $notifCount = 0; $resp3Idx = -1
     for ($i = 0; $i -lt $live.Count; $i++) {
-        if ($live[$i].method -eq 'notifications/tools/list_changed') { $notifIdx = $i }
+        if ($live[$i].method -eq 'notifications/tools/list_changed') {
+            $notifCount++
+            if ($firstNotifIdx -lt 0) { $firstNotifIdx = $i }
+        }
         if ($live[$i].id -eq 3) { $resp3Idx = $i }
     }
-    Check '4a exactly one tools/list_changed on the flip' (@($live | Where-Object { $_.method -eq 'notifications/tools/list_changed' }).Count -eq 1) ''
-    Check '4b list_changed comes AFTER the in-flight response' ($resp3Idx -ge 0 -and $notifIdx -gt $resp3Idx) "response@$resp3Idx notification@$notifIdx"
-    Check '4c no notification before initialize completed' ($notifIdx -gt 0) "notification@$notifIdx"
+    Check '4a exactly two tools/list_changed - one per bridge instance (flip + restart)' ($notifCount -eq 2) "count $notifCount"
+    Check '4b list_changed comes AFTER the in-flight response' ($resp3Idx -ge 0 -and $firstNotifIdx -gt $resp3Idx) "response@$resp3Idx first notification@$firstNotifIdx"
+    Check '4c no notification before initialize completed' ($firstNotifIdx -gt 0) "first notification@$firstNotifIdx"
     Check '4d pre-initialize call refused with -32002' (($live | Where-Object { $_.id -eq 1 }).error.code -eq -32002) ''
     Check '4e offline initialize answered' (($live | Where-Object { $_.id -eq 2 }).result.serverInfo.name -eq 'autocommand') ''
     Check '4f call after flip forwarded (mock-ok)' (($live | Where-Object { $_.id -eq 3 }).result.echo -eq 'mock-ok') ''
@@ -252,11 +278,51 @@ try {
         Check '7b handshake survives a real .NET-8-only DOTNET_ROOT (AutoClaw2 vendored)' ($poisoned8.Stdout -match 'serverInfo') "stderr: $($poisoned8.Stderr.Trim())"
     }
     else { '7b skipped: no .NET-8-only runtime found to poison with' }
+
+    # == 8. session identity + honest offline guidance =======================
+    '--- SESSION IDENTITY ---'
+    # 8a legacy session file (no exe recorded) + a live pid that is not the
+    #     app: the name guard alone must keep this OFFLINE
+    @{ port = 47958; token = 'LEGACYTOKEN'; pid = $PID } | ConvertTo-Json | Set-Content $sessionPath
+    $leg = (Invoke-ProxyLines @(
+        '{"jsonrpc":"2.0","id":40,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"smoke"}}}',
+        '{"jsonrpc":"2.0","id":41,"method":"tools/call","params":{"name":"get_monitor_rows","arguments":{}}}'
+    )).Stdout -split "`n" | Where-Object { $_.Trim() } | ForEach-Object { $_ | ConvertFrom-Json }
+    Check '8a legacy session (no exe) + live non-AutoCommand pid stays offline' `
+        (($leg | Where-Object { $_.id -eq 41 }).result.isError -eq $true) ''
+
+    # 8b live pid but the recorded exe is someone else's: the exact-match
+    #     impostor guard must hold even against a live process
+    @{ port = 47958; token = 'IMPOSTORTOKEN'; pid = $PID; exe = "$env:WINDIR\System32\cmd.exe" } |
+        ConvertTo-Json | Set-Content $sessionPath
+    $imp = (Invoke-ProxyLines @(
+        '{"jsonrpc":"2.0","id":42,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"smoke"}}}',
+        '{"jsonrpc":"2.0","id":43,"method":"tools/call","params":{"name":"get_monitor_rows","arguments":{}}}'
+    )).Stdout -split "`n" | Where-Object { $_.Trim() } | ForEach-Object { $_ | ConvertFrom-Json }
+    Check '8b live pid with a mismatched recorded exe stays offline' `
+        (($imp | Where-Object { $_.id -eq 43 }).result.isError -eq $true) ''
+
+    # 8c the two offline states say different things - the 2026-11-11 field
+    #     report chased an app that was running fine because one message
+    #     covered both states
+    Remove-Item $sessionPath -ErrorAction SilentlyContinue
+    $noFileText = ((Invoke-ProxyLines @(
+        '{"jsonrpc":"2.0","id":44,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"smoke"}}}',
+        '{"jsonrpc":"2.0","id":45,"method":"tools/call","params":{"name":"get_monitor_rows","arguments":{}}}'
+    )).Stdout -split "`n" | Where-Object { $_.Trim() } | ForEach-Object { $_ | ConvertFrom-Json } |
+        Where-Object { $_.id -eq 45 }).result.content[0].text
+    @{ port = 47958; token = 'DEADTOKEN'; pid = 12345 } | ConvertTo-Json | Set-Content $sessionPath
+    $deadPidText = ((Invoke-ProxyLines @(
+        '{"jsonrpc":"2.0","id":46,"method":"initialize","params":{"protocolVersion":"2025-03-26","clientInfo":{"name":"smoke"}}}',
+        '{"jsonrpc":"2.0","id":47,"method":"tools/call","params":{"name":"get_monitor_rows","arguments":{}}}'
+    )).Stdout -split "`n" | Where-Object { $_.Trim() } | ForEach-Object { $_ | ConvertFrom-Json } |
+        Where-Object { $_.id -eq 47 }).result.content[0].text
+    Check '8c no-session guidance names the session; dead-pid guidance names the app' `
+        ($noFileText -match 'No AutoCommand AI session' -and $deadPidText -match 'no longer running' -and $noFileText -ne $deadPidText) ''
 }
 finally {
-    # restore prior session state no matter how the script ends
-    Remove-Item $sessionPath -ErrorAction SilentlyContinue
-    if ($hadSessionFile) { Rename-Item "$sessionPath.smoketest-backup" $sessionPath }
+    # the throwaway agent dir must never leak into the machine's real one
+    Remove-Item $agentDir -Recurse -Force -ErrorAction SilentlyContinue
 }
 
 if ($script:failures -gt 0) { Write-Host "PROXY SMOKE TEST FAILED ($($script:failures) check(s))" -ForegroundColor Red; exit 1 }

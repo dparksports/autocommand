@@ -118,13 +118,14 @@ var stdout = new StreamWriter(Console.OpenStandardOutput(), new UTF8Encoding(fal
 try { Console.InputEncoding = Encoding.UTF8; } catch { /* detached stdin keeps default */ }
 var http = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
 
-(int Port, string Token, long Pid)? ReadSession()
+(int Port, string Token, long Pid, string Exe)? ReadSession()
 {
     try
     {
         string path = Path.Combine(AgentDir, "session.json");
         var o = JsonNode.Parse(File.ReadAllText(path)) as JsonObject;
-        return (o["port"].GetValue<int>(), o["token"].GetValue<string>(), (long?)o["pid"] ?? 0);
+        return (o["port"].GetValue<int>(), o["token"].GetValue<string>(),
+                (long?)o["pid"] ?? 0, (string?)o["exe"] ?? "");
     }
     catch { return null; }
 }
@@ -205,32 +206,28 @@ long reinitCounter = 0;
 DateTime lastKnockUtc = DateTime.MinValue;
 TimeSpan KnockCooldown = TimeSpan.FromMinutes(5);
 
-static bool PidAlive(long pid)
+// True when the session's pid is still the process the app named when it
+// wrote session.json. With "exe" in the file (app builds since this field
+// exists) an EXACT full-path match is required — layout-proof and stronger
+// than any same-directory guess. Legacy files (no exe) fall back to the
+// name guard alone. The directory heuristic this replaces assumed the app
+// sits one level above the proxy's folder; auto-registration deploys the
+// proxy to tools\v<version>\ while the app runs from an extracted zip
+// anywhere, so it rejected the GENUINE app and every tool call answered
+// as offline (field report 2026-11-11). The session token remains the
+// channel's real authentication either way.
+static bool PidAlive(long pid, string expectedExe)
 {
     if (pid <= 0) return false;
     try
     {
-        using var p = Process.GetProcessById((int)pid);
-        // name guard: a reused pid from an unrelated process is not a session
-        if (!p.ProcessName.StartsWith("AutoCommand", StringComparison.OrdinalIgnoreCase))
-            return false;
-
-        // Path guard: a same-named impostor ("AutoCommandEvil.exe" with its
-        // own session.json) must not capture the forwarded channel. The real
-        // app ships next to this proxy's parent folder. QueryFullProcessImageName
-        // (not Process.MainModule) so this also works while the app runs
-        // elevated and the proxy does not.
+        // QueryFullProcessImageName (not Process.MainModule) so this works
+        // while the app runs elevated and the proxy does not
         string sessionExe = QueryProcessImagePath((int)pid);
-        if (sessionExe.Length > 0)
-        {
-            string appDir = Path.GetDirectoryName(AppExePath());
-            if (!string.IsNullOrEmpty(appDir)
-                && !string.Equals(Path.GetDirectoryName(sessionExe), appDir, StringComparison.OrdinalIgnoreCase))
-            {
-                return false;
-            }
-        }
-        return true;
+        if (sessionExe.Length == 0) return false;   // gone, or unidentifiable
+        if (!string.IsNullOrEmpty(expectedExe))
+            return string.Equals(sessionExe, expectedExe, StringComparison.OrdinalIgnoreCase);
+        return Path.GetFileName(sessionExe).StartsWith("AutoCommand", StringComparison.OrdinalIgnoreCase);
     }
     catch { return false; }
 }
@@ -268,17 +265,39 @@ static bool InteractiveAppRunning()
     return Process.GetProcessesByName("AutoCommand").Any();
 }
 
-static string AppExePath()
+string AppExePath()
 {
+    // Resolution order, most-trusted first:
+    //   1. AC_APP_EXE — offline self-tests
+    //   2. agent\app_path.txt — written by the app at every startup; the
+    //      only source that knows where the real exe lives when the app
+    //      runs from an extracted zip far from this deployed proxy
+    //   3. walk up from this proxy's own folder — the release zip keeps
+    //      AutoCommand.exe at the root above tools\AgentProxy
+    //   4. the legacy flat guess — proxy directly under <install>\tools\
+    //
     // AgentProxy builds with <Nullable>disable</Nullable>, so the null
     // handling here is explicit rather than annotation-based
     string overridePath = Environment.GetEnvironmentVariable("AC_APP_EXE");
     if (!string.IsNullOrEmpty(overridePath)) return overridePath;
     try
     {
-        // this proxy lives in <install>\tools\ — the app sits one level up
+        string recorded = File.ReadAllText(Path.Combine(AgentDir, "app_path.txt")).Trim();
+        if (recorded.Length > 0 && recorded.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
+            return recorded;
+    }
+    catch { /* not written yet — pre-update app */ }
+    try
+    {
         string dir = Path.GetDirectoryName(Environment.ProcessPath);
-        return Path.Combine(Path.GetDirectoryName(dir ?? "") ?? "", "AutoCommand.exe");
+        for (int up = 0; up < 4 && !string.IsNullOrEmpty(dir); up++)
+        {
+            string candidate = Path.Combine(dir, "AutoCommand.exe");
+            if (File.Exists(candidate)) return candidate;
+            dir = Path.GetDirectoryName(dir);
+        }
+        return Path.Combine(Path.GetDirectoryName(
+            Path.GetDirectoryName(Environment.ProcessPath) ?? "") ?? "", "AutoCommand.exe");
     }
     catch { return ""; }
 }
@@ -289,7 +308,7 @@ bool WakePrefOn()
     catch { return false; }
 }
 
-async Task<(int Port, string Token, long Pid)?> TryWakeAsync()
+async Task<(int Port, string Token, long Pid, string Exe)?> TryWakeAsync()
 {
     if (!WakePrefOn()) return null;
     if (DateTime.UtcNow - lastKnockUtc < KnockCooldown) return null;
@@ -323,9 +342,24 @@ LogProxy("wake", "app launch requested - the user starts the session in the Be M
     return null;
 }
 
-string SessionKey((int Port, string Token, long Pid) s) => $"{s.Pid}:{s.Port}:{s.Token}";
+string SessionKey((int Port, string Token, long Pid, string Exe) s) => $"{s.Pid}:{s.Port}:{s.Token}";
 
-async Task<bool> EnsureUpstreamInitializedAsync((int Port, string Token, long Pid) s)
+// Why a present session.json still counts as offline — the log must say
+// which of two very different states fired. "its app pid is gone" was also
+// logged while the pid was alive and only the identity check failed, the
+// exact red herring that hid the 2026-11-11 layout bug for a day.
+string StaleDetail((int Port, string Token, long Pid, string Exe) s)
+{
+    string path = "";
+    try { path = QueryProcessImagePath((int)s.Pid); } catch { }
+    if (path.Length == 0)
+        return $"session.json pid {s.Pid} is gone — treating as offline";
+    string expected = s.Exe.Length > 0 ? s.Exe : "(legacy session file, no exe recorded)";
+    return $"session.json pid {s.Pid} is alive (\"{path}\") but is not the session's app " +
+           $"(\"{expected}\") — treating as offline";
+}
+
+async Task<bool> EnsureUpstreamInitializedAsync((int Port, string Token, long Pid, string Exe) s)
 {
     string key = SessionKey(s);
     if (upstreamKey == key) return false;
@@ -344,6 +378,22 @@ async Task<bool> EnsureUpstreamInitializedAsync((int Port, string Token, long Pi
         return true;
     }
     return false;   // bridge unreachable — ForwardAsync already returned guidance
+}
+
+// Two offline states, two different asks. Conflating them ("not running or
+// its AI session is off") sent a user hunting for an app that was running
+// fine with a live session — true-ish for both states, actionable for
+// neither.
+string OfflineGuidance()
+{
+    if (ReadSession() == null)
+        return "No AutoCommand AI session is active right now.\n" +
+            "Ask the user to open AutoCommand > Be My Guest tab > Start session, then retry.\n" +
+            "(To stop being asked: tick 'Start the session automatically' and/or " +
+            "'let my AI assistant open it for me' - both on the Be My Guest tab.)";
+    return "AutoCommand is no longer running - it ended without stopping its AI session.\n" +
+        "Ask the user to start AutoCommand again (and start the session in the Be My Guest " +
+        "tab if they want tools to answer), then retry.";
 }
 
 string AnswerOffline(JsonObject rpc)
@@ -390,10 +440,7 @@ string AnswerOffline(JsonObject rpc)
                     new JsonObject
                     {
                         ["type"] = "text",
-                        ["text"] = "AutoCommand is not running or its AI session is off.\n" +
-                            "Ask the user to open AutoCommand > Be My Guest tab > Start session, then retry.\n" +
-                            "(To stop being asked: tick 'Start the session automatically' and/or " +
-                            "'let my AI assistant open it for me' - both on the Be My Guest tab.)",
+                        ["text"] = OfflineGuidance(),
                     },
                 },
                 ["isError"] = true,
@@ -485,13 +532,14 @@ try
         }
 
         var session = ReadSession();
-        // a session file whose pid is dead (app crashed without cleanup) is
-        // offline, not online — forwarding into it just times out
-        bool online = session != null && PidAlive(session.Value.Pid);
+        // a session file whose pid is dead (app crashed without cleanup), or
+        // whose pid is alive but is not the exe that wrote the file, is
+        // offline — forwarding into it just times out
+        bool online = session != null && PidAlive(session.Value.Pid, session.Value.Exe);
         if (session != null && !online && !staleSessionLogged)
         {
             staleSessionLogged = true;
-            LogProxy("stale", "session.json exists but its app pid is gone — treating as offline");
+            LogProxy("stale", StaleDetail(session.Value));
         }
 
         // wake-on-knock: no live session + a real post-handshake request +

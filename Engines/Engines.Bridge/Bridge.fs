@@ -32,7 +32,7 @@ open AutoCommand.Engines.Core
 /// Trust model — the app is the broker:
 ///   • The user starts a session from Settings → "AI access" (or the app
 ///     is launched with --agent-headless). Starting writes
-///     &lt;identity.DataRoot&gt;\agent\session.json {port, token, pid, mutatingAllowed}.
+///     &lt;identity.DataRoot&gt;\agent\session.json {port, token, pid, exe, mutatingAllowed}.
 ///     The port is portBase + the first free offset when several
 ///     instances run - clients must read the file, never hardcode a
 ///     port; a sibling instance's bridge will reject this token.
@@ -169,6 +169,13 @@ type AgentBridgeService (identity: AppIdentity, tools: IAgentTools,
                 session["port"] <- JsonValue.Create(port)
                 session["token"] <- JsonValue.Create(token)
                 session["pid"] <- JsonValue.Create(Process.GetCurrentProcess().Id)
+                // The app's own exe path — the proxy's only layout-independent
+                // proof of session identity. Its old "the app sits one level
+                // above my folder" guess broke on the deployed
+                // tools\v<version>\ layout (field report 2026-11-11: live
+                // session, every tool call answered as offline).
+                let exePath = Environment.ProcessPath
+                if not (isNull exePath) then session["exe"] <- JsonValue.Create(exePath)
                 session["startedUtc"] <- JsonValue.Create(DateTime.UtcNow.ToString("o"))
                 session["mutatingAllowed"] <- JsonValue.Create(allowMutating)
                 // no tool list here: it went stale the moment a build added a
