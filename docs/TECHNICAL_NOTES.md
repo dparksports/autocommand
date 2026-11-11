@@ -281,13 +281,13 @@ The proxy re-reads `session.json` on every message, so a session started after t
 ```powershell
 # full suite: publishes the self-contained proxy like release.ps1, then drives
 # offline/online/flip/restart/error-code/poisoned-DOTNET_ROOT cases
-powershell -File test-agent-proxy.ps1
+powershell -File scripts\test-agent-proxy.ps1
 
 # install-decision logic (versioned refresh, locked files, fallbacks)
 dotnet run --project ProxyInstallSelfTest
 
 # bridge end-to-end (starts the elevated app headless - UAC prompt)
-powershell -File test-agent-bridge.ps1
+powershell -File scripts\test-agent-bridge.ps1
 
 # one manual handshake against the deployed copy
 $exe = "$env:LOCALAPPDATA\AutoCommand\tools\AutoCommand.AgentProxy.exe"

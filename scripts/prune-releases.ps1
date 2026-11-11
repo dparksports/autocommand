@@ -18,9 +18,9 @@
 # NOTE: keep this file pure ASCII, same reason as release.ps1.
 #
 # Usage:
-#   powershell -File prune-releases.ps1            # dry run: prints keep/delete
-#   powershell -File prune-releases.ps1 -Apply     # actually delete
-#   powershell -File prune-releases.ps1 -Repo owner/name
+#   powershell -File scripts/prune-releases.ps1            # dry run: prints keep/delete
+#   powershell -File scripts/prune-releases.ps1 -Apply     # actually delete
+#   powershell -File scripts/prune-releases.ps1 -Repo owner/name
 #
 # Requires `gh` authenticated. Idempotent - safe to run any time. release.yml
 # runs it with -Apply as the last step of every publish, so same-day

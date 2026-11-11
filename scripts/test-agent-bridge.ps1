@@ -13,7 +13,8 @@
 # Pure ASCII on purpose: Windows PowerShell 5.1 reads BOM-less scripts as
 # ANSI and non-ASCII corrupts execution (see release.ps1's note).
 param(
-    [string]$Exe = "$PSScriptRoot\bin\Debug\net10.0-windows10.0.19041.0\AutoCommand.exe"
+    # repo root is one level up from this script's scripts\ folder
+    [string]$Exe = "$(Split-Path $PSScriptRoot -Parent)\bin\Debug\net10.0-windows10.0.19041.0\AutoCommand.exe"
 )
 $ErrorActionPreference = 'Stop'
 Add-Type -AssemblyName System.Net.Http

@@ -25,7 +25,7 @@ function Check([string]$name, [bool]$pass, [string]$detail = '') {
 # -- publish the proxy exactly as release.ps1 ships it -----------------------
 $scDir = Join-Path $env:TEMP 'agentproxy-sctest'
 "publishing self-contained single-file proxy to $scDir ..."
-dotnet publish (Join-Path $PSScriptRoot 'AgentProxy\AutoCommand.AgentProxy.csproj') `
+dotnet publish (Join-Path (Split-Path $PSScriptRoot -Parent) 'AgentProxy\AutoCommand.AgentProxy.csproj') `
     -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true -o $scDir | Out-Null
 if ($LASTEXITCODE -ne 0) { throw 'dotnet publish of the proxy failed' }
 $proxy = Join-Path $scDir 'AutoCommand.AgentProxy.exe'

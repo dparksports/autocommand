@@ -10,7 +10,7 @@
 #   - assets: AutoCommand-v<ver>-win-x64.zip, unblock-autocommand.ps1,
 #     SHA256SUMS.txt (computed for the CI-built zip, uploaded --clobber
 #     so the sums always match the zip they shipped with)
-#   - release body: the version's section in docs/release-notes-history.md
+#   - release body: the version's section in docs/release-notes-history.txt
 #     (the consolidated notes archive; same parse contract as release.ps1)
 #   - prune-releases.ps1 -Apply as the last step, so the Releases page keeps
 #     one release per day (the fresh tag is always its day's highest build)
@@ -92,7 +92,7 @@ jobs:
           $zip = "publish/AutoCommand-v$ver-win-x64.zip"
           if (Test-Path $zip) { Remove-Item $zip }
           Compress-Archive -Path publish/app/* -DestinationPath $zip
-          Copy-Item unblock-autocommand.ps1 publish/unblock-autocommand.ps1 -Force
+          Copy-Item scripts/unblock-autocommand.ps1 publish/unblock-autocommand.ps1 -Force
           $h1 = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
           $h2 = (Get-FileHash publish/unblock-autocommand.ps1 -Algorithm SHA256).Hash.ToLower()
           $sums = @(
@@ -110,12 +110,12 @@ jobs:
           $tag = '${{ steps.ver.outputs.tag }}'
           $ver = '${{ steps.ver.outputs.version }}'
           # Release body = the version's section in the consolidated notes
-          # archive ('## v<ver>' up to the next '## v' line) - same parse
-          # contract as release.ps1's Get-HistoryNotes.
-          $hist = Get-Content docs/release-notes-history.md -Raw -Encoding UTF8
-          $m = [regex]::Match($hist, "(?ms)^## v$ver(?![\d.])[^\r\n]*\r?\n(.*?)(?=^## v\d|\z)")
+          # archive (between its '='-rule headings and the next section) -
+          # same parse contract as release.ps1's Get-HistoryNotes.
+          $hist = Get-Content docs/release-notes-history.txt -Raw -Encoding UTF8
+          $m = [regex]::Match($hist, "(?ms)^=+[ \t]*\r?\nv$ver(?![\d.])[^\r\n]*\r?\n=+[ \t]*\r?\n(.*?)(?=^=+[ \t]*\r?\nv\d|\z)")
           if (-not $m.Success) {
-            throw "no '## v$ver' section in docs/release-notes-history.md"
+            throw "no 'v$ver' section in docs/release-notes-history.txt"
           }
           $notes = 'publish/release-notes.md'
           [System.IO.File]::WriteAllText($notes, $m.Groups[1].Value.Trim(),
@@ -134,4 +134,4 @@ jobs:
         shell: pwsh
         env:
           GH_TOKEN: ${{ github.token }}
-        run: ./prune-releases.ps1 -Apply
+        run: ./scripts/prune-releases.ps1 -Apply

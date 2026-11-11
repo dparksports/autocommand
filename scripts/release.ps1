@@ -9,14 +9,14 @@
 # debug (an em-dash once swallowed an exit statement).
 #
 # Usage:
-#   powershell -File release.ps1 -Version 2026.10.16   # full release (pushes!)
-#   powershell -File release.ps1 -Version 2026.10.14.2 # same-day follow-up (4th segment)
-#   powershell -File release.ps1 -Version 2026.10.16 -Yes   # no confirm prompt
-#   powershell -File release.ps1 -DryRun               # package + verify only
+#   powershell -File scripts/release.ps1 -Version 2026.10.16   # full release (pushes!)
+#   powershell -File scripts/release.ps1 -Version 2026.10.14.2 # same-day follow-up (4th segment)
+#   powershell -File scripts/release.ps1 -Version 2026.10.16 -Yes   # no confirm prompt
+#   powershell -File scripts/release.ps1 -DryRun               # package + verify only
 #
-# Full release requires: clean working tree on master, a '## v<Version>'
-# section already written AND COMMITTED in docs/release-notes-history.md (the
-# single home for release notes - its section becomes the GitHub release body),
+# Full release requires: clean working tree on master, a 'v<Version>' section
+# already written AND COMMITTED in docs/release-notes-history.txt (the single
+# home for release notes - its section becomes the GitHub release body),
 # and `gh` authenticated. Steps: bump csproj -> publish
 # self-contained win-x64 -> verify the exe reports the csproj version -> zip app
 # -> SHA256SUMS.txt (app zip + unblock script) -> confirm -> commit -> tag -> push ->
@@ -35,7 +35,8 @@ param(
 )
 
 $ErrorActionPreference = 'Stop'
-Set-Location $PSScriptRoot
+$repoRoot = Split-Path $PSScriptRoot -Parent   # repo root (this script lives under scripts)
+Set-Location $repoRoot
 
 function Step($msg) { Write-Host "==> $msg" -ForegroundColor Cyan }
 function Die($msg)  { Write-Host "ERROR: $msg" -ForegroundColor Red; exit 1 }
@@ -44,19 +45,19 @@ function Assert-Exit([string]$what) {
 }
 function Get-HistoryNotes([string]$Version) {
     # The consolidated notes archive is the single home for release notes: the
-    # section for this version (everything after its '## v<version>' heading,
-    # up to the next '## v' line) becomes the GitHub release body. Same parse
-    # contract as release.yml's attach step.
-    $histPath = Join-Path $PSScriptRoot 'docs\release-notes-history.md'
-    if (-not (Test-Path $histPath)) { Die 'docs/release-notes-history.md not found' }
+    # section for this version (the body between its '='-rule headings and the
+    # next section) becomes the GitHub release body. Same parse contract as
+    # release.yml's attach step.
+    $histPath = Join-Path $repoRoot 'docs\release-notes-history.txt'
+    if (-not (Test-Path $histPath)) { Die 'docs/release-notes-history.txt not found' }
     # [IO.File]::ReadAllText, NOT Get-Content: the archive is UTF-8 (release
     # titles carry em-dashes) and PS 5.1's Get-Content would decode it as ANSI.
     $hist = [System.IO.File]::ReadAllText($histPath)
     # $Version is already validated as \d+\.\d+\.\d+(\.\d+)? - no metacharacters;
     # the (?![\d.]) guard stops v2026.11.1 from matching v2026.11.10 headings.
-    $m = [regex]::Match($hist, "(?ms)^## v$Version(?![\d.])[^\r\n]*\r?\n(.*?)(?=^## v\d|\z)")
+    $m = [regex]::Match($hist, "(?ms)^=+[ \t]*\r?\nv$Version(?![\d.])[^\r\n]*\r?\n=+[ \t]*\r?\n(.*?)(?=^=+[ \t]*\r?\nv\d|\z)")
     if (-not $m.Success) {
-        Die "no '## v$Version' section in docs/release-notes-history.md - write the notes section at the top, commit it, then re-run (format contract is at the top of that file)"
+        Die "no 'v$Version' section in docs/release-notes-history.txt - write the notes section at the top, commit it, then re-run (format contract is at the top of that file)"
     }
     return $m.Groups[1].Value.Trim()
 }
@@ -64,7 +65,7 @@ function Get-HistoryNotes([string]$Version) {
 Step "Parameters: Version=[$Version] DryRun=[$DryRun] Yes=[$Yes]"
 
 # -- The source of truth ------------------------------------------------------
-$csproj = Join-Path $PSScriptRoot 'AutoCommand.csproj'
+$csproj = Join-Path $repoRoot 'AutoCommand.csproj'
 $csprojText = [System.IO.File]::ReadAllText($csproj)
 if ($csprojText -notmatch '(?m)^\s*<Version>([\d.]+)</Version>\s*$') {
     Die 'cannot read <Version> from AutoCommand.csproj'
@@ -84,11 +85,11 @@ if (-not $DryRun) {
     if ((git branch --show-current) -ne 'master') { Die 'releases are cut from master only' }
     $dirty = git status --porcelain --untracked-files=no
     if ($dirty) { Die "working tree not clean - commit or stash first:`n$dirty" }
-    Step "Reading notes for v$Version from docs/release-notes-history.md"
+    Step "Reading notes for v$Version from docs/release-notes-history.txt"
     $notesFile = 'publish/release-notes.md'
     $notes = Get-HistoryNotes $Version
     if (-not $notes) { Die "notes section for v$Version is empty" }
-    [System.IO.File]::WriteAllText((Join-Path $PSScriptRoot $notesFile), $notes,
+    [System.IO.File]::WriteAllText((Join-Path $repoRoot $notesFile), $notes,
         (New-Object System.Text.UTF8Encoding($false)))
 
     Step "Bumping AutoCommand.csproj to $Version (currently v$currentVersion)"
@@ -98,7 +99,7 @@ if (-not $DryRun) {
 
     # The proxy's csproj follows the app's version (serverInfo / deps.json
     # must never disagree with the release they shipped in).
-    $proxyCsproj = Join-Path $PSScriptRoot 'AgentProxy\AutoCommand.AgentProxy.csproj'
+    $proxyCsproj = Join-Path $repoRoot 'AgentProxy\AutoCommand.AgentProxy.csproj'
     $proxyText = [System.IO.File]::ReadAllText($proxyCsproj)
     $newProxyText = $proxyText -replace "(?m)^(\s*<Version>)[\d.]+(</Version>\s*)$", "`${1}$Version`${2}"
     if ($newProxyText -eq $proxyText) { Die 'failed to rewrite <Version> in AgentProxy\AutoCommand.AgentProxy.csproj' }
@@ -151,13 +152,13 @@ Compress-Archive -Path "publish/v$relVersion/*" -DestinationPath $appZip
 # Standalone unblock script - separate downloadable asset for users who cannot
 # launch the app at all (Smart App Control / SmartScreen blocks on the
 # downloaded zip's Mark-of-the-Web).
-Copy-Item (Join-Path $PSScriptRoot 'unblock-autocommand.ps1') $unblockPs1 -Force
+Copy-Item (Join-Path $repoRoot 'unblock-autocommand.ps1') $unblockPs1 -Force
 
 $sums = @(
     "{0}  {1}" -f (Get-FileHash $appZip -Algorithm SHA256).Hash.ToLower(), (Split-Path $appZip -Leaf)
     "{0}  {1}" -f (Get-FileHash $unblockPs1 -Algorithm SHA256).Hash.ToLower(), (Split-Path $unblockPs1 -Leaf)
 )
-[System.IO.File]::WriteAllLines((Join-Path $PSScriptRoot $sumsFile), $sums)
+[System.IO.File]::WriteAllLines((Join-Path $repoRoot $sumsFile), $sums)
 Step "Wrote $sumsFile (app + unblock script)"
 
 if ($DryRun) {
