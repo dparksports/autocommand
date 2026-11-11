@@ -42,6 +42,9 @@
                     <ComboBoxItem Content="Allow Sharing + Discovery"/>
                     <ComboBoxItem Content="Block Sharing + Discovery + Remote Desktop"/>
                 </ComboBox>
+                <Button x:Name="RestoreSnapshotBtn" Content="⏪ Restore snapshot…" Margin="0,0,8,0"
+                        ToolTip="Re-import a pre-lockdown rule snapshot (every Shields Up lockdown saves one under %PROGRAMDATA%\AutoCommand\firewall-snapshots): rules the reset deleted are recreated, surviving rules are re-enabled to their photographed state."
+                        Style="{StaticResource PrimaryButton}" Click="RestoreSnapshotBtn_Click"/>
                 <Button x:Name="RefreshBtn" Content="↻ Refresh" Style="{StaticResource PrimaryButton}" Click="RefreshBtn_Click"/>
             </StackPanel>
         </Grid>

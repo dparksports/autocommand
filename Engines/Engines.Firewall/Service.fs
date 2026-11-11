@@ -391,6 +391,177 @@ type FirewallService(naming: FirewallNaming) =
             null
 
     /// <summary>
+    /// Restores firewall rules from a snapshot written by
+    /// ExportPreLockdownSnapshot before a ResetToDefaultsAndLockdown.
+    /// For each snapshot rule: when a rule with that name exists, its
+    /// Enabled state is set to the photographed value; when it does not
+    /// (the reset deleted every non-default rule), the rule is recreated
+    /// with every photographed field. Default rules the lockdown disabled
+    /// but did not delete are re-enabled by the same name match. Rules
+    /// created after the snapshot are left untouched — this restores the
+    /// photographed state, it does not enforce it.
+    /// </summary>
+    member _.RestoreFromSnapshotAsync(path: string, progress: IProgress<string>) : Task<GroupToggleResult> =
+        Task.Run(fun () ->
+            let result = GroupToggleResult(GroupName = "Restore from snapshot")
+
+            try
+                let doc =
+                    match JsonNode.Parse(File.ReadAllText(path)) with
+                    | :? JsonObject as o -> o
+                    | _ -> null
+
+                if isNull (box doc) || isNull (box doc["rules"]) then
+                    result.FailedCompletely <- true
+                    result.FirstError <- "not a rule snapshot file"
+                else
+                    let fwPolicy = getPolicy ()
+
+                    // Rules that survived the lockdown (Windows defaults are
+                    // disabled, not deleted) — matched by name below.
+                    let existing = Dictionary<string, INetFwRule>(StringComparer.OrdinalIgnoreCase)
+
+                    for r in Com.enumRules fwPolicy.Rules do
+                        try
+                            existing[r.Name] <- r
+                        with _ -> ()
+
+                    let parseDirection (s: string) =
+                        try
+                            System.Enum.Parse(typeof<FwRuleDirection>, s) :?> FwRuleDirection
+                        with _ ->
+                            FwRuleDirection.Out
+
+                    let parseAction (s: string) =
+                        try
+                            System.Enum.Parse(typeof<FwAction>, s) :?> FwAction
+                        with _ ->
+                            FwAction.Block
+
+                    for ruleNode in (doc["rules"] :?> JsonArray) do
+                        match ruleNode with
+                        | :? JsonObject as o ->
+                            let get (name: string) =
+                                match o[name] with
+                                | null -> ""
+                                | v -> v.GetValue<string>()
+
+                            let ruleName = get "name"
+
+                            if not (String.IsNullOrEmpty ruleName) then
+                                try
+                                    let enabled =
+                                        match o["enabled"] with
+                                        | null -> true
+                                        | v -> v.GetValue<bool>()
+
+                                    match existing.TryGetValue(ruleName) with
+                                    | true, live ->
+                                        // Survived the lockdown as a default
+                                        // rule — restore its photographed
+                                        // enable state, nothing else.
+                                        live.Enabled <- enabled
+                                        result.Matched <- result.Matched + 1
+                                        result.Changed <- result.Changed + 1
+                                    | _ ->
+                                        // The reset deleted it — recreate
+                                        // from the photographed fields.
+                                        let rule = Com.newRule ()
+                                        rule.Name <- ruleName
+                                        rule.Description <- get "description"
+                                        rule.ApplicationName <- get "applicationName"
+                                        rule.ServiceName <- get "serviceName"
+
+                                        (match o["protocol"] with
+                                         | null -> ()
+                                         | v -> rule.Protocol <- v.GetValue<int>())
+
+                                        rule.LocalPorts <- get "localPorts"
+                                        rule.RemotePorts <- get "remotePorts"
+                                        rule.LocalAddresses <- get "localAddresses"
+                                        rule.RemoteAddresses <- get "remoteAddresses"
+                                        rule.IcmpTypesAndCodes <- get "icmpTypesAndCodes"
+                                        rule.Direction <- parseDirection (get "direction")
+                                        rule.InterfaceTypes <- (match get "interfaceTypes" with "" -> "All" | v -> v)
+                                        rule.Enabled <- enabled
+                                        rule.Grouping <- get "grouping"
+
+                                        (match o["profiles"] with
+                                         | null -> ()
+                                         | v -> rule.Profiles <- v.GetValue<int>())
+
+                                        rule.EdgeTraversal <-
+                                            (match o["edgeTraversal"] with
+                                             | null -> false
+                                             | v -> v.GetValue<bool>())
+
+                                        rule.Action <- parseAction (get "action")
+                                        fwPolicy.Rules.Add(rule)
+                                        result.Matched <- result.Matched + 1
+                                        result.Changed <- result.Changed + 1
+                                with ex ->
+                                    result.Failed <- result.Failed + 1
+
+                                    if isNull result.FirstError then
+                                        result.FirstError <- $"{ruleName}: {ex.Message}"
+                        | _ -> ()
+
+                    if not (isNull progress) then
+                        progress.Report($"Snapshot restore: {result.Changed} applied, {result.Failed} failed")
+            with ex ->
+                result.FailedCompletely <- true
+                result.FirstError <- ex.Message
+
+            result
+        )
+
+    /// <summary>
+    /// DELETES every rule this app ever created (current v2 prefixes, the
+    /// legacy pre-v2 names, and the intercept QUIC blocks) — the removal
+    /// counterpart of SetAllBlocksEnabledAsync(false), for uninstall-day.
+    /// Rules created by Windows or other software are never matched.
+    /// </summary>
+    member _.RemoveAllOwnRulesAsync() : Task<int> =
+        Task.Run(
+            Func<int>(fun () ->
+                try
+                    let fwPolicy = getPolicy ()
+
+                    let ownPrefixes =
+                        [ naming.OwnIpPrefix
+                          naming.OwnAppPrefix
+                          yield! naming.LegacyIpPrefixes
+                          yield! naming.LegacyAppPrefixes
+                          // Intercept session QUIC blocks (pid-suffixed) —
+                          // engine-side literal; Intercept.Core is not
+                          // referenced here by design.
+                          "AutoCommand Intercept QUIC block" ]
+
+                    let mine =
+                        seq {
+                            for r in Com.enumRules fwPolicy.Rules do
+                                try
+                                    let n = r.Name
+
+                                    if not (isNull n)
+                                       && List.exists (fun p -> n.StartsWith(p, StringComparison.OrdinalIgnoreCase)) ownPrefixes then
+                                        yield n
+                                with _ -> ()
+                        }
+                        |> Seq.toList
+
+                    for name in mine do
+                        try
+                            fwPolicy.Rules.Remove(name)
+                        with _ -> ()
+
+                    mine.Length
+                with _ ->
+                    0
+            )
+        )
+
+    /// <summary>
     /// Reset the firewall to the Windows default rule set (the COM
     /// equivalent of `netsh advfirewall reset`), then disable every
     /// remaining rule so both all inbound and all outbound traffic is

@@ -104,6 +104,67 @@ namespace AutoCommand.Contain.Core
         public static bool AnySinkhole(List<TelemetryPin> pins) =>
             pins.Any(p => p.IsSinkhole);
 
+        /// <summary>
+        /// Removes every marked pin block (marker line + its pin lines) from
+        /// hosts text — the uninstall-day counterpart of SetPinAddress. As
+        /// everywhere in this class, only lines inside our marker blocks are
+        /// touched; everything the user or another tool wrote survives
+        /// verbatim.
+        /// </summary>
+        public static string RemoveAllMarkedBlocks(string hostsText)
+        {
+            if (string.IsNullOrEmpty(hostsText)) return hostsText;
+            var lines = hostsText.Replace("\r\n", "\n").Split('\n').ToList();
+            var prefixes = MarkerPrefixes.Select(p => p.TrimEnd()).ToArray();
+
+            var kept = new List<string>();
+            bool inBlock = false;
+            foreach (string raw in lines)
+            {
+                string line = raw.Trim();
+                if (prefixes.Any(p => line.StartsWith(p, StringComparison.OrdinalIgnoreCase)))
+                {
+                    inBlock = true;      // drop the marker line
+                    continue;
+                }
+                if (inBlock)
+                {
+                    var parts = line.Split(new[] { ' ', '\t' }, StringSplitOptions.RemoveEmptyEntries);
+                    if (parts.Length == 2 && Uri.CheckHostName(parts[1]) != UriHostNameType.Unknown)
+                        continue;        // pin line — drop it
+                    inBlock = false;     // end of block — keep this line
+                }
+                kept.Add(raw);
+            }
+            return string.Join("\r\n", kept);
+        }
+
+        /// <summary>
+        /// Removes every marked block from the live hosts file. The previous
+        /// content is saved beside it as hosts.autocommand-uninstall-backup
+        /// first; a write failure changes nothing. Returns (removedAny, detail).
+        /// </summary>
+        public static (bool RemovedAny, string Detail) RemoveFromLiveHosts()
+        {
+            try
+            {
+                string path = HostsPath();
+                if (!File.Exists(path)) return (false, "No hosts file - nothing pinned.");
+                string text = File.ReadAllText(path);
+                var pins = Parse(text);
+                if (pins.Count == 0) return (false, "No AutoCommand/ShieldsUp pins in the hosts file.");
+
+                string backup = path + ".autocommand-uninstall-backup";
+                File.Copy(path, backup, overwrite: true);
+                File.WriteAllText(path, RemoveAllMarkedBlocks(text));
+                return (true, $"Removed {pins.Count} pin(s); previous file saved as {Path.GetFileName(backup)}.");
+            }
+            catch (Exception ex)
+            {
+                return (false, $"Hosts cleanup failed: {ex.Message}");
+            }
+        }
+
         /// <summary>Reads the live hosts file and returns its pins (empty list when unreadable).</summary>
         public static List<TelemetryPin> ReadLive()
         {

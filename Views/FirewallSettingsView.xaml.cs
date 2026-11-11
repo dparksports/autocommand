@@ -293,6 +293,79 @@ namespace AutoCommand.Views
             }
         }
 
+        /// <summary>
+        /// ⏪ Restore snapshot: re-import a pre-lockdown rule snapshot. Every
+        /// "Shields Up" lockdown photographs the rule set before the reset
+        /// deletes it; this is the undo — deleted rules are recreated from
+        /// their photographed fields, surviving (default) rules are re-enabled
+        /// to their photographed state. The restored state is re-captured as
+        /// the drift baseline, exactly like a profile apply.
+        /// </summary>
+        private async void RestoreSnapshotBtn_Click(object sender, RoutedEventArgs e)
+        {
+            var dialog = new Microsoft.Win32.OpenFileDialog
+            {
+                Title = "Choose a pre-lockdown firewall snapshot",
+                Filter = "Firewall snapshots (lockdown-*.json)|lockdown-*.json|JSON files (*.json)|*.json",
+                InitialDirectory = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                    "AutoCommand", "firewall-snapshots")
+            };
+            if (dialog.ShowDialog() != true) return;
+
+            if (MessageBox.Show(
+                    $"Restore firewall rules from\n{System.IO.Path.GetFileName(dialog.FileName)}?\n\n" +
+                    "Rules the lockdown deleted are recreated; rules that survived are re-enabled to their " +
+                    "photographed state. Rules created after the snapshot are left untouched.",
+                    "⏪ Restore snapshot", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes)
+                return;
+
+            ProfileCombo.IsEnabled = false;
+            RefreshBtn.IsEnabled = false;
+            ProfileProgress.Visibility = Visibility.Visible;
+            ProfileStatusText.Text = "Restoring snapshot…";
+            var progress = new Progress<string>(msg => ProfileStatusText.Text = msg);
+
+            try
+            {
+                // Same contract as a profile apply: keep the drift enforcer
+                // out of the transition, then re-capture the end state as
+                // the enforced baseline.
+                FirewallBaselineManager.PauseForMinutes(1);
+                var result = await FirewallService.Instance.RestoreFromSnapshotAsync(dialog.FileName, progress);
+                await LoadRules();
+
+                int baselineCount = 0;
+                try
+                {
+                    var (count, at) = await FirewallBaselineManager.CaptureBaselineAsync();
+                    baselineCount = count;
+                    BaselineStatusText.Text = $"Baseline: {count} rules (captured {at:yyyy-MM-dd HH:mm})";
+                }
+                catch { }
+
+                var sb = new StringBuilder();
+                sb.AppendLine($"Snapshot restore: {result.Changed} rule(s) applied, {result.Failed} failed.");
+                if (baselineCount > 0)
+                    sb.AppendLine($"Baseline captured with {baselineCount} rules — drift from this state will now be detected and fixed automatically.");
+                if (result.FirstError != null) sb.AppendLine($"First error: {result.FirstError}");
+                ProfileStatusText.Text = $"Snapshot restore: {result.Changed} applied, {result.Failed} failed.";
+                MessageBox.Show(sb.ToString(), "⏪ Restore snapshot", MessageBoxButton.OK,
+                    result.Failed > 0 ? MessageBoxImage.Warning : MessageBoxImage.Information);
+            }
+            catch (Exception ex)
+            {
+                ProfileStatusText.Text = $"Snapshot restore failed: {ex.Message}";
+                MessageBox.Show($"Snapshot restore failed: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                ProfileProgress.Visibility = Visibility.Collapsed;
+                RefreshBtn.IsEnabled = true;
+                ProfileCombo.IsEnabled = true;
+            }
+        }
+
         public string GetAuditContext()
         {
             if (_currentRules.Count == 0) return "No firewall rules loaded. Click Refresh first.";

@@ -549,6 +549,43 @@ type SysmonInstallerService() =
             false
 
     /// <summary>
+    /// Uninstall-day entry: stops and removes the Sysmon64 service/driver
+    /// and its event manifest using the same -u force + provider-registry
+    /// + installed-exe cleanup the repair path runs, so a user removing
+    /// AutoCommand does not leave a kernel driver behind. No-op (true)
+    /// when Sysmon is not installed; the message is human-readable state.
+    /// </summary>
+    member this.UninstallAsync() : Task<struct (bool * string)> =
+        task {
+            if not (this.IsSysmonInstalled()) then
+                return struct (true, "Sysmon is not installed - nothing to remove.")
+            else
+                // Prefer the deployed binary; fall back to the verified cache.
+                let installedExe =
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), SysmonExeName)
+
+                let! exePath =
+                    if File.Exists installedExe then
+                        Task.FromResult installedExe
+                    else
+                        try
+                            SysmonInstallerService.ensureSysmonDownloaded ()
+                        with _ ->
+                            Task.FromResult null
+
+                if isNull exePath then
+                    return struct (false, "No trusted Sysmon64.exe available to run the uninstall.")
+                else
+                    SysmonInstallerService.cleanupStaleInstall exePath
+                    let ok = not (this.IsSysmonInstalled())
+
+                    if ok then
+                        return struct (true, "Sysmon64 service and driver removed.")
+                    else
+                        return struct (false, "Sysmon64 -u ran but the service still answers sc query - remove by hand or reboot and retry.")
+        }
+
+    /// <summary>
     /// Removes leftovers of a previous failed/partial install. A half-installed
     /// Sysmon leaves its event-manifest provider registered; until that is gone,
     /// the next "-i" aborts with "wevtutil.exe returned failure /
