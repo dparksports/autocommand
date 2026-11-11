@@ -1,4 +1,5 @@
-# Release notes (consolidated archive)
+AUTOCOMMAND RELEASE NOTES - consolidated archive
+================================================
 
 Every AutoCommand release note, newest first. The GitHub Releases page
 keeps one release per day with bodies cleared after publishing, so this
@@ -9,11 +10,15 @@ To release: add the new section at the top of this file, commit it, then
 run release.ps1. Format contract (the scripts parse this file):
 
 - one section per release, newest first
-- a section starts with the line `## v<version> (<yyyy-mm-dd>)`
-- the section body - everything after the heading, up to the next `## v`
-  line - is uploaded to GitHub verbatim
-
-## v2026.11.10.6 (2026-11-10)
+- a section starts with an 80-char '=' rule, then the line
+  'v<version> (<yyyy-mm-dd>)', then another '=' rule
+- the section body - everything after that heading up to the next '='
+  rule that sits directly above a 'v<version>' line - is uploaded to
+  GitHub verbatim. Bodies keep the markdown the release page used to
+  render; only this file's own layout is plain text.
+================================================================================
+v2026.11.10.6 (2026-11-10)
+================================================================================
 
 # v2026.11.10.6 — Encrypted at rest, de-elevated watch, honest scopes
 
@@ -120,7 +125,9 @@ PyTrace 21, Bridge 19, ProxyInstall — Intercept 11/13 locally; its two
 machine-Root checks pass on CI's elevated runner, where this exact
 commit's suite run is green).
 
-## v2026.11.10.5 (2026-11-10)
+================================================================================
+v2026.11.10.5 (2026-11-10)
+================================================================================
 
 # v2026.11.10.5 — Sealing the local-trust doors
 
@@ -249,7 +256,9 @@ StartupHealth 22, AllowList 24, OneSettings 43, PyTrace 21, Bridge 19,
 ProxyInstall, Intercept — the latter's two machine-Root checks require
 an elevated runner, as CI provides).
 
-## v2026.11.10.4 (2026-11-10)
+================================================================================
+v2026.11.10.4 (2026-11-10)
+================================================================================
 
 # v2026.11.10.4 — Startup & Tasks: the persistence surface, on one board
 
@@ -307,7 +316,9 @@ full window; its code path is untouched by this release. The two
 InterceptSelfTest journal-recovery failures remain pre-existing on a
 clean v2026.11.9.2 checkout (noted since v2026.11.10).
 
-## v2026.11.10.3 (2026-11-10)
+================================================================================
+v2026.11.10.3 (2026-11-10)
+================================================================================
 
 # v2026.11.10.3 — Shields Up, redesigned for readability
 
@@ -354,7 +365,9 @@ XAML-only change touches no engine code). The two InterceptSelfTest
 journal-recovery failures remain pre-existing on a clean v2026.11.9.2
 checkout (noted since v2026.11.10) and are untouched.
 
-## v2026.11.10.2 (2026-11-10)
+================================================================================
+v2026.11.10.2 (2026-11-10)
+================================================================================
 
 # v2026.11.10.2 — The legacy name-resolution doors
 
@@ -407,7 +420,9 @@ guessing. The Doors rail dot counts the three new doors.
   clean v2026.11.9.2 checkout (noted since v2026.11.10) and are
   untouched.
 
-## v2026.11.10.1 (2026-11-10)
+================================================================================
+v2026.11.10.1 (2026-11-10)
+================================================================================
 
 # v2026.11.10.1 — Blocks that explain themselves
 
@@ -458,7 +473,9 @@ for bare names and paths, case-insensitivity, the empty subject).
   remain pre-existing on a clean checkout of v2026.11.9.2 (noted in
   the v2026.11.10 notes) and are untouched here.
 
-## v2026.11.10 (2026-11-10)
+================================================================================
+v2026.11.10 (2026-11-10)
+================================================================================
 
 # v2026.11.10 — Blocks that hold, honest opt-outs, zero-touch AI access
 
@@ -551,7 +568,9 @@ setup guidance.
   (junction stability across version bumps, plain-dir refusal,
   unregister round-trip, bulk-register scope).
 
-## v2026.11.9.2 (2026-11-09)
+================================================================================
+v2026.11.9.2 (2026-11-09)
+================================================================================
 
 # v2026.11.9.2 — Sysmon without internet
 
@@ -617,7 +636,9 @@ and repair work forever after.
   Valid, `CN=Microsoft Windows Publisher, O=Microsoft Corporation` —
   the gate accepts the genuine artifact and refuses anything else.
 
-## v2026.11.9.1 (2026-11-09)
+================================================================================
+v2026.11.9.1 (2026-11-09)
+================================================================================
 
 # v2026.11.9.1 — the rain survives a screen nap
 
@@ -668,7 +689,9 @@ right tool; it needed to tolerate the one WPF state reset it can hit.
   design (a window with no exit path); a desk run after display
   sleep/wake is the visual confirmation for this fix.
 
-## v2026.11.9 (2026-11-09)
+================================================================================
+v2026.11.9 (2026-11-09)
+================================================================================
 
 # v2026.11.9 — trust your own folder again
 
@@ -849,7 +872,9 @@ AutoCommand itself has sent nothing but the opt-in anonymous daily count
   drifted copies now carry the same fixes (each was patched in place), but
   one shared source is a structural follow-up.
 
-## v2026.11.8 (2026-11-08)
+================================================================================
+v2026.11.8 (2026-11-08)
+================================================================================
 
 # v2026.11.8 — the three-day fuse
 
@@ -939,7 +964,9 @@ limit and the PT72H timing are not in doubt, and either way the fix is the same.
   (registry access), a subsystem this change does not touch; it is reported as
   an environment failure, not a code failure.
 
-## v2026.11.3.4 (2026-11-03)
+================================================================================
+v2026.11.3.4 (2026-11-03)
+================================================================================
 
 # AutoCommand — v2026.11.3.4
 
@@ -976,7 +1003,9 @@ from the app build on purpose).
 If you only run AutoCommand, nothing about this release changes your
 install — the precursor tree does not compile into anything shipped.
 
-## v2026.11.3.3 (2026-11-03)
+================================================================================
+v2026.11.3.3 (2026-11-03)
+================================================================================
 
 # AutoCommand - v2026.11.3.3
 
@@ -1016,7 +1045,9 @@ and with it the last reason anyone would ever need a separately installed
 - Allow-list tamper-evidence, surface verdicts and re-arm (v2026.11.3.1)
   are unchanged.
 
-## v2026.11.3.2 (2026-11-03)
+================================================================================
+v2026.11.3.2 (2026-11-03)
+================================================================================
 
 # AutoCommand - v2026.11.3.2
 
@@ -1046,7 +1077,9 @@ no runtime install required, ever.
 - Existing allow-list behavior from v2026.11.3.1 (tamper-evident ledger,
   protected-surface verdicts, re-arm) is unchanged.
 
-## v2026.11.3.1 (2026-11-03)
+================================================================================
+v2026.11.3.1 (2026-11-03)
+================================================================================
 
 # AutoCommand - v2026.11.3.1
 
@@ -1094,7 +1127,9 @@ never from a preference file.
   elevated, so this never gets in the app's way - it is exactly what blocks a
   standard-user process from quietly flipping the allow-lists off.
 
-## v2026.11.3 (2026-11-03)
+================================================================================
+v2026.11.3 (2026-11-03)
+================================================================================
 
 # AutoCommand — v2026.11.3
 
@@ -1134,7 +1169,9 @@ what you did with it.
 - **QA hook.** Set `AUTOCOMMAND_FORCE_WORKAREA=800x600` to simulate the
   small-screen path on a dev machine — no test bench required.
 
-## v2026.11.2.1 (2026-11-02)
+================================================================================
+v2026.11.2.1 (2026-11-02)
+================================================================================
 
 # AutoCommand — v2026.11.2.1
 
@@ -1155,7 +1192,9 @@ the first hours of real use.
   allowlist, and existing machines keep full authority over their own
   `allowlist.txt` hand-edits.
 
-## v2026.11.2 (2026-11-02)
+================================================================================
+v2026.11.2 (2026-11-02)
+================================================================================
 
 # AutoCommand — v2026.11.2
 
@@ -1199,7 +1238,9 @@ mirrors the app sidebar, with each section's live state on it.
   subtraction, hook → consumer → hits index, dropped-in rule pickup, replay
   dedupe.
 
-## v2026.10.31.2 (2026-10-31)
+================================================================================
+v2026.10.31.2 (2026-10-31)
+================================================================================
 
 # AutoCommand — v2026.10.31.2
 
@@ -1231,7 +1272,9 @@ the Firewall tab's own profile control.
   bridge tool description now say the firewall profile lives in the
   Firewall tab (tool name unchanged — registered MCP clients unaffected).
 
-## v2026.10.31.1 (2026-10-31)
+================================================================================
+v2026.10.31.1 (2026-10-31)
+================================================================================
 
 # AutoCommand — v2026.10.31.1
 
@@ -1292,7 +1335,9 @@ firewall rule model — has a one-click answer.
   deadlock guard stays; only the dispose is gone), confirmed against the
   crash.log stack from a real occurrence.
 
-## v2026.10.31 (2026-10-31)
+================================================================================
+v2026.10.31 (2026-10-31)
+================================================================================
 
 # AutoCommand III — v2026.10.31
 
@@ -1356,7 +1401,9 @@ baseline re-captured atomically every time a preset applies.
 - The archived `dparksports/autocommand-windows` README mirror updates as
   usual; the standalone Shields Up README now points here.
 
-## v2026.10.25.4 (2026-10-25)
+================================================================================
+v2026.10.25.4 (2026-10-25)
+================================================================================
 
 # AutoCommand v2026.10.25.4
 
@@ -1374,7 +1421,9 @@ IP owner lookups were quietly hammering rdap.org — roughly one query every thr
 
 Net effect: rdap.org drops to effectively zero, new address blocks are answered by the right registry in one query, and the whole block (not one IP) is cached from that single answer — verified live against ARIN and APNIC, where one Microsoft lookup now covers their entire 20.180.0.0/12 telemetry range for a week.
 
-## v2026.10.21.1 (2026-10-21)
+================================================================================
+v2026.10.21.1 (2026-10-21)
+================================================================================
 
 # v2026.10.21.1 — Your sites, your browsers, one-click unblock
 
@@ -1411,7 +1460,9 @@ block list (via the v2026.10.21 live blocked-inventory cache):
 
 No more "open wf.msc and hope you find it" runarounds.
 
-## v2026.10.20.6 (2026-10-20)
+================================================================================
+v2026.10.20.6 (2026-10-20)
+================================================================================
 
 # AutoCommand v2026.10.20.6
 
