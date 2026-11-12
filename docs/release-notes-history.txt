@@ -17,6 +17,68 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.11.3 (2026-11-11)
+================================================================================
+
+# v2026.11.11.3 — The Hotpatch monitoring task is a door
+
+## The ninth door
+
+\Microsoft\Windows\Hotpatch\Monitoring is registered by hotpatch
+servicing on Windows 11 24H2+, triggered at every boot, and runs
+hpatchmonTask.cmd as SYSTEM to report hotpatch readiness. Field
+evidence from the development machine the morning of this release:
+the task read Disabled while its Last Run Time was that same
+morning's 3:10 AM boot — it was enabled at boot, ran, and was
+disabled again later, by hand or by an earlier hardening pass. A
+boot-time SYSTEM phone-home that Windows servicing can flip back on
+is exactly what the Doors board exists for: it is now the ninth
+door, re-checked live every time the tab opens instead of trusted
+to stay down.
+
+Closing it is the COM equivalent of
+
+    schtasks /Change /TN "\Microsoft\Windows\Hotpatch\Monitoring" /DISABLE
+
+— this project talks to taskschd directly (TaskSchedulerService) and
+does not shell out to schtasks.exe. Disabling stops the readiness
+phone-home only: updates, hotpatches included, still install
+normally. Reversible in the tab; the bridge keeps its rule of never
+re-opening a door.
+
+## Three states, not two
+
+IsTaskEnabled deliberately folds a missing task into false, which
+for this door would lie: a Windows 10 machine (no hotpatching) would
+read "Disabled ✓" when the truth is "not present".
+TaskSchedulerService gains GetTaskStateText — display text for a
+registered task, null when GetTask throws — and the door reports
+Present/Enabled explicitly. The tab renders absence honestly
+("task not present — this build has no hotpatching ✓") with the
+toggle disabled; the bridge's status object carries both fields, and
+its close case answers "closed by absence, nothing to do" rather
+than pretending to act.
+
+## Also in this release
+
+- close_shieldsup_door over the bridge accepts door=hotpatch
+  (user-confirmed like every door); get_shieldsup_status reports
+  hotpatch_monitoring {present, enabled}.
+- The AgentProxy's offline guidance still listed only the five
+  original doors — the three name-resolution doors had never been
+  added there. It now names all nine, and get_shieldsup_status's
+  offline description matches.
+
+Builds clean in Release and Debug. Local gate
+(scripts\local-ci.ps1): ten of the eleven strict suites green. The one
+that is not — InterceptSelfTest — is the condition documented in
+v2026.11.11.2, unchanged by this release: its live wininet proxy-key
+restore is denied beside the app's own interception tamper-guard, and
+it needs a stock machine. The six suites before it in the gate and the
+four after it (run individually past the gate's stop-at-first-failure)
+are green, HardenSelfTest included — the suite covering Shields Up.
+
+================================================================================
 v2026.11.11.2 (2026-11-11)
 ================================================================================
 
