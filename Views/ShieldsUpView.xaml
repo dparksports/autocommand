@@ -488,6 +488,26 @@
                             </StackPanel>
                         </Border>
 
+                        <TextBlock Style="{StaticResource GroupHeader}" Text="HOTPATCH MONITORING"/>
+                        <Border Style="{StaticResource InsetGroup}">
+                            <StackPanel>
+                                <Border Style="{StaticResource StatusRow}">
+                                    <Grid>
+                                        <Grid.ColumnDefinitions>
+                                            <ColumnDefinition Width="*"/>
+                                            <ColumnDefinition Width="Auto"/>
+                                        </Grid.ColumnDefinitions>
+                                        <StackPanel>
+                                            <TextBlock Style="{StaticResource RowTitle}" Text="Hotpatch readiness task · \Microsoft\Windows\Hotpatch\Monitoring"/>
+                                            <TextBlock x:Name="HotpatchStatusText" Style="{StaticResource RowEvidence}" Margin="0,2,0,0"/>
+                                        </StackPanel>
+                                        <Button x:Name="HotpatchToggleBtn" Grid.Column="1" Style="{StaticResource QuietBtn}" Content="Disable"
+                                                VerticalAlignment="Center" Margin="12,0,0,0" Click="HotpatchToggleBtn_Click"/>
+                                    </Grid>
+                                </Border>
+                            </StackPanel>
+                        </Border>
+
                         <TextBlock Style="{StaticResource GroupHeader}" Text="LEGACY NAME RESOLUTION"/>
                         <Border Style="{StaticResource InsetGroup}">
                             <StackPanel>

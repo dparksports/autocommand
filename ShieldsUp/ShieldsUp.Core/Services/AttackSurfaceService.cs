@@ -109,6 +109,54 @@ public static class AttackSurfaceService
         ProcessRunner.Run("bcdedit", on ? "/debug on" : "/debug off");
     }
 
+    // ── Windows Hotpatch monitoring task ──
+
+    /// <summary>\Microsoft\Windows\Hotpatch\Monitoring — registered by hotpatch
+    /// servicing (Windows 11 24H2+), triggered at every boot, runs
+    /// hpatchmonTask.cmd as SYSTEM to report hotpatch readiness. Field note:
+    /// observed disabled yet last-run at that morning's boot — servicing can
+    /// flip it back, so the door is re-checked live, never trusted to stay
+    /// down.</summary>
+    public const string HotpatchMonitoringTaskPath = @"\Microsoft\Windows\Hotpatch\Monitoring";
+
+    /// <summary>Three-state door read: a build with no hotpatching reports
+    /// Present=false — a closed door by absence, which the tab says outright
+    /// instead of the false "Disabled ✓" IsTaskEnabled would report.</summary>
+    public sealed record HotpatchStatus(bool Present, bool Enabled);
+
+    public static HotpatchStatus GetHotpatchStatus()
+    {
+        string state = TaskSchedulerService.Instance.GetTaskStateText(HotpatchMonitoringTaskPath);
+        return state == null
+            ? new HotpatchStatus(false, false)
+            : new HotpatchStatus(true, state != "Disabled");
+    }
+
+    /// <summary>The COM equivalent of: schtasks /Change /TN
+    /// "\Microsoft\Windows\Hotpatch\Monitoring" /DISABLE — this project talks
+    /// to taskschd directly and does not shell out to schtasks.exe. A task
+    /// that is not registered is already closed: success with nothing to do.
+    /// Returns failures (empty = closed).</summary>
+    public static List<string> DisableHotpatchMonitoring()
+    {
+        var failures = new List<string>();
+        if (!GetHotpatchStatus().Present) return failures;
+        try
+        {
+            TaskSchedulerService.Instance
+                .SetTaskEnabledAsync(HotpatchMonitoringTaskPath, false).GetAwaiter().GetResult();
+        }
+        catch (Exception ex)
+        {
+            failures.Add("disable failed: " + ex.Message);
+        }
+        return failures;
+    }
+
+    /// <summary>Re-open path for the tab (the bridge never re-opens doors).</summary>
+    public static System.Threading.Tasks.Task EnableHotpatchMonitoringAsync() =>
+        TaskSchedulerService.Instance.SetTaskEnabledAsync(HotpatchMonitoringTaskPath, true);
+
     // ── Adapter inventory ──
 
     public static List<NetworkAdapterItem> ListWanMiniports() =>

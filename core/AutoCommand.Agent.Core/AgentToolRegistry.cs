@@ -413,13 +413,15 @@ namespace AutoCommand.Agent.Core
                 "service + disable its miniport adapters), hostednetwork (stop + disallow the Wi-Fi Direct " +
                 "ghost hotspot), vpnservices (stop + disable RasMan/IKEEXT/PolicyAgent/RemoteAccess — any " +
                 "VPN connection drops), kdnet (turn kernel debug off), wifidirect (disable the Wi-Fi " +
-                "Direct virtual adapters), or the legacy name-resolution doors: llmnr (EnableMulticast=0 — " +
+                "Direct virtual adapters), the legacy name-resolution doors: llmnr (EnableMulticast=0 — " +
                 "kills the LLMNR-poisoning credential-theft class), netbios (NetbiosOptions=2 per interface " +
                 "— stops UDP 137 broadcasts), mdns (firewall-scoped block of UDP 5353 multicast — network-" +
-                "level only, .local device discovery stops while closed). All reversible. There is " +
+                "level only, .local device discovery stops while closed), or hotpatch (disable the " +
+                "\\Microsoft\\Windows\\Hotpatch\\Monitoring boot task — its SYSTEM-run hpatchmonTask.cmd " +
+                "readiness phone-home stops; updates still install normally). All reversible. There is " +
                 "deliberately NO enable path over the bridge — re-opening a door is a human decision made " +
                 "in the tab. Asks the user for every call.",
-                Schema(("door", "One of: sstp | hostednetwork | vpnservices | kdnet | wifidirect | llmnr | netbios | mdns", true),
+                Schema(("door", "One of: sstp | hostednetwork | vpnservices | kdnet | wifidirect | llmnr | netbios | mdns | hotpatch", true),
                        ("reason", "Why — shown to the user in the confirmation", false)),
                 true,
                 a => CloseShieldsUpDoor(a),
@@ -1934,6 +1936,20 @@ namespace AutoCommand.Agent.Core
             try { o["wan_miniports_present"] = AttackSurfaceService.ListWanMiniports().Count; }
             catch (Exception ex) { o["wan_miniports_present"] = Err(ex); }
 
+            // hotpatch monitoring boot task — present=false means the build
+            // has no hotpatching at all (a closed door by absence, reported
+            // honestly instead of folding into "disabled")
+            try
+            {
+                var hotpatch = AttackSurfaceService.GetHotpatchStatus();
+                o["hotpatch_monitoring"] = new JsonObject
+                {
+                    ["present"] = hotpatch.Present,
+                    ["enabled"] = hotpatch.Enabled,
+                };
+            }
+            catch (Exception ex) { o["hotpatch_monitoring"] = Err(ex); }
+
             try
             {
                 o["tamper_protection_on"] = PrivacyService.IsTamperProtectionOn();
@@ -2138,8 +2154,26 @@ namespace AutoCommand.Agent.Core
                                 ? "Outbound mDNS multicast (UDP 5353 → 224.0.0.251/ff02::fb) blocked at the firewall — network-level; the resolver itself stays on. Printer/Chromecast/AirPlay discovery stops while closed (reversible in the tab)."
                                 : string.Join("; ", mdnsFails),
                         });
+                    case "hotpatch":
+                        var hpBefore = AttackSurfaceService.GetHotpatchStatus();
+                        if (!hpBefore.Present)
+                            return ToJson(new JsonObject
+                            {
+                                ["door"] = door,
+                                ["closed"] = true,
+                                ["result"] = "Hotpatch monitoring task is not registered on this build — door closed by absence, nothing to do.",
+                            });
+                        var hpFails = AttackSurfaceService.DisableHotpatchMonitoring();
+                        return ToJson(new JsonObject
+                        {
+                            ["door"] = door,
+                            ["closed"] = hpFails.Count == 0,
+                            ["result"] = hpFails.Count == 0
+                                ? "Task disabled — hpatchmonTask.cmd no longer runs as SYSTEM at boot to report hotpatch readiness. Updates (hotpatches included) still install normally. Servicing can re-enable the task, so the tab re-checks it live (reversible in the tab)."
+                                : string.Join("; ", hpFails),
+                        });
                     default:
-                        return $"Unknown door '{door}'. Valid doors: sstp, hostednetwork, vpnservices, kdnet, wifidirect, llmnr, netbios, mdns.";
+                        return $"Unknown door '{door}'. Valid doors: sstp, hostednetwork, vpnservices, kdnet, wifidirect, llmnr, netbios, mdns, hotpatch.";
                 }
             }
             catch (Exception ex)
@@ -2162,6 +2196,7 @@ namespace AutoCommand.Agent.Core
                 "llmnr" => "Disable LLMNR (multicast name fallback, UDP 5355)? DNS misses will fail fast instead of asking the LAN; kills the LLMNR-poisoning credential-theft class. Reversible.",
                 "netbios" => "Disable NetBIOS name resolution (UDP 137 broadcasts) on every interface? Applies on adapter restart/reboot. Legacy NetBIOS-name SMB stops resolving. Reversible.",
                 "mdns" => "Block outbound mDNS multicast (UDP 5353) at the firewall? .local device discovery (printers, Chromecast, AirPlay) stops while closed. Network-level only — no source switch exists. Reversible.",
+                "hotpatch" => "Disable the Windows Hotpatch monitoring scheduled task (\\Microsoft\\Windows\\Hotpatch\\Monitoring)? Its boot-time hpatchmonTask.cmd readiness check (run as SYSTEM) stops phoning home; updates still install normally. Reversible.",
                 _ => $"Close door '{door}'?",
             }) + (string.IsNullOrEmpty(reason) ? "" : $"\n\nReason: {reason}");
         }

@@ -196,7 +196,7 @@ public partial class ShieldsUpView : UserControl
 
     private async Task RefreshDoorsAsync()
     {
-        var (sstp, hosted, kdnet, vpn, miniports, wifidirect, llmnr, netbios, mdns) = await Task.Run(() =>
+        var (sstp, hosted, kdnet, vpn, miniports, wifidirect, llmnr, netbios, mdns, hotpatch) = await Task.Run(() =>
         (
             AttackSurfaceService.GetSstpStatus(),
             AttackSurfaceService.GetHostedNetworkStatus(),
@@ -206,7 +206,8 @@ public partial class ShieldsUpView : UserControl
             PrivacyService.IsWifiDirectAdapterPresent(),
             NameResolutionDoors.GetLlmnrStatus(),
             NameResolutionDoors.GetNetbiosStatus(),
-            NameResolutionDoors.GetMdnsStatus()
+            NameResolutionDoors.GetMdnsStatus(),
+            AttackSurfaceService.GetHotpatchStatus()
         ));
 
         bool sstpActive = sstp.Active;
@@ -258,16 +259,31 @@ public partial class ShieldsUpView : UserControl
         MdnsStatusText.Foreground = mdns.Open ? WarnBrush : OkBrush;
         MdnsToggleBtn.Content = mdns.Open ? "Block mDNS" : "Unblock mDNS";
 
+        // hotpatch monitoring — three states, not two: a build with no
+        // hotpatching has no task at all, which is a closed door by absence
+        // and reads as such (IsTaskEnabled would fold this into "disabled").
+        bool hotpatchOpen = hotpatch.Present && hotpatch.Enabled;
+        HotpatchStatusText.Text = !hotpatch.Present
+            ? "task not present — this build has no hotpatching ✓"
+            : hotpatchOpen
+                ? "task enabled — hpatchmonTask.cmd runs as SYSTEM at every boot to report hotpatch readiness ⚠"
+                : "task disabled ✓ (servicing can re-enable it — re-checked live)";
+        HotpatchStatusText.Foreground = hotpatchOpen ? WarnBrush : OkBrush;
+        HotpatchToggleBtn.Content = hotpatchOpen ? "Disable" : "Re-enable";
+        HotpatchToggleBtn.IsEnabled = hotpatch.Present;
+        HotpatchToggleBtn.ToolTip = hotpatch.Present ? null : "No \\Microsoft\\Windows\\Hotpatch\\Monitoring task on this build";
+
         // Rail dot: red when kernel debug is on (the one BadBrush row),
         // amber while any door stands open, green when all are closed.
         int openDoors = (sstpActive ? 1 : 0) + (hostedActive ? 1 : 0) + (kdnet ? 1 : 0)
             + (running > 0 ? 1 : 0) + (miniports.Count > 0 ? 1 : 0)
             + (llmnr.Open ? 1 : 0)
             + (netbios.State is NameResolutionDoors.NbState.None or NameResolutionDoors.NbState.Partial ? 1 : 0)
-            + (mdns.Open ? 1 : 0);
+            + (mdns.Open ? 1 : 0)
+            + (hotpatchOpen ? 1 : 0);
         // total = every counted row above: remote-access five + the three
-        // name-resolution doors
-        int totalDoors = 8;
+        // name-resolution doors + hotpatch monitoring
+        int totalDoors = 9;
         if (kdnet)
         {
             SetDot(DoorsDot, BadBrush, "Kernel debug on — open Doors");
@@ -387,6 +403,40 @@ public partial class ShieldsUpView : UserControl
         }
         catch (Exception ex) { ShowResult(DoorActionResult, "mDNS toggle failed: " + ex.Message); }
         finally { await RefreshDoorsAsync(); MdnsToggleBtn.IsEnabled = true; }
+    }
+
+    // ── Hotpatch monitoring (boot-task phone-home) ──────────────────────
+    // Same contract as the other doors: confirm on the CLOSING direction,
+    // act on a background thread, report into the shared DoorActionResult
+    // line, refresh the board. Disabling is COM task.Enabled=false — the
+    // equivalent of schtasks /Change /TN ... /DISABLE without the shell-out.
+
+    private async void HotpatchToggleBtn_Click(object sender, RoutedEventArgs e)
+    {
+        var status = AttackSurfaceService.GetHotpatchStatus();
+        if (!status.Present) return; // nothing registered — the row already says so
+        if (status.Enabled && !Confirm(
+                "Disable the Windows Hotpatch monitoring task?\n\nIt runs hpatchmonTask.cmd as SYSTEM at every boot to report hotpatch readiness. Disabling stops that phone-home; updates — hotpatches included — still install normally. Servicing can re-enable the task; the board re-checks it live.\n\nReversible with the same button.",
+                "Disable Hotpatch monitoring"))
+            return;
+        HotpatchToggleBtn.IsEnabled = false;
+        try
+        {
+            if (status.Enabled)
+            {
+                var failures = await Task.Run(() => AttackSurfaceService.DisableHotpatchMonitoring());
+                ShowResult(DoorActionResult, failures.Count > 0
+                    ? "Hotpatch disable failed: " + string.Join("; ", failures)
+                    : "Hotpatch monitoring task disabled — the boot-time readiness check stops (updates still install normally).");
+            }
+            else
+            {
+                await AttackSurfaceService.EnableHotpatchMonitoringAsync();
+                ShowResult(DoorActionResult, "Hotpatch monitoring task re-enabled.");
+            }
+        }
+        catch (Exception ex) { ShowResult(DoorActionResult, "Hotpatch toggle failed: " + ex.Message); }
+        finally { await RefreshDoorsAsync(); HotpatchToggleBtn.IsEnabled = true; }
     }
 
     // ── Startup & Tasks (the persistence surface) ────────────────────────

@@ -253,6 +253,34 @@ namespace ShieldsUp.Core.Services
         }
 
         /// <summary>
+        /// Task state as display text ("Disabled", "Ready", "Running", ...),
+        /// or null when the task is not registered. IsTaskEnabled deliberately
+        /// folds a missing task into false; door code needs the distinction
+        /// between "disabled" and "not present on this build".
+        /// </summary>
+        public string GetTaskStateText(string taskPath)
+        {
+            try
+            {
+                dynamic ts = GetService();
+                dynamic rootFolder = ts.GetFolder("\\");
+                dynamic task = rootFolder.GetTask(taskPath);
+                return (int)task.State switch
+                {
+                    1 => "Disabled",
+                    2 => "Queued",
+                    3 => "Ready",
+                    4 => "Running",
+                    _ => "Unknown"
+                };
+            }
+            catch
+            {
+                return null;
+            }
+        }
+
+        /// <summary>
         /// Compact human-readable summary of a task (run times, principal,
         /// author, actions, triggers) for the Process Monitor attribution popup.
         /// </summary>
