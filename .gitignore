@@ -40,3 +40,4 @@ __pycache__/
 # local-ci.ps1 suite scratch root (agent-sandbox temp redirect)
 .citmp/
 .ciprobe/
+.zcode/

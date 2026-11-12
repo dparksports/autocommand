@@ -91,9 +91,9 @@
              verb is BLOCKING — never the process. -->
         <DockPanel Grid.Row="1" Margin="0,0,0,10">
             <StackPanel DockPanel.Dock="Right" Orientation="Horizontal" VerticalAlignment="Top">
-                <CheckBox x:Name="SelectAllPausedChk" Content="Select all OFF" FontSize="11" IsThreeState="True"
+                <CheckBox x:Name="SelectAllPausedChk" Content="Select all OFF" FontSize="11" IsThreeState="False"
                           VerticalAlignment="Center" Margin="0,2,10,0"
-                          Checked="SelectAllPaused_Changed" Unchecked="SelectAllPaused_Changed"
+                          Click="SelectAllPaused_Changed"
                           ToolTip="Check every block whose blocking is OFF (the '⏸ blocking OFF' chip lenses the list to exactly those). Clear to drop the selection."
                           Visibility="Collapsed"/>
                 <Button x:Name="ResumeSelectedBtn" Click="ResumeSelectedBtn_Click" Margin="0,0,8,0"
@@ -232,7 +232,7 @@
                                         <ColumnDefinition Width="Auto"/>
                                     </Grid.ColumnDefinitions>
                                     <StackPanel Orientation="Horizontal" VerticalAlignment="Center">
-                                        <CheckBox IsChecked="{Binding Checked}" IsThreeState="True"
+                                        <CheckBox IsChecked="{Binding Checked}" IsThreeState="False"
                                                   Click="MasterCheck_Click" Tag="{Binding Group}"
                                                   Visibility="{Binding HasCheck, Converter={StaticResource BoolToVis}}"
                                                   VerticalAlignment="Center" Margin="0,0,6,0"

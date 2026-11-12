@@ -25,6 +25,7 @@ namespace AutoCommand.Views
         public bool RulesStale { get; set; }  // rule(s) point at a path that no longer exists on disk
         public int RulesCount { get; set; }  // rules the firewall holds for this target
         public int EnabledCount { get; set; }  // how many of them are enabled (partial when 0 < n < RulesCount)
+        public bool HasDisabledRules => HasRules && EnabledCount < RulesCount;
         public string StatusGlyph => !HasRules ? "⚠" : RulesStale ? "🕳" : !RulesEnabled ? "⏸"
             : EnabledCount < RulesCount ? "◐" : "⛔";
         public string StatusToolTip => !HasRules
@@ -47,11 +48,13 @@ namespace AutoCommand.Views
             : System.IO.Path.GetFileName(Record.Key);
         public string TargetToolTip  => Record.Key;
 
-        // ── restore basket (blocking-OFF rows only) ──
+        // ── restore basket (blocking-OFF or partial rows) ──
         public bool IsSelected { get; set; }
-        public bool CanSelect { get; set; }  // blocking OFF rows only — nothing to restore otherwise
+        public bool CanSelect { get; set; }  // rows with disabled rules — nothing to restore otherwise
         public string SelectionKey  => Record.Kind + ":" + Record.Key;
-        public string SelectionToolTip  => "Add to the restore basket — blocking is OFF for this target";
+        public string SelectionToolTip => RulesEnabled && HasDisabledRules
+            ? "Add to the restore basket — some rules are OFF for this target"
+            : "Add to the restore basket — blocking is OFF for this target";
 
         /// <summary>The service that made the blocked connection — the row's
         /// own answer to "which network service did I block?", independent of
@@ -106,7 +109,7 @@ namespace AutoCommand.Views
         public string ContainmentToolTip { get; set; } = "Computing the containment join…";
         public Brush ContainmentBrush { get; set; }
 
-        public string RowActionLabel  => RulesEnabled ? "Stop blocking" : "Restore blocking";
+        public string RowActionLabel => HasDisabledRules || !RulesEnabled ? "Restore blocking" : "Stop blocking";
     }
 
     public sealed class BlockGroupVm
@@ -174,6 +177,8 @@ namespace AutoCommand.Views
         }
 
         private bool _loading;
+        private System.Threading.Tasks.TaskCompletionSource<bool> _queuedReloadTcs;
+        public static BlocksView Current { get; private set; }
         // written from inside Task.Run (the archive pass below) while the UI
         // thread reads after awaits — a plain Dictionary corrupts under that;
         // concurrent covers indexer-set / TryGetValue / TryRemove
@@ -214,6 +219,7 @@ namespace AutoCommand.Views
 
         public BlocksView()
         {
+            Current = this;
             InitializeComponent();
             _toastTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(12) };
             _toastTimer.Tick += (s, a) => HideToast();
@@ -233,11 +239,46 @@ namespace AutoCommand.Views
             Loaded += (s, e) => _ = ReloadAsync();
         }
 
+        public System.Threading.Tasks.Task RefreshIfLoadedAsync() =>
+            IsLoaded ? ReloadAsync() : System.Threading.Tasks.Task.CompletedTask;
+
         private async System.Threading.Tasks.Task ReloadAsync()
         {
-            if (_loading) return;
+            if (_loading)
+            {
+                _queuedReloadTcs ??= new System.Threading.Tasks.TaskCompletionSource<bool>(
+                    System.Threading.Tasks.TaskCreationOptions.RunContinuationsAsynchronously);
+                await _queuedReloadTcs.Task;
+                return;
+            }
+
             _loading = true;
             try
+            {
+                while (true)
+                {
+                    var currentBatch = _queuedReloadTcs;
+                    _queuedReloadTcs = null;
+                    try
+                    {
+                        await ReloadCoreAsync();
+                        currentBatch?.TrySetResult(true);
+                    }
+                    catch (Exception ex)
+                    {
+                        currentBatch?.TrySetResult(false);
+                        StatusText.Text = "load failed";
+                        MessageBox.Show($"Failed to load blocks: {ex.Message}", "Error",
+                            MessageBoxButton.OK, MessageBoxImage.Error);
+                    }
+                    if (_queuedReloadTcs == null) break;
+                }
+            }
+            finally { _loading = false; }
+        }
+
+        private async System.Threading.Tasks.Task ReloadCoreAsync()
+        {
             {
                 StatusText.Text = "loading…";
                 BlocksStore.Load();
@@ -246,19 +287,42 @@ namespace AutoCommand.Views
                 // are they enabled. The store carries identity/history; the
                 // firewall carries effect.
                 var inventory = await FirewallService.Instance.GetBlockedInventoryAsync();
-                var byKey = inventory.ToDictionary(
-                    t => t.Key, t => t, StringComparer.OrdinalIgnoreCase);
+                var byKey = new Dictionary<string, AutoCommand.Engines.Firewall.BlockedTarget>(
+                    StringComparer.OrdinalIgnoreCase);
+                foreach (var item in inventory)
+                {
+                    byKey[item.Key] = item;
+                    if (item.Kind == "app" && !string.IsNullOrEmpty(item.AppPath))
+                    {
+                        string norm = AutoCommand.Engines.Firewall.FirewallService.NormalizeAppPath(item.AppPath);
+                        if (norm.Length > 0)
+                            byKey.TryAdd("app:" + norm.ToLowerInvariant(), item);
+                    }
+                }
 
                 // Records the firewall knows about but the store doesn't
                 // (rules from an older version, or pre-v3 blocks) become
                 // store records so the tab is complete.
                 var records = BlocksStore.Records.ToList();
-                var known = new HashSet<string>(
-                    records.Select(r => (r.IsIp ? "ip:" : "app:") + r.Key.ToLowerInvariant()),
-                    StringComparer.OrdinalIgnoreCase);
+                var known = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+                foreach (var r in records)
+                {
+                    known.Add((r.IsIp ? "ip:" : "app:") + (r.Key ?? "").Trim().ToLowerInvariant());
+                    if (!r.IsIp && !string.IsNullOrEmpty(r.Key))
+                    {
+                        string norm = AutoCommand.Engines.Firewall.FirewallService.NormalizeAppPath(r.Key);
+                        if (norm.Length > 0)
+                            known.Add("app:" + norm.ToLowerInvariant());
+                    }
+                }
                 foreach (var t in inventory)
                 {
                     if (known.Contains(t.Key)) continue;
+                    if (t.Kind == "app" && !string.IsNullOrEmpty(t.AppPath))
+                    {
+                        string norm = AutoCommand.Engines.Firewall.FirewallService.NormalizeAppPath(t.AppPath);
+                        if (norm.Length > 0 && known.Contains("app:" + norm.ToLowerInvariant())) continue;
+                    }
                     var r = new BlockRecord
                     {
                         Kind = t.Kind == "ip" ? "ip" : "proc",
@@ -298,8 +362,13 @@ namespace AutoCommand.Views
                 var vms = new List<BlockRowVm>();
                 foreach (var r in records)
                 {
-                    string invKey = (r.IsIp ? "ip:" : "app:") + r.Key.ToLowerInvariant();
-                    byKey.TryGetValue(invKey, out var t);
+                    string invKey = (r.IsIp ? "ip:" : "app:") + (r.Key ?? "").Trim().ToLowerInvariant();
+                    if (!byKey.TryGetValue(invKey, out var t) && !r.IsIp && !string.IsNullOrEmpty(r.Key))
+                    {
+                        string norm = AutoCommand.Engines.Firewall.FirewallService.NormalizeAppPath(r.Key);
+                        if (norm.Length > 0)
+                            byKey.TryGetValue("app:" + norm.ToLowerInvariant(), out t);
+                    }
                     int rules = t?.Rules ?? 0;
                     int enabled = t?.EnabledRules ?? 0;
                     var vm = new BlockRowVm
@@ -313,7 +382,7 @@ namespace AutoCommand.Views
                         ClassBrush = BrushForClass(r),
                         LastTrafficBrush = (Brush)FindResource("MutedTextBrush"),
                     };
-                    vm.CanSelect = vm.HasRules && !vm.RulesEnabled;
+                    vm.CanSelect = vm.HasDisabledRules;
                     var gate = AutoCommand.Agent.Core.BlockGateService.Instance.Find(r.Kind, r.Key);
                     if (gate != null)
                     {
@@ -487,18 +556,11 @@ $"\nBlocking returns ON automatically at {gate.ExpiresUtc.ToLocalTime():HH:mm}."
                         }
                         finally
                         {
-                            await Dispatcher.InvokeAsync(async () => { _loading = false; await ReloadAsync(); });
+                            await Dispatcher.InvokeAsync(() => ReloadAsync()).Task.Unwrap();
                         }
                     });
                 }
             }
-            catch (Exception ex)
-            {
-                StatusText.Text = "load failed";
-                MessageBox.Show($"Failed to load blocks: {ex.Message}", "Error",
-                    MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-            finally { _loading = false; }
         }
 
         /// <summary>Newest "paused" event per kind:key from the audit log's
@@ -635,6 +697,7 @@ $"\nBlocking returns ON automatically at {gate.ExpiresUtc.ToLocalTime():HH:mm}."
             int active = vms.Count(v => v.RulesEnabled);
             int pausedN = vms.Count(v => v.HasRules && !v.RulesEnabled);
             int partial = vms.Count(v => v.HasRules && v.EnabledCount > 0 && v.EnabledCount < v.RulesCount);
+            int restorableN = vms.Count(v => v.HasDisabledRules);
             int high = groups.Where(g => g.Impact == ServiceImpact.High).Sum(g => g.AllRows.Count);
             int msInfra = vms.Count(v => v.Record.ClassAtBlock is string c &&
                 (c.Contains("Microsoft/Azure") || c.Contains("Akamai") || c.Contains("Gcore")));
@@ -642,11 +705,15 @@ $"\nBlocking returns ON automatically at {gate.ExpiresUtc.ToLocalTime():HH:mm}."
 
             BuildFilterChips(vms.Count, groups.Count, active, pausedN, partial, high, msInfra, unattr);
 
-            ResumePausedBtn.Content = $"Turn blocking back ON ({pausedN} off)";
-            ResumePausedBtn.IsEnabled = pausedN > 0;
+            ResumePausedBtn.Content = pausedN > 0 && partial > 0
+                ? $"Turn blocking back ON ({pausedN} off · {partial} partial)"
+                : pausedN == 0 && partial > 0
+                    ? $"Turn blocking back ON ({partial} partial)"
+                    : $"Turn blocking back ON ({pausedN} off)";
+            ResumePausedBtn.IsEnabled = restorableN > 0;
             PauseActiveBtn.Content = $"Turn blocking OFF ({active} on)";
             PauseActiveBtn.IsEnabled = active > 0;
-            SelectAllPausedChk.Visibility = pausedN > 0 ? Visibility.Visible : Visibility.Collapsed;
+            SelectAllPausedChk.Visibility = restorableN > 0 ? Visibility.Visible : Visibility.Collapsed;
 
             // basket survives reloads only for still-off rows
             var offKeys = new HashSet<string>(
@@ -848,8 +915,14 @@ $"\nBlocking returns ON automatically at {gate.ExpiresUtc.ToLocalTime():HH:mm}."
                 DetailTitleText.Text = g.DisplayName;
                 DetailSummaryText.Text = $"{g.Summary} · {g.StateText}";
                 DetailDescText.Text = g.Description;
-                DetailRestoreBtn.Content = $"Restore blocking ({g.PausedCount} off)";
-                DetailRestoreBtn.Visibility = g.PausedCount > 0 ? Visibility.Visible : Visibility.Collapsed;
+                int gRestorable = g.AllRows.Count(v => v.HasDisabledRules);
+                int gPartial = gRestorable - g.PausedCount;
+                DetailRestoreBtn.Content = g.PausedCount > 0 && gPartial > 0
+                    ? $"Restore blocking ({g.PausedCount} off · {gPartial} partial)"
+                    : g.PausedCount == 0 && gPartial > 0
+                        ? $"Restore blocking ({gPartial} partial)"
+                        : $"Restore blocking ({g.PausedCount} off)";
+                DetailRestoreBtn.Visibility = gRestorable > 0 ? Visibility.Visible : Visibility.Collapsed;
                 DetailStopBtn.Content = $"Stop blocking ({g.ActiveCount} on)";
                 DetailStopBtn.Visibility = g.ActiveCount > 0 ? Visibility.Visible : Visibility.Collapsed;
             }
@@ -1140,10 +1213,8 @@ $"\nBlocking returns ON automatically at {gate.ExpiresUtc.ToLocalTime():HH:mm}."
                 .ToList();
 
             string verb = enable ? "Restore blocking" : "Stop blocking";
-            var win = new BlockBulkPreviewWindow(verb, enable, previewGroups)
-            {
-                Owner = Window.GetWindow(this),
-            };
+            var win = new BlockBulkPreviewWindow(verb, enable, previewGroups);
+            if (Window.GetWindow(this) is { IsLoaded: true } owner) win.Owner = owner;
             if (win.ShowDialog() != true) return;
 
             var final = win.ExcludeHighImpact
@@ -1152,15 +1223,27 @@ $"\nBlocking returns ON automatically at {gate.ExpiresUtc.ToLocalTime():HH:mm}."
             if (final.Count == 0) return;
 
             // before-state snapshot powers the undo
-            var snapshot = final.Select(v => (v.Record.Kind, v.Record.Key, v.RulesEnabled)).ToList();
+            var snapshot = final.Select(v => (v.Record.Kind, v.Record.Key, enable ? !v.HasDisabledRules : v.RulesEnabled)).ToList();
             var targets = final.Select(v => (v.Record.Kind, v.Record.Key)).ToList();
 
-            var (matched, changed) = await FirewallService.Instance.SetTargetsEnabledAsync(targets, enable);
-            BlocksStore.SetStatuses(targets, enable ? "on" : "off", "blocks-tab");
+            var (matched, changed, firstError) = await FirewallService.Instance.SetTargetsEnabledWithErrorAsync(targets, enable);
+            if (matched == 0 || (changed == 0 && !string.IsNullOrEmpty(firstError)))
+            {
+                string detail = !string.IsNullOrEmpty(firstError)
+                    ? $" — {firstError}"
+                    : " — no matching firewall rules found on disk";
+                ShowBulkToast($"{verb} did not change any rules ({changed}/{matched}){detail}", null);
+                await ReloadAsync();
+                return;
+            }
 
-            ShowBulkToast(enable
+            BlocksStore.SetStatuses(targets, enable ? "on" : "off", "blocks-tab");
+            await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
+
+            string errSuffix = !string.IsNullOrEmpty(firstError) ? $" · warning: {firstError}" : "";
+            ShowBulkToast((enable
                 ? $"Blocking restored — {final.Count} target(s) ON again ({changed}/{matched} rules) · {scopeLabel}"
-                : $"Blocking stopped — {final.Count} target(s) OFF, traffic flows ({changed}/{matched} rules) · {scopeLabel}",
+                : $"Blocking stopped — {final.Count} target(s) OFF, traffic flows ({changed}/{matched} rules) · {scopeLabel}") + errSuffix,
                 snapshot);
             await ReloadAsync();
         }
@@ -1186,7 +1269,7 @@ $"\nBlocking returns ON automatically at {gate.ExpiresUtc.ToLocalTime():HH:mm}."
         private async void DetailRestoreBtn_Click(object sender, RoutedEventArgs e)
         {
             if (_detailGroup == null) return;
-            await BulkToggleAsync(_detailGroup.AllRows.Where(r => r.HasRules && !r.RulesEnabled).ToList(),
+            await BulkToggleAsync(_detailGroup.AllRows.Where(r => r.HasDisabledRules).ToList(),
                 true, _detailGroup.DisplayName);
         }
 
@@ -1237,6 +1320,7 @@ $"\nBlocking returns ON automatically at {gate.ExpiresUtc.ToLocalTime():HH:mm}."
                 await FirewallService.Instance.SetTargetsEnabledAsync(toOff, false);
                 BlocksStore.SetStatuses(toOff, "off", "undo");
             }
+            await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
             await ReloadAsync();
         }
 
@@ -1402,8 +1486,16 @@ $"\nBlocking returns ON automatically at {gate.ExpiresUtc.ToLocalTime():HH:mm}."
             var sym = _restoreSymptom;
 
             var list = _restoreMatches.Select(v => (v.Record.Kind, v.Record.Key)).ToList();
-            var (matched, changed) = await FirewallService.Instance.SetTargetsEnabledAsync(list, false);
+            var (matched, changed, firstError) = await FirewallService.Instance.SetTargetsEnabledWithErrorAsync(list, false);
+            if (matched == 0 || (changed == 0 && !string.IsNullOrEmpty(firstError)))
+            {
+                ShowBulkToast($"Stop blocking for '{sym.Title}' did not change any rules ({changed}/{matched})" +
+                    (!string.IsNullOrEmpty(firstError) ? $" — {firstError}" : ""), null);
+                await ReloadAsync();
+                return;
+            }
             BlocksStore.SetStatuses(list, "off", "restore-guide");
+            await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
             ShowBulkToast($"Blocking stopped for '{sym.Title}' — {list.Count} target(s) OFF, traffic flows ({changed}/{matched} rules)",
                 list.Select(v => (v.Kind, v.Key, true)).ToList());
             await ReloadAsync();
@@ -1414,12 +1506,20 @@ $"\nBlocking returns ON automatically at {gate.ExpiresUtc.ToLocalTime():HH:mm}."
         private async void RowToggle_Click(object sender, RoutedEventArgs e)
         {
             if ((sender as FrameworkElement)?.Tag is not BlockRowVm vm) return;
-            bool enable = !vm.RulesEnabled;
-            var (matched, changed) = await FirewallService.Instance.SetTargetsEnabledAsync(
+            bool enable = vm.HasDisabledRules || !vm.RulesEnabled;
+            var (matched, changed, firstError) = await FirewallService.Instance.SetTargetsEnabledWithErrorAsync(
                 new[] { (vm.Record.Kind, vm.Record.Key) }, enable);
+            if (matched == 0 || (changed == 0 && !string.IsNullOrEmpty(firstError)))
+            {
+                ShowBulkToast($"{(enable ? "Restore blocking" : "Stop blocking")} for '{vm.Target}' did not change any rules ({changed}/{matched})" +
+                    (!string.IsNullOrEmpty(firstError) ? $" — {firstError}" : " — no matching firewall rules found"), null);
+                await ReloadAsync();
+                return;
+            }
             BlocksStore.SetStatus(vm.Record.Kind, vm.Record.Key, enable ? "on" : "off");
             BlocksStore.AppendEvent(enable ? "resumed" : "paused", vm.Record.Kind, vm.Record.Key,
                 $"{changed}/{matched} rules", "blocks-tab");
+            await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
             await ReloadAsync();
         }
 

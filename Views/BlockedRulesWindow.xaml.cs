@@ -342,8 +342,10 @@ namespace AutoCommand.Views
             var (targets, removedIn, migratedOut) = await FirewallService.Instance.ConsolidateLegacyIpBlocksAsync();
             BlocksStore.LogFleet("consolidated",
                 $"{targets} target(s): {removedIn} inbound deleted, {migratedOut} migrated to v2 naming", "manage-all");
+            await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
             StatusText.Text = $"Consolidated {targets} target(s): {removedIn} redundant inbound rule(s) deleted, {migratedOut} migrated to v2 naming.";
             await ReloadAsync();
+            if (BlocksView.Current != null) await BlocksView.Current.RefreshIfLoadedAsync();
         }
 
         private async void ReenableBtn_Click(object sender, RoutedEventArgs e)
@@ -353,8 +355,10 @@ namespace AutoCommand.Views
             var res = await FirewallService.Instance.SetAllBlocksEnabledAsync(true);
             BlocksStore.LogFleet("fleet-enabled",
                 $"{res.Changed}/{res.Matched} rule(s) re-enabled", "manage-all");
+            await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
             StatusText.Text = $"Re-enabled AutoCommand blocks ({res.Changed} rule(s) changed).";
             await ReloadAsync();
+            if (BlocksView.Current != null) await BlocksView.Current.RefreshIfLoadedAsync();
         }
 
         private async void RestoreExceptRiskyBtn_Click(object sender, RoutedEventArgs e)
@@ -377,8 +381,10 @@ namespace AutoCommand.Views
             BlocksStore.LogFleet("fleet-enabled",
                 $"{res.Changed} rule(s) restored, {res.SkippedRisky} risky rule(s) kept disabled",
                 "restore-except-risky");
+            await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
             StatusText.Text = $"Restored {res.Changed} rule(s); kept {res.SkippedRisky} risky rule(s) disabled.";
             await ReloadAsync();
+            if (BlocksView.Current != null) await BlocksView.Current.RefreshIfLoadedAsync();
         }
 
         // RFC-4180 minimal: quote a field holding a comma, quote or newline,

@@ -40,7 +40,15 @@ namespace AutoCommand.Helpers
         }
 
         private static readonly string BaselinePath = Path.Combine(ProgramDataGuard.Root, "firewall_baseline.json");
+        private static readonly object _gate = new object();
         private static BaselineFile _cache;
+
+        private static bool IsOwnBlockRuleName(string name) =>
+            !string.IsNullOrEmpty(name) && (
+                name.StartsWith(FirewallService.NewIpPrefix, StringComparison.OrdinalIgnoreCase) ||
+                name.StartsWith(FirewallService.NewAppPrefix, StringComparison.OrdinalIgnoreCase) ||
+                name.StartsWith("AutoCommand IP Block - ", StringComparison.OrdinalIgnoreCase) ||
+                name.StartsWith("AutoCommand Process Block - ", StringComparison.OrdinalIgnoreCase));
 
         public static bool HasBaseline => GetCachedBaseline() != null;
 
@@ -57,10 +65,61 @@ namespace AutoCommand.Helpers
         /// </summary>
         public static void UpdateRuleState(string ruleName, bool enabled)
         {
-            var b = GetCachedBaseline();
-            if (b == null) return; // no baseline yet — nothing to adopt into
-            b.Rules[ruleName] = enabled;
-            SaveBaseline(b);
+            lock (_gate)
+            {
+                var b = GetCachedBaseline();
+                if (b == null || string.IsNullOrEmpty(ruleName)) return; // no baseline yet — nothing to adopt into
+                b.Rules[ruleName] = enabled;
+                SaveBaseline(b);
+            }
+        }
+
+        /// <summary>
+        /// Adopts the current live Enabled state of all AutoCommand block rules into
+        /// the baseline (no-op when no baseline exists). Prevents SecurityEnforcer's
+        /// 60s drift check from reverting intentional block pauses or restores made
+        /// in the Blocks tab or via Restore Internet.
+        /// </summary>
+        public static Task AdoptLiveBlockRulesAsync()
+        {
+            if (GetCachedBaseline() == null) return Task.CompletedTask;
+            return Task.Run(() =>
+            {
+                var b = GetCachedBaseline();
+                if (b == null) return;
+                try
+                {
+                    var liveStates = new List<(string Name, bool Enabled)>();
+                    dynamic fwPolicy = Activator.CreateInstance(Type.GetTypeFromProgID("HNetCfg.FwPolicy2"));
+                    foreach (dynamic rule in fwPolicy.Rules)
+                    {
+                        try
+                        {
+                            string name = (string)rule.Name;
+                            if (IsOwnBlockRuleName(name))
+                                liveStates.Add((name, (bool)rule.Enabled));
+                        }
+                        catch { }
+                    }
+                    lock (_gate)
+                    {
+                        bool dirty = false;
+                        foreach (var (name, enabled) in liveStates)
+                        {
+                            if (!b.Rules.TryGetValue(name, out bool prev) || prev != enabled)
+                            {
+                                b.Rules[name] = enabled;
+                                dirty = true;
+                            }
+                        }
+                        if (dirty) SaveBaseline(b);
+                    }
+                }
+                catch (Exception ex)
+                {
+                    System.Diagnostics.Debug.WriteLine($"FirewallBaseline block-adopt error: {ex.Message}");
+                }
+            });
         }
 
         /// <summary>
@@ -75,6 +134,7 @@ namespace AutoCommand.Helpers
                 if (b == null || string.IsNullOrEmpty(group)) return;
                 try
                 {
+                    var matchedNames = new List<string>();
                     dynamic fwPolicy = Activator.CreateInstance(Type.GetTypeFromProgID("HNetCfg.FwPolicy2"));
                     foreach (dynamic rule in fwPolicy.Rules)
                     {
@@ -87,12 +147,17 @@ namespace AutoCommand.Helpers
                             if (string.Equals(resolved, group, StringComparison.OrdinalIgnoreCase)
                                 || string.Equals(rawGroup, group, StringComparison.OrdinalIgnoreCase))
                             {
-                                b.Rules[(string)rule.Name] = enabled;
+                                matchedNames.Add((string)rule.Name);
                             }
                         }
                         catch { }
                     }
-                    SaveBaseline(b);
+                    lock (_gate)
+                    {
+                        foreach (string name in matchedNames)
+                            b.Rules[name] = enabled;
+                        if (matchedNames.Count > 0) SaveBaseline(b);
+                    }
                 }
                 catch (Exception ex)
                 {
@@ -130,8 +195,11 @@ namespace AutoCommand.Helpers
                 }
 
                 var file = new BaselineFile { CapturedAt = DateTime.Now, Rules = rules };
-                SaveBaseline(file);
-                _cache = file;
+                lock (_gate)
+                {
+                    SaveBaseline(file);
+                    _cache = file;
+                }
                 return (rules.Count, file.CapturedAt);
             });
         }
@@ -145,9 +213,14 @@ namespace AutoCommand.Helpers
             return Task.Run(() =>
             {
                 var report = new DriftReport();
-                var baseline = GetCachedBaseline();
-                if (baseline == null) return report;
-                report.BaselineCount = baseline.Rules.Count;
+                Dictionary<string, bool> baselineRules;
+                lock (_gate)
+                {
+                    var baseline = GetCachedBaseline();
+                    if (baseline == null) return report;
+                    baselineRules = new Dictionary<string, bool>(baseline.Rules, StringComparer.Ordinal);
+                }
+                report.BaselineCount = baselineRules.Count;
 
                 try
                 {
@@ -161,7 +234,7 @@ namespace AutoCommand.Helpers
                             bool enabled = (bool)rule.Enabled;
                             if (!seen.Add(name)) continue;
 
-                            if (!baseline.Rules.TryGetValue(name, out bool expected))
+                            if (!baselineRules.TryGetValue(name, out bool expected))
                             {
                                 if (enabled)
                                 {

@@ -1004,26 +1004,77 @@ type FirewallService(naming: FirewallNaming) =
     /// <summary>
     /// Shared parser: extracts the IP from a v2, adopted or legacy IP-block
     /// rule name. ("<own-ip-prefix>1.2.3.4 (TCP Out)" /
-    /// "&lt;legacy ip prefix&gt;1.2.3.4 (…)")
+    /// "&lt;legacy ip prefix&gt;1.2.3.4 (…)" / suffix-less rules).
+    /// Public and COM-free so ContainSelfTest can pin inventory ↔ toggle parity.
     /// </summary>
-    static member private ParseIpTarget(naming: FirewallNaming, name: string) : string =
-        let prefix =
-            if startsWith naming.OwnIpPrefix name then
-                naming.OwnIpPrefix
-            else
-                match List.tryFind (fun p -> startsWith p name) naming.AdoptedPrefixes with
-                | Some p -> p
-                | None ->
-                    (match naming.LegacyIpPrefixes with
-                     | p :: _ -> p
-                     | [] -> "")
-
-        let cut = name.IndexOf('(')
-
-        if cut > 0 then
-            name.Substring(prefix.Length, cut - prefix.Length).Trim()
+    static member ParseIpTarget(naming: FirewallNaming, name: string) : string =
+        if String.IsNullOrEmpty name then
+            ""
         else
-            name.Substring(prefix.Length).Trim()
+            let prefix =
+                if startsWith naming.OwnIpPrefix name then
+                    naming.OwnIpPrefix
+                else
+                    match List.tryFind (fun p -> startsWith p name) naming.AdoptedPrefixes with
+                    | Some p -> p
+                    | None ->
+                        match List.tryFind (fun p -> startsWith p name) naming.LegacyIpPrefixes with
+                        | Some p -> p
+                        | None -> ""
+
+            let rest =
+                if prefix.Length <= name.Length then name.Substring(prefix.Length)
+                else name
+
+            let cut = rest.IndexOf('(')
+            let beforeParen = if cut >= 0 then rest.Substring(0, cut) else rest
+            let dedupCut = beforeParen.IndexOf(" · ", StringComparison.Ordinal)
+            let raw = if dedupCut >= 0 then beforeParen.Substring(0, dedupCut) else beforeParen
+            raw.Trim()
+
+    static member NormalizeAppPath(p: string) : string =
+        if String.IsNullOrWhiteSpace p then
+            ""
+        else
+            let trimmed = p.Trim()
+            let expanded =
+                try Environment.ExpandEnvironmentVariables(trimmed)
+                with _ -> trimmed
+            let full =
+                try
+                    if expanded.Contains(":\\") || expanded.Contains(":/") || expanded.StartsWith("\\\\") then
+                        Path.GetFullPath(expanded)
+                    else
+                        expanded
+                with _ -> expanded
+            full.TrimEnd('\\', '/')
+
+    /// <summary>
+    /// Pure target matcher shared by SetTargetsEnabledAsync and ContainSelfTest.
+    /// Guarantees every target surfaced by GetBlockedInventoryAsync can be
+    /// toggled OFF and back ON regardless of suffix, casing, environment
+    /// variables (%SystemRoot%), or '..' path segments.
+    /// </summary>
+    static member MatchesToggleTarget
+        (naming: FirewallNaming, ruleName: string, isIp: bool, ruleApp: string, targetKind: string, targetKey: string)
+        : bool =
+        let key = if isNull targetKey then "" else targetKey.Trim()
+        if key.Length = 0 then
+            false
+        elif String.Equals(targetKind, "ip", StringComparison.OrdinalIgnoreCase) then
+            isIp
+            && String.Equals(FirewallService.ParseIpTarget(naming, ruleName), key, StringComparison.OrdinalIgnoreCase)
+        else
+            if isIp then
+                false
+            else
+                let effective = if not (String.IsNullOrEmpty ruleApp) then ruleApp else (if isNull ruleName then "" else ruleName)
+                effective.Length > 0
+                && (String.Equals(effective, key, StringComparison.OrdinalIgnoreCase)
+                    || String.Equals(
+                        FirewallService.NormalizeAppPath(effective),
+                        FirewallService.NormalizeAppPath(key),
+                        StringComparison.OrdinalIgnoreCase))
 
     /// <summary>
     /// A rule is "risky" when its target is Microsoft/CDN infrastructure or
@@ -1353,79 +1404,117 @@ type FirewallService(naming: FirewallNaming) =
 
     /// <summary>
     /// Per-target (and per-group, via a list) enable/disable — the toggle
-    /// behind the Blocks tab. Matching mirrors removal: IP blocks by rule
-    /// name prefix (new v2 + legacy), app blocks by name prefix plus exact
-    /// ApplicationName. Returns (rules matched, rules actually flipped) as
-    /// ValueTuple.
+    /// behind the Blocks tab, returning (matched, changed, firstError) so UI
+    /// surfaces can distinguish zero-match / COM failures from a clean apply.
+    /// Matching uses ParseIpTarget + NormalizeAppPath so every rule surfaced
+    /// by GetBlockedInventoryAsync can be disabled and re-enabled symmetrically.
     /// </summary>
-    member _.SetTargetsEnabledAsync
+    member _.SetTargetsEnabledWithErrorAsync
         (targets: IEnumerable<struct (string * string)>, enabled: bool)
-        : Task<struct (int * int)> =
+        : Task<struct (int * int * string)> =
         Task.Run(fun () ->
             let mutable matched = 0
             let mutable changed = 0
+            let mutable firstError: string = null
 
             try
-                // F# port: ValueTuple stream is unwrapped to reference tuples
-                // so plain destructuring works below.
                 let list =
-                    targets
-                    |> Seq.map (fun (struct (kind, key)) -> kind, key)
-                    |> List.ofSeq
+                    if isNull (box targets) then
+                        []
+                    else
+                        targets
+                        |> Seq.map (fun (struct (kind, key)) ->
+                            (if isNull kind then "" else kind),
+                            (if isNull key then "" else key.Trim()))
+                        |> Seq.filter (fun (_, key) -> key.Length > 0)
+                        |> List.ofSeq
 
-                let ipPrefixes = ResizeArray<string>()
+                if not list.IsEmpty then
+                    let ipTargets =
+                        HashSet<string>(
+                            list
+                            |> Seq.filter (fun (kind, _) -> String.Equals(kind, "ip", StringComparison.OrdinalIgnoreCase))
+                            |> Seq.map snd,
+                            StringComparer.OrdinalIgnoreCase
+                        )
 
-                for kind, key in list do
-                    if kind = "ip" then
-                        ipPrefixes.Add($"{naming.OwnIpPrefix}{key} (")
-                        // flat adopted list: an app-prefixed "<app> <ip> (" entry
-                        // matches nothing that exists, same as C#'s per-family check
-                        for p in naming.AdoptedPrefixes do
-                            ipPrefixes.Add($"{p}{key} (")
+                    let appRawTargets =
+                        HashSet<string>(
+                            list
+                            |> Seq.filter (fun (kind, _) -> not (String.Equals(kind, "ip", StringComparison.OrdinalIgnoreCase)))
+                            |> Seq.map snd,
+                            StringComparer.OrdinalIgnoreCase
+                        )
 
-                        for p in naming.LegacyIpPrefixes do
-                            ipPrefixes.Add($"{p}{key} (")
+                    let appNormTargets =
+                        HashSet<string>(
+                            appRawTargets
+                            |> Seq.map FirewallService.NormalizeAppPath
+                            |> Seq.filter (fun p -> p.Length > 0),
+                            StringComparer.OrdinalIgnoreCase
+                        )
 
-                let appPaths =
-                    HashSet<string>(
-                        list
-                        |> Seq.filter (fun (kind, _) -> kind <> "ip")
-                        |> Seq.map (fun (_, key) -> key),
-                        StringComparer.OrdinalIgnoreCase
-                    )
+                    let fwPolicy = getPolicy ()
 
-                let fwPolicy = getPolicy ()
-
-                for r in Com.enumRules fwPolicy.Rules do
-                    try
+                    for r in Com.enumRules fwPolicy.Rules do
                         let (ours, name) = FirewallService.IsOurBlock(naming, r)
 
                         if ours then
-                            let hit =
+                            let mutable hit = false
+
+                            try
                                 if isIpRule naming name r then
-                                    ipPrefixes.Exists(fun (p: string) ->
-                                        name.StartsWith(p, StringComparison.OrdinalIgnoreCase)
-                                    )
-                                else
+                                    if ipTargets.Count > 0 then
+                                        let ip = FirewallService.ParseIpTarget(naming, name)
+                                        hit <- ip.Length > 0 && ipTargets.Contains(ip)
+                                else if appRawTargets.Count > 0 then
                                     let app =
                                         match r.ApplicationName with
                                         | null -> ""
                                         | a -> a
 
-                                    app.Length > 0 && appPaths.Contains app
+                                    let effective = if not (String.IsNullOrEmpty app) then app else name
+
+                                    hit <-
+                                        effective.Length > 0
+                                        && (appRawTargets.Contains(effective)
+                                            || appNormTargets.Contains(FirewallService.NormalizeAppPath(effective)))
+                            with _ -> ()
 
                             if hit then
                                 matched <- matched + 1
-                                let was = r.Enabled
-                                r.Enabled <- enabled
 
-                                if was <> enabled then
-                                    changed <- changed + 1
-                    with _ -> () // per-rule best effort
-            with _ -> () // caller surfaces the zero-change result
+                                try
+                                    let was = r.Enabled
+                                    r.Enabled <- enabled
 
-            struct (matched, changed)
+                                    if was <> enabled then
+                                        changed <- changed + 1
+                                with ex ->
+                                    Debug.WriteLine($"FirewallService.SetTargetsEnabled rule '{name}' failed: {ex.Message}")
+
+                                    if isNull firstError then
+                                        firstError <- $"{name}: {ex.Message}"
+            with ex ->
+                Debug.WriteLine($"FirewallService.SetTargetsEnabled policy failed: {ex.Message}")
+
+                if isNull firstError then
+                    firstError <- ex.Message
+
+            struct (matched, changed, firstError)
         )
+
+    /// <summary>
+    /// Per-target (and per-group, via a list) enable/disable — returns
+    /// (rules matched, rules actually flipped) as ValueTuple.
+    /// </summary>
+    member this.SetTargetsEnabledAsync
+        (targets: IEnumerable<struct (string * string)>, enabled: bool)
+        : Task<struct (int * int)> =
+        task {
+            let! struct (matched, changed, _) = this.SetTargetsEnabledWithErrorAsync(targets, enabled)
+            return struct (matched, changed)
+        }
 
     /// <summary>Inventory of all managed block rules, grouped per target, classified.</summary>
     member _.GetBlockedInventoryAsync() : Task<ResizeArray<BlockedTarget>> =

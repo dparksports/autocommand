@@ -59,7 +59,19 @@ namespace AutoCommand.Views
                 : "Scope is grouped by the Windows service that made the blocked connection.";
             RbAll.Content = $"{verb} — all {nAll} target(s) · {mAll} rule(s)";
             if (hi.Count > 0)
-                RbExcept.Content = $"{verb} — all except 🔴 high-impact ({nAll - nHi} target(s) · {mAll - mHi} rule(s))";
+            {
+                int remTargets = nAll - nHi;
+                int remRules = mAll - mHi;
+                if (remTargets > 0)
+                {
+                    RbExcept.Content = $"{verb} — all except 🔴 high-impact ({remTargets} target(s) · {remRules} rule(s))";
+                }
+                else
+                {
+                    RbExcept.Content = $"{verb} — all except 🔴 high-impact (none — all {nAll} target(s) are high-impact)";
+                    RbExcept.IsEnabled = false;
+                }
+            }
             else
                 RbExcept.Visibility = Visibility.Collapsed;
 
@@ -109,9 +121,13 @@ namespace AutoCommand.Views
         private void UpdateApplyLabel()
         {
             // null-safe on purpose: reachable from XAML parse-time events
-            ExcludeHighImpact = RbExcept is { IsVisible: true, IsChecked: true };
+            ExcludeHighImpact = RbExcept != null
+                && RbExcept.Visibility == Visibility.Visible
+                && RbExcept.IsEnabled
+                && RbExcept.IsChecked == true;
             int n = _groups.Where(g => !(ExcludeHighImpact && g.HighImpact)).Sum(g => g.Targets);
             ApplyBtn.Content = $"{_verb}: {n} target(s)";
+            ApplyBtn.IsEnabled = n > 0;
         }
 
         private void ApplyBtn_Click(object sender, RoutedEventArgs e)

@@ -491,6 +491,8 @@ namespace AutoCommand
                 // my blocks go off, and how far did it reach".
                 BlocksStore.LogFleet("fleet-disabled",
                     $"{result.Changed}/{result.Matched} rule(s) disabled", "panic-button");
+                await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
+                var blocksRefresh = BlocksTab != null ? BlocksTab.RefreshIfLoadedAsync() : Task.CompletedTask;
 
                 string extra = result.FirstError != null ? $"\nFirst error: {result.FirstError}" : "";
                 MessageBox.Show(
@@ -501,6 +503,7 @@ namespace AutoCommand
                     "    real blocks, leaves the breakage-causing ones (red rows) off\n" +
                     "  · 'Re-enable all' — everything back on",
                     "🚑 Restore Internet", MessageBoxButton.OK, MessageBoxImage.Information);
+                await blocksRefresh;
             }
             finally { RestoreInternetBtn.IsEnabled = true; }
         }

@@ -11,21 +11,13 @@
              sheet's secondary lines are small and dense -->
         
     </Window.Resources>
-    <Grid Margin="16">
-        <Grid.RowDefinitions>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-            <RowDefinition Height="Auto"/>
-        </Grid.RowDefinitions>
-
-        <TextBlock x:Name="HeadlineText" Grid.Row="0" FontSize="14" FontWeight="SemiBold"
+    <DockPanel Margin="16" LastChildFill="True">
+        <TextBlock x:Name="HeadlineText" DockPanel.Dock="Top" FontSize="14" FontWeight="SemiBold"
                    TextWrapping="Wrap" Margin="0,0,0,4"/>
-        <TextBlock x:Name="SubText" Grid.Row="1" FontSize="11" TextWrapping="Wrap"
+        <TextBlock x:Name="SubText" DockPanel.Dock="Top" FontSize="11" TextWrapping="Wrap"
                    Foreground="{DynamicResource MutedTextBrush}" Margin="0,0,0,10"/>
 
-        <StackPanel Grid.Row="2" Margin="0,0,0,10">
+        <StackPanel DockPanel.Dock="Top" Margin="0,0,0,10">
             <!-- Checked handlers are wired in code after InitializeComponent:
                  parsing IsChecked="True" would fire Checked while later
                  elements (RbExcept) are still null. -->
@@ -33,18 +25,18 @@
             <RadioButton x:Name="RbExcept" GroupName="scope" FontSize="12" Margin="0,0,0,6"/>
         </StackPanel>
 
-        <Border Grid.Row="3" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
-                CornerRadius="3" Margin="0,0,0,10" MaxHeight="260">
-            <ScrollViewer VerticalScrollBarVisibility="Auto">
-                <ItemsControl x:Name="GroupsLv"/>
-            </ScrollViewer>
-        </Border>
-
-        <StackPanel Grid.Row="4" Orientation="Horizontal" HorizontalAlignment="Right">
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
             <Button x:Name="CancelBtn" Content="Cancel" Click="CancelBtn_Click"
                     Padding="14,4" FontSize="12" Margin="0,0,8,0"/>
             <Button x:Name="ApplyBtn" Click="ApplyBtn_Click" Padding="14,4" FontSize="12"
                     Style="{StaticResource PrimaryButton}"/>
         </StackPanel>
-    </Grid>
+
+        <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                CornerRadius="3" MaxHeight="260">
+            <ScrollViewer VerticalScrollBarVisibility="Auto">
+                <ItemsControl x:Name="GroupsLv"/>
+            </ScrollViewer>
+        </Border>
+    </DockPanel>
 </Window>

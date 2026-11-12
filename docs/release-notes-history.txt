@@ -17,6 +17,22 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.11.4 (2026-11-11)
+================================================================================
+
+# v2026.11.11.4 — Blocks tab re-enable restored
+
+## Turn blocking back ON
+
+Re-enabling paused firewall blocks from the Blocks tab (via the "Turn blocking back ON" button or the bulk unpause action in BlockBulkPreviewWindow) now properly re-enables block rules. Previously, clicking the button had no effect when rules had been created under previous app sessions or naming variants, because the toggle matcher was missing target normalization and live baseline rule adoption.
+
+- **Normalized Toggle Matching**: `Engines.Firewall.Service` now exports `ParseIpTarget`, `NormalizeAppPath`, and `MatchesToggleTarget` to match live rules against target specifications (application path or IP/CIDR) reliably across path casing, separators, and naming conventions (`ac-block-*`, `as-block-*`, and unscoped variants).
+- **Error Surfacing**: `SetTargetsEnabledWithErrorAsync` reports matched and modified rule counts along with any Win32 firewall errors, allowing the UI to display descriptive feedback when no rules match instead of silently doing nothing.
+- **Baseline Adoption & SecurityEnforcer Coherence**: `FirewallBaselineManager.AdoptLiveBlockRulesAsync()` adopts newly enabled live block rules into the active baseline cache under a dedicated gate lock, preventing background security enforcement from reverting enabled block rules.
+- **Bulk Preview Layout & Polish**: `BlockBulkPreviewWindow` now uses a responsive docked layout to prevent action button clipping on low-resolution displays, and disables high-impact exclusion options when no targets are selected.
+- **UI State & Parity Tests**: Checkboxes in `BlocksView` now use strict two-state toggles, and `tests/ContainSelfTest` adds 11 toggle target parity tests verifying IP/app matching across all naming conventions.
+
+================================================================================
 v2026.11.11.3 (2026-11-11)
 ================================================================================
 

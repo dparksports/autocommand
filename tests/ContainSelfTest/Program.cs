@@ -519,6 +519,50 @@ Check("guard: ordinary process allowed with no text",
 Check("guard: empty subject allowed (nothing to mistake)",
       G("", out _) == BlockGuard.Decision.Allow);
 
+// ─────────────────────────────────────────────────────────────────────
+// 11. FirewallService toggle-target parity — every IP and app rule shape
+//     that GetBlockedInventoryAsync surfaces must match when turning
+//     blocking OFF and back ON (ParseIpTarget / NormalizeAppPath /
+//     MatchesToggleTarget, offline and COM-free).
+// ─────────────────────────────────────────────────────────────────────
+{
+    var toggleAcNaming = AutoCommand.Engines.Firewall.Naming.autocommand();
+    var toggleAsNaming = AutoCommand.Engines.Firewall.Naming.autoscope();
+
+    Check("toggle-ip: v2 TCP rule parses and matches exact IP",
+          AutoCommand.Engines.Firewall.FirewallService.ParseIpTarget(toggleAcNaming, "AC-BLOCK-IP 1.2.3.4 (TCP Out)") == "1.2.3.4" &&
+          AutoCommand.Engines.Firewall.FirewallService.MatchesToggleTarget(toggleAcNaming, "AC-BLOCK-IP 1.2.3.4 (TCP Out)", true, "", "ip", "1.2.3.4"));
+    Check("toggle-ip: legacy outbound rule parses and matches",
+          AutoCommand.Engines.Firewall.FirewallService.ParseIpTarget(toggleAcNaming, "AutoCommand IP Block - 1.2.3.4 (TCP Outbound Block)") == "1.2.3.4" &&
+          AutoCommand.Engines.Firewall.FirewallService.MatchesToggleTarget(toggleAcNaming, "AutoCommand IP Block - 1.2.3.4 (TCP Outbound Block)", true, "", "ip", "1.2.3.4"));
+    Check("toggle-ip: suffix-less IP rule (no trailing '(') matches",
+          AutoCommand.Engines.Firewall.FirewallService.ParseIpTarget(toggleAcNaming, "AC-BLOCK-IP 1.2.3.4") == "1.2.3.4" &&
+          AutoCommand.Engines.Firewall.FirewallService.MatchesToggleTarget(toggleAcNaming, "AC-BLOCK-IP 1.2.3.4", true, "", "ip", "1.2.3.4"));
+    Check("toggle-ip: dedup-quarantined suffix strips cleanly",
+          AutoCommand.Engines.Firewall.FirewallService.ParseIpTarget(toggleAcNaming, "AC-BLOCK-IP 1.2.3.4 · dedup-20261111-1") == "1.2.3.4");
+    Check("toggle-ip: adopted prefix under autoscope naming matches",
+          AutoCommand.Engines.Firewall.FirewallService.MatchesToggleTarget(toggleAsNaming, "AT-BLOCK-IP 9.8.7.6", true, "", "ip", "9.8.7.6"));
+    Check("toggle-ip: prefix collision 1.2.3.4 vs 1.2.3.40 rejected",
+          !AutoCommand.Engines.Firewall.FirewallService.MatchesToggleTarget(toggleAcNaming, "AC-BLOCK-IP 1.2.3.40 (TCP Out)", true, "", "ip", "1.2.3.4"));
+    Check("toggle-ip: kind mismatch (proc target against IP rule) rejected",
+          !AutoCommand.Engines.Firewall.FirewallService.MatchesToggleTarget(toggleAcNaming, "AC-BLOCK-IP 1.2.3.4 (TCP Out)", true, "", "proc", "1.2.3.4"));
+
+    string sysRoot = Environment.GetEnvironmentVariable("SystemRoot") ?? @"C:\Windows";
+    string svchostExpanded = Path.Combine(sysRoot, "System32", "svchost.exe");
+    Check("toggle-app: %SystemRoot% rule matches expanded C:\\Windows target",
+          AutoCommand.Engines.Firewall.FirewallService.MatchesToggleTarget(
+              toggleAcNaming, "AC-BLOCK-APP svchost.exe (Out)", false, @"%SystemRoot%\System32\svchost.exe", "proc", svchostExpanded));
+    Check("toggle-app: '..' path segments normalize to same target",
+          AutoCommand.Engines.Firewall.FirewallService.MatchesToggleTarget(
+              toggleAcNaming, "AC-BLOCK-APP app.exe (Out)", false, @"C:\Program Files\Vendor\Sub\..\app.exe", "proc", @"c:\program files\vendor\app.exe"));
+    Check("toggle-app: empty ApplicationName falls back to rule name",
+          AutoCommand.Engines.Firewall.FirewallService.MatchesToggleTarget(
+              toggleAcNaming, "AC-BLOCK-APP orphan.exe (Out)", false, "", "proc", "AC-BLOCK-APP orphan.exe (Out)"));
+    Check("toggle-app: unrelated executable rejected",
+          !AutoCommand.Engines.Firewall.FirewallService.MatchesToggleTarget(
+              toggleAcNaming, "AC-BLOCK-APP a.exe (Out)", false, @"C:\Tools\a.exe", "proc", @"C:\Tools\b.exe"));
+}
+
 Console.WriteLine();
 Console.WriteLine(failures == 0 ? "ALL CONTAIN SELF-TESTS PASSED" : $"{failures} CHECK(S) FAILED");
 return failures == 0 ? 0 : 1;
