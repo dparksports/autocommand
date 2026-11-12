@@ -137,8 +137,8 @@
     <!-- Intercept self-test: journal + CA mechanics offline (own Main()) -->
     <Compile Remove="tests\InterceptSelfTest\**" />
     <!-- BITS tracer self-test: drives ParseMessage/Apply/stat/firewall
-         logic offline with synthetic events (see BitsTraceSelfTest\) -->
-    <Compile Remove="BitsTraceSelfTest\**" />
+         logic offline with synthetic events (see tests\BitsTraceSelfTest\) -->
+    <Compile Remove="tests\BitsTraceSelfTest\**" />
     <!-- Proxy install self-test: drives McpClientRegistration's install
          decision logic with synthetic dirs (see tests\ProxyInstallSelfTest\) -->
     <Compile Remove="tests\ProxyInstallSelfTest\**" />
@@ -169,7 +169,7 @@
     <Compile Remove="OneSettingsCadence\**" />
     <!-- DnsFeedSelfTest: newest self-test folder (added after the last ii
          app build); same glob reason as the others -->
-    <Compile Remove="DnsFeedSelfTest\**" />
+    <Compile Remove="tests\DnsFeedSelfTest\**" />
     <!-- F# engine sources live in their own fsproj graph -->
     <Compile Remove="Engines\**" />
     <!-- Extracted core engines (AutoCommand II phases, REWRITE.md): built

@@ -256,10 +256,25 @@ namespace AutoCommand
             // every gate close reaches the bridge's activity log — the
             // agent-facing record (Be My Guest tab + offline agents), so a
             // window ending is visible even if nobody was watching
+            Agent.Core.BlockGateService.Instance.GateOpened += (g, origin) =>
+            {
+                _ = Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
+                Dispatcher.BeginInvoke(new System.Action(() =>
+                {
+                    if (Views.BlocksView.Current != null) _ = Views.BlocksView.Current.RefreshIfLoadedAsync();
+                    if (Views.SvchostMonitorView.Current is { IsVisible: true } mon) _ = mon.RefreshBlockStateIfLoadedAsync();
+                }));
+            };
             Agent.Core.BlockGateService.Instance.GateClosed += (g, origin) =>
             {
                 try { AgentBridgeService.Instance.LogActivity(
                     "gate", $"closed ({origin})", $"{g.Display} — blocking restored"); } catch { }
+                _ = Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
+                Dispatcher.BeginInvoke(new System.Action(() =>
+                {
+                    if (Views.BlocksView.Current != null) _ = Views.BlocksView.Current.RefreshIfLoadedAsync();
+                    if (Views.SvchostMonitorView.Current is { IsVisible: true } mon) _ = mon.RefreshBlockStateIfLoadedAsync();
+                }));
             };
             InstrumentMetronome.Instance.Register(new InstrumentSpec
             {

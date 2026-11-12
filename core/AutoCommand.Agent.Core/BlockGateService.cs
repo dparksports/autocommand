@@ -49,21 +49,55 @@ namespace AutoCommand.Agent.Core
     public sealed class BlockGateService
     {
         public static readonly BlockGateService Instance = new();
-        private BlockGateService() { }
 
         public static readonly int[] AllowedMinutes = { 1, 10, 30, 60 };
 
         private readonly object _lock = new();
+        private readonly string _storePath;
+        private readonly Func<(string Kind, string Key)[], bool, Task<(int Matched, int Changed, string FirstError)>> _toggleTargetsAsync;
+        private readonly Action<(string Kind, string Key)[], string, string> _setStatuses;
+        private readonly int _retryDelayStepMs;
         private List<BlockGate> _gates = new();
         private bool _loaded;
+
+        private BlockGateService()
+            : this(
+                DefaultStorePath,
+                async (targets, enabled) =>
+                {
+                    var (m, c, err) = await FirewallService.Instance.SetTargetsEnabledWithErrorAsync(targets, enabled);
+                    return (m, c, err);
+                },
+                (targets, status, origin) => BlocksStore.SetStatuses(targets, status, origin),
+                retryDelayStepMs: 300)
+        {
+        }
+
+        internal BlockGateService(
+            string storePath,
+            Func<(string Kind, string Key)[], bool, Task<(int Matched, int Changed, string FirstError)>> toggleTargetsAsync,
+            Action<(string Kind, string Key)[], string, string> setStatuses,
+            int retryDelayStepMs = 300)
+        {
+            _storePath = storePath;
+            _toggleTargetsAsync = toggleTargetsAsync;
+            _setStatuses = setStatuses;
+            _retryDelayStepMs = Math.Max(0, retryDelayStepMs);
+        }
+
+        /// <summary>Fires after a gate's firewall rules have been disabled
+        /// (origin: "mcp" | "update-mode") — hosts adopt baseline + refresh UI.</summary>
+        public event Action<BlockGate, string> GateOpened;
 
         /// <summary>Fires when a gate closes (origin: "mcp" | "gate-expiry"
         /// | "gate-exit") — the bridge logs it; the UI can toast it.</summary>
         public event Action<BlockGate, string> GateClosed;
 
-        private static string StorePath => Path.Combine(
+        private static string DefaultStorePath => Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "AutoCommand", "gates.json");
+
+        private string StorePath => _storePath;
 
         public IReadOnlyList<BlockGate> Open
         {
@@ -102,6 +136,39 @@ namespace AutoCommand.Agent.Core
                 SaveLocked();
             }
             return g;
+        }
+
+        /// <summary>Notifies listeners after the caller has disabled the
+        /// firewall rules for an opened gate so baselines and views stay synced.</summary>
+        public void NotifyGateOpened(BlockGate g, string origin)
+        {
+            if (g == null) return;
+            try { GateOpened?.Invoke(g, origin); } catch { }
+        }
+
+        /// <summary>Drops any open gate record when the underlying block itself
+        /// is permanently removed (so a deleted block is not retried on expiry).</summary>
+        public void ForgetTarget(string kind, string key)
+        {
+            if (string.IsNullOrEmpty(kind) || string.IsNullOrEmpty(key)) return;
+            LoadOnce();
+            lock (_lock)
+            {
+                bool isIp = string.Equals(kind, "ip", StringComparison.OrdinalIgnoreCase);
+                string exeLeaf = isIp ? null : Path.GetFileName(key);
+                int removed = _gates.RemoveAll(x =>
+                {
+                    if (isIp)
+                        return string.Equals(x.Kind, "ip", StringComparison.OrdinalIgnoreCase) &&
+                               string.Equals(x.Key, key, StringComparison.OrdinalIgnoreCase);
+                    if (string.Equals(x.Kind, "ip", StringComparison.OrdinalIgnoreCase))
+                        return false;
+                    return string.Equals(x.Key, key, StringComparison.OrdinalIgnoreCase) ||
+                           (!string.IsNullOrEmpty(exeLeaf) &&
+                            string.Equals(Path.GetFileName(x.Key), exeLeaf, StringComparison.OrdinalIgnoreCase));
+                });
+                if (removed > 0) SaveLocked();
+            }
         }
 
         /// <summary>Close a gate and turn blocking back ON. Idempotent —
@@ -182,8 +249,15 @@ namespace AutoCommand.Agent.Core
             {
                 try
                 {
-                    await FirewallService.Instance.SetTargetsEnabledAsync(targets, true);
-                    BlocksStore.SetStatuses(targets, "on", origin);
+                    var (matched, _, firstError) = await _toggleTargetsAsync(targets, true);
+                    if (!string.IsNullOrEmpty(firstError) || matched == 0)
+                    {
+                        throw new InvalidOperationException(
+                            !string.IsNullOrEmpty(firstError)
+                                ? firstError
+                                : $"No matching firewall rules found for {g.Kind}:{g.Key}");
+                    }
+                    _setStatuses(targets, "on", origin);
                     try { GateClosed?.Invoke(g, origin); } catch { }
                     return true;
                 }
@@ -193,7 +267,8 @@ namespace AutoCommand.Agent.Core
                     // attempts with a small gap before the caller falls back
                     // to the keep-the-gate-and-retry path.
                     if (attempt >= 3) return false;
-                    await Task.Delay(300 * attempt);
+                    if (_retryDelayStepMs > 0)
+                        await Task.Delay(_retryDelayStepMs * attempt);
                 }
             }
         }

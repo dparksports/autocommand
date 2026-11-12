@@ -96,13 +96,21 @@ namespace AutoCommand.Helpers
         /// not be gated - a paused tick loses the spawn events that happened
         /// while hidden.
         /// </summary>
-        public static void GateVisibility(FrameworkElement host, Func<DispatcherTimer> timer)
+        public static void GateVisibility(FrameworkElement host, Func<DispatcherTimer> timer, Action onShow = null)
         {
             host.IsVisibleChanged += (_, _) =>
             {
                 var t = timer();
                 if (t == null) return;
-                if (host.IsVisible) t.Start(); else t.Stop();
+                if (host.IsVisible)
+                {
+                    onShow?.Invoke();
+                    t.Start();
+                }
+                else
+                {
+                    t.Stop();
+                }
             };
             if (!host.IsVisible) timer()?.Stop(); // ctor-time Start() on a never-shown tab
         }

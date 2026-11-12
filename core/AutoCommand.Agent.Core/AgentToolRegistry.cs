@@ -1528,8 +1528,18 @@ namespace AutoCommand.Agent.Core
             // post-confirmation: persist the gate FIRST, then stop blocking
             var gate = BlockGateService.Instance.OpenGate(r.Kind, r.Key, r.Display, minutes, "mcp", reason);
             var targets = new[] { (r.Kind, r.Key) };
-            var (matched, changed) = FirewallService.Instance.SetTargetsEnabledAsync(targets, false).GetAwaiter().GetResult();
+            var (matched, changed, firstError) = FirewallService.Instance.SetTargetsEnabledWithErrorAsync(targets, false).GetAwaiter().GetResult();
+            if (matched == 0 || (changed == 0 && !string.IsNullOrEmpty(firstError)))
+            {
+                BlockGateService.Instance.ForgetTarget(r.Kind, r.Key);
+                return ToJson(new JsonObject
+                {
+                    ["error"] = "Failed to disable firewall rules for '" + r.Display + "'" +
+                                (!string.IsNullOrEmpty(firstError) ? ": " + firstError : " (no matching rules found)."),
+                });
+            }
             BlocksStore.SetStatuses(targets, "off", "mcp");
+            BlockGateService.Instance.NotifyGateOpened(gate, "mcp");
             try { AgentBridgeService.Instance.LogActivity(
                 "gate", "opened", $"{r.Display} for {minutes} min" +
                 (string.IsNullOrEmpty(reason) ? "" : $" — {reason}")); } catch { }
@@ -1578,6 +1588,15 @@ namespace AutoCommand.Agent.Core
                     ["note"] = "No gate is open for that target - blocking was already restored (or never gated).",
                 });
             BlockGateService.Instance.CloseAsync(r.Kind, r.Key, "mcp").GetAwaiter().GetResult();
+            if (BlockGateService.Instance.Find(r.Kind, r.Key) != null)
+            {
+                return ToJson(new JsonObject
+                {
+                    ["gate_open"] = true,
+                    ["target"] = r.Display,
+                    ["error"] = "Failed to re-enable firewall rules after 3 attempts; gate stays queued for automatic retry.",
+                });
+            }
             try { AgentBridgeService.Instance.LogActivity(
                 "gate", "closed (by agent)", $"{r.Display} — blocking restored"); } catch { }
             return ToJson(new JsonObject

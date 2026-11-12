@@ -781,17 +781,31 @@ type FirewallService(naming: FirewallNaming) =
         )
 
     /// <summary>
+    /// Pure prefix matcher: true when <c>ruleName</c> starts with any of the
+    /// candidate prefixes (case-insensitive). Public and COM-free so
+    /// ContainSelfTest can pin multi-prefix IP unblock matching.
+    /// </summary>
+    static member MatchesAnyNamePrefix(prefixes: seq<string>, ruleName: string) : bool =
+        not (String.IsNullOrEmpty ruleName)
+        && not (isNull prefixes)
+        && (prefixes
+            |> Seq.exists (fun p ->
+                not (String.IsNullOrEmpty p)
+                && ruleName.StartsWith(p, StringComparison.OrdinalIgnoreCase)))
+
+    /// <summary>
     /// Removes the block rules previously created for a remote IP by
     /// AddBlockRuleForIpAsync (matched on the legacy "IP Block - &lt;ip&gt;"
-    /// name prefixes) plus the v2 and adopted families.
+    /// name prefixes) plus the v2 and adopted families in a single COM pass.
     /// Returns how many rules were removed.
     /// </summary>
     member this.RemoveBlockRulesForIpAsync(remoteIp: string) : Task<int> =
         Task.Run(fun () ->
-            naming.LegacyIpPrefixes
-            @ [ naming.OwnIpPrefix ]
-            @ naming.AdoptedPrefixes
-            |> List.sumBy (fun prefix -> this.RemoveRulesByNamePrefix($"{prefix}{remoteIp} ("))
+            let prefixes =
+                (naming.LegacyIpPrefixes @ [ naming.OwnIpPrefix ] @ naming.AdoptedPrefixes)
+                |> List.map (fun prefix -> $"{prefix}{remoteIp} (")
+
+            this.RemoveRulesByNamePrefixes(prefixes)
         )
 
     /// <summary>
@@ -830,13 +844,26 @@ type FirewallService(naming: FirewallNaming) =
     /// <summary>
     /// Pure duplicate accounting: given one identity string per rule (IP
     /// rules: the full rule name — app rules: rule name + ApplicationName),
-    /// returns how many are redundant (all but the first of each identity).
-    /// This is the number the inventory badge and the cleanup button show,
-    /// and exactly the count the cleanup retires — nothing else. A target's
+    /// returns how many are redundant (all but the first of each case-insensitive
+    /// identity). This is the number the inventory badge and the cleanup button
+    /// show, and exactly the count the cleanup retires — nothing else. A target's
     /// distinct shapes (TCP+UDP, the paths of a name family) never count.
     /// </summary>
     static member CountRedundantDuplicates(identities: string seq) : int =
-        identities |> Seq.groupBy id |> Seq.sumBy (fun (_, g) -> (Seq.length g) - 1)
+        if isNull identities then
+            0
+        else
+            let counts = Dictionary<string, int>(StringComparer.OrdinalIgnoreCase)
+            for id in identities do
+                if not (isNull id) then
+                    let mutable n = 0
+                    counts.TryGetValue(id, &n) |> ignore
+                    counts.[id] <- n + 1
+
+            let mutable redundant = 0
+            for KeyValue(_, n) in counts do
+                if n > 1 then redundant <- redundant + (n - 1)
+            redundant
 
     /// <summary>
     /// Removes the block rules for an application across its whole NAME
@@ -882,34 +909,37 @@ type FirewallService(naming: FirewallNaming) =
             removed
         )
 
-    member private _.RemoveRulesByNamePrefix(namePrefix: string) : int =
-        let mutable removed = 0
+    member private _.RemoveRulesByNamePrefixes(namePrefixes: string list) : int =
+        if namePrefixes.IsEmpty then
+            0
+        else
+            let mutable removed = 0
 
-        try
-            let fwPolicy = getPolicy ()
-            // Collect matches first — removing while enumerating the COM collection is unreliable
-            let names = ResizeArray<string>()
+            try
+                let fwPolicy = getPolicy ()
+                // Collect matches across all prefixes in one pass — removing while enumerating COM is unreliable
+                let names = ResizeArray<string>()
 
-            for r in Com.enumRules fwPolicy.Rules do
-                try
-                    let name =
-                        match r.Name with
-                        | null -> ""
-                        | n -> n
+                for r in Com.enumRules fwPolicy.Rules do
+                    try
+                        let name =
+                            match r.Name with
+                            | null -> ""
+                            | n -> n
 
-                    if name.StartsWith(namePrefix, StringComparison.OrdinalIgnoreCase) then
-                        names.Add(name)
-                with _ -> ()
+                        if FirewallService.MatchesAnyNamePrefix(namePrefixes, name) then
+                            names.Add(name)
+                    with _ -> ()
 
-            for name in names do
-                try
-                    fwPolicy.Rules.Remove(name) |> ignore
-                    removed <- removed + 1
-                with _ -> ()
-        with ex ->
-            raise (Exception($"Failed to remove firewall rules: {ex.Message}", ex))
+                for name in names do
+                    try
+                        fwPolicy.Rules.Remove(name) |> ignore
+                        removed <- removed + 1
+                    with _ -> ()
+            with ex ->
+                raise (Exception($"Failed to remove firewall rules: {ex.Message}", ex))
 
-        removed
+            removed
 
     /// <summary>
     /// One-click duplicate cleanup: retires every rule that is an exact
@@ -1096,16 +1126,36 @@ type FirewallService(naming: FirewallNaming) =
         with _ ->
             false
 
+    /// <summary>
+    /// O(1) rule lookup via <c>INetFwRules.Item(name)</c>, returning <c>null</c>
+    /// when absent (HNetCfg.FwPolicy2 throws FileNotFoundException /
+    /// HRESULT 0x80070002 on a miss) and falling back to a short-circuiting
+    /// <c>Seq.tryFind</c> only on unexpected COM provider errors. Public so
+    /// ContainSelfTest can verify zero-enumeration fast paths offline.
+    /// </summary>
+    static member FindRuleInCollection(rules: INetFwRules, name: string) : INetFwRule =
+        if isNull rules || String.IsNullOrEmpty name then
+            null
+        else
+            try
+                rules.Item(name)
+            with
+            | :? FileNotFoundException -> null
+            | :? ArgumentException -> null
+            | :? Runtime.InteropServices.COMException as cex when
+                cex.HResult = int 0x80070002u || cex.HResult = int 0x80070057u ->
+                null
+            | _ ->
+                Com.enumRules rules
+                |> Seq.tryFind (fun r ->
+                    try
+                        not (isNull r) && r.Name = name
+                    with _ -> false)
+                |> Option.defaultValue null
+
     static member private FindRule(fwPolicy: INetFwPolicy2, name: string) : INetFwRule =
-        let mutable found = null
-
-        for r in Com.enumRules fwPolicy.Rules do
-            if isNull found then
-                try
-                    if r.Name = name then found <- r
-                with _ -> ()
-
-        found
+        if isNull fwPolicy then null
+        else FirewallService.FindRuleInCollection(fwPolicy.Rules, name)
 
     static member private IsOurBlock(naming: FirewallNaming, rule: INetFwRule) : bool * string =
         try
@@ -1217,58 +1267,81 @@ type FirewallService(naming: FirewallNaming) =
                     raise (ArgumentException("App block needs a path with a file name.", "appPath"))
 
                 let fwPolicy = Com.getPolicy2 ()
-                let mine = FirewallService.GetAppRulesForExe(naming, fwPolicy, exe)
+                let normTarget = FirewallService.NormalizeAppPath(appPath)
+                let primary = $"{naming.OwnAppPrefix}{exe} (Out)"
+                let suffixed = $"{primary} · {FirewallService.PathHash8(appPath)}"
 
-                // True duplicate — this exact path is already blocked: refresh
-                // provenance only, never a second rule for the same image.
-                // GetFullPath on both sides: MainModule hands out '..'-bearing
-                // strings and the rule stores whatever it was given, so raw
-                // equality misses those and re-adds.
-                let normPath (p: string) =
-                    if String.IsNullOrWhiteSpace p then p
-                    else try Path.GetFullPath(p) with _ -> p
+                let matchesTargetPath (r: INetFwRule) =
+                    not (isNull r)
+                    && (try
+                            let app = if isNull r.ApplicationName then "" else r.ApplicationName
+                            String.Equals(FirewallService.NormalizeAppPath(app), normTarget, StringComparison.OrdinalIgnoreCase)
+                        with _ -> false)
 
-                let samePath =
-                    mine
-                    |> Seq.tryFind (fun (_, app, _) ->
-                        String.Equals(normPath app, normPath appPath, StringComparison.OrdinalIgnoreCase))
-
-                match samePath with
-                | Some(sameName, _, _) ->
+                let updateExisting (existing: INetFwRule) (ruleName: string) =
                     let mutable updated = 0
-                    let existing = FirewallService.FindRule(fwPolicy, sameName)
+                    try
+                        existing.Description <- description
+                        updated <- 1
+                    with _ -> ()
+                    struct (0, updated, ruleName)
 
-                    if not (isNull existing) then
-                        try
-                            existing.Description <- description
-                            updated <- updated + 1
-                        with _ -> ()
+                // Fast O(1) probes via INetFwRules.Item: brand-new app blocks
+                // and exact/hash-matched re-blocks complete with ZERO linear
+                // COM enumerations.
+                let primaryRule = FirewallService.FindRule(fwPolicy, primary)
+                let suffixedRule = FirewallService.FindRule(fwPolicy, suffixed)
 
-                        struct (0, updated, sameName)
-                    else
-                        struct (0, updated, null)
-                | None ->
-                    let primary = $"{naming.OwnAppPrefix}{exe} (Out)"
+                if matchesTargetPath primaryRule then
+                    updateExisting primaryRule primary
+                elif matchesTargetPath suffixedRule then
+                    updateExisting suffixedRule suffixed
+                elif isNull primaryRule && isNull suffixedRule then
+                    let rule = Com.newRule ()
+                    rule.Action <- FwAction.Block
+                    rule.Direction <- FwRuleDirection.Out
+                    rule.Enabled <- true
+                    rule.InterfaceTypes <- "All"
+                    rule.Name <- primary
+                    rule.ApplicationName <- appPath
+                    rule.Description <- description
+                    fwPolicy.Rules.Add(rule)
+                    struct (1, 0, primary)
+                else
+                    // Primary or hash-sibling already exists for another path
+                    // spelling of this exe: scan once to check whether any
+                    // '..'-bearing or env-var sibling already covers normTarget.
+                    let mine = FirewallService.GetAppRulesForExe(naming, fwPolicy, exe)
 
-                    let name =
-                        if isNull (FirewallService.FindRule(fwPolicy, primary)) then primary
-                        else $"{primary} · {FirewallService.PathHash8(appPath)}"
+                    let samePath =
+                        mine
+                        |> Seq.tryFind (fun (_, app, _) ->
+                            String.Equals(FirewallService.NormalizeAppPath(app), normTarget, StringComparison.OrdinalIgnoreCase))
 
-                    // Path-hash sibling collision means the same path under
-                    // different casing — treat as duplicate and leave as-is.
-                    if not (isNull (FirewallService.FindRule(fwPolicy, name))) then
-                        struct (0, 0, name)
-                    else
-                        let rule = Com.newRule ()
-                        rule.Action <- FwAction.Block
-                        rule.Direction <- FwRuleDirection.Out
-                        rule.Enabled <- true
-                        rule.InterfaceTypes <- "All"
-                        rule.Name <- name
-                        rule.ApplicationName <- appPath
-                        rule.Description <- description
-                        fwPolicy.Rules.Add(rule)
-                        struct (1, 0, name)
+                    match samePath with
+                    | Some(sameName, _, _) ->
+                        let existing = FirewallService.FindRule(fwPolicy, sameName)
+                        if not (isNull existing) then updateExisting existing sameName
+                        else struct (0, 0, null)
+                    | None ->
+                        let name = if isNull primaryRule then primary else suffixed
+                        let candidateExisting = if name = primary then primaryRule else suffixedRule
+
+                        // Path-hash sibling collision means the same path under
+                        // different casing — treat as duplicate and leave as-is.
+                        if not (isNull candidateExisting) then
+                            struct (0, 0, name)
+                        else
+                            let rule = Com.newRule ()
+                            rule.Action <- FwAction.Block
+                            rule.Direction <- FwRuleDirection.Out
+                            rule.Enabled <- true
+                            rule.InterfaceTypes <- "All"
+                            rule.Name <- name
+                            rule.ApplicationName <- appPath
+                            rule.Description <- description
+                            fwPolicy.Rules.Add(rule)
+                            struct (1, 0, name)
             with ex ->
                 raise (Exception($"Failed to add app block: {ex.Message}", ex))
         finally
@@ -1309,7 +1382,9 @@ type FirewallService(naming: FirewallNaming) =
 
             try
                 let fwPolicy = getPolicy ()
-                let byExe = Dictionary<string, ResizeArray<string>>(StringComparer.OrdinalIgnoreCase)
+                // Single COM pass: classify (ruleName, isDead) while enumerating
+                // instead of re-enumerating fwPolicy.Rules once per blocked exe.
+                let byExe = Dictionary<string, ResizeArray<string * bool>>(StringComparer.OrdinalIgnoreCase)
 
                 for r in Com.enumRules fwPolicy.Rules do
                     try
@@ -1320,35 +1395,26 @@ type FirewallService(naming: FirewallNaming) =
 
                             if app.Length > 0 then
                                 let exe = Path.GetFileName(app)
-                                let mutable list = Unchecked.defaultof<ResizeArray<string>>
+                                let isDead = not (File.Exists(app))
+                                let mutable list = Unchecked.defaultof<ResizeArray<string * bool>>
 
                                 if not (byExe.TryGetValue(exe, &list)) then
-                                    list <- ResizeArray<string>()
+                                    list <- ResizeArray<string * bool>()
                                     byExe.[exe] <- list
 
-                                list.Add(name)
+                                list.Add((name, isDead))
                     with _ -> ()
 
-                for KeyValue(_, names) in byExe do
+                for KeyValue(_, entries) in byExe do
                     targets <- targets + 1
+                    let mutable hasLive = false
                     let dead = ResizeArray<string>()
-                    let live = ResizeArray<string>()
 
-                    for r in Com.enumRules fwPolicy.Rules do
-                        try
-                            let name = (if isNull r.Name then "" else r.Name)
+                    for (name, isDead) in entries do
+                        if isDead then dead.Add(name)
+                        else hasLive <- true
 
-                            let inGroup =
-                                names |> Seq.exists (fun n -> String.Equals(n, name, StringComparison.OrdinalIgnoreCase))
-
-                            if inGroup then
-                                let app = (if isNull r.ApplicationName then "" else r.ApplicationName)
-
-                                if app.Length > 0 && not (File.Exists(app)) then dead.Add(name)
-                                else live.Add(name)
-                        with _ -> ()
-
-                    if live.Count > 0 then // never the last rule of a target
+                    if hasLive then // never the last rule of a target
                         for name in dead do
                             try
                                 fwPolicy.Rules.Remove(name)
@@ -1520,8 +1586,8 @@ type FirewallService(naming: FirewallNaming) =
     member _.GetBlockedInventoryAsync() : Task<ResizeArray<BlockedTarget>> =
         Task.Run(fun () ->
             let byKey = Dictionary<string, BlockedTarget>(StringComparer.OrdinalIgnoreCase)
-            // per-target rule identities for duplicate accounting (below)
-            let identitiesByTarget = Dictionary<string, HashSet<string>>(StringComparer.OrdinalIgnoreCase)
+            // per-target rule identities (with repeats preserved!) for duplicate accounting (below)
+            let identitiesByTarget = Dictionary<string, ResizeArray<string>>(StringComparer.OrdinalIgnoreCase)
 
             try
                 let fwPolicy = getPolicy ()
@@ -1600,11 +1666,11 @@ type FirewallService(naming: FirewallNaming) =
                                 if isIpRule naming name r then name
                                 else name + "|" + app
 
-                            let mutable seen = Unchecked.defaultof<HashSet<string>>
+                            let mutable seen = Unchecked.defaultof<ResizeArray<string>>
                             if not (identitiesByTarget.TryGetValue(t.Key, &seen)) then
-                                seen <- HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                                seen <- ResizeArray<string>()
                                 identitiesByTarget.[t.Key] <- seen
-                            seen.Add(identity) |> ignore
+                            seen.Add(identity)
 
                             t.Rules <- t.Rules + 1
 
@@ -1630,11 +1696,11 @@ type FirewallService(naming: FirewallNaming) =
     /// <summary>
     /// One-click cleanup of ALL legacy-name blocks: IP sets (4 rules) shrink
     /// to the v2 2-rule scheme, app blocks (2 rules) shrink to the v2 single
-    /// outbound rule. Lossless — descriptions carry over with a migration
-    /// marker, protection unchanged (inbound was covered by stateful
-    /// filtering). Safe to run repeatedly; exits fast when nothing legacy
-    /// remains. F# port: ValueTuple return; the migration marker text no
-    /// longer carries an app name.
+    /// outbound rule. Lossless — descriptions and Enabled state carry over
+    /// with a migration marker, protection unchanged (inbound was covered by
+    /// stateful filtering). Safe to run repeatedly; exits fast when nothing
+    /// legacy remains. F# port: ValueTuple return; the migration marker text
+    /// no longer carries an app name.
     /// </summary>
     member _.ConsolidateLegacyIpBlocksAsync() : Task<struct (int * int * int)> =
         Task.Run(fun () ->
@@ -1645,21 +1711,32 @@ type FirewallService(naming: FirewallNaming) =
             try
                 let fwPolicy = getPolicy ()
                 let legacy = ResizeArray<string * INetFwRule * string>()
+                let legacyApps = ResizeArray<string * INetFwRule * string>()
 
+                // Single COM enumeration collects both legacy IP and legacy app rules
                 for r in Com.enumRules fwPolicy.Rules do
                     try
-                        let name =
-                            match r.Name with
-                            | null -> ""
-                            | n -> n
+                        if int r.Action = 0 then
+                            let name =
+                                match r.Name with
+                                | null -> ""
+                                | n -> n
 
-                        if int r.Action = 0 && startsWithAny naming.LegacyIpPrefixes name then
-                            legacy.Add((name, r, FirewallService.ParseIpTarget(naming, name)))
+                            if startsWithAny naming.LegacyIpPrefixes name then
+                                legacy.Add((name, r, FirewallService.ParseIpTarget(naming, name)))
+                            elif startsWithAny naming.LegacyAppPrefixes name then
+                                let app =
+                                    match r.ApplicationName with
+                                    | null -> ""
+                                    | a -> a
+
+                                if app.Length > 0 then
+                                    legacyApps.Add((name, r, app))
                     with _ -> ()
 
                 // F# port: group keys lowercased — Seq.groupBy has no
                 // comparer overload; C# grouped apps OrdinalIgnoreCase.
-                for ipGroup in legacy |> Seq.groupBy (fun (_, _, ip) -> ip) do
+                for ipGroup in legacy |> Seq.groupBy (fun (_, _, ip) -> ip.ToLowerInvariant()) do
                     targets <- targets + 1
 
                     for (name, rule, ip) in snd ipGroup do
@@ -1673,12 +1750,13 @@ type FirewallService(naming: FirewallNaming) =
                             try
                                 let proto = if name.Contains("UDP") then "UDP" else "TCP"
                                 let newName = $"{naming.OwnIpPrefix}{ip} ({proto} Out)"
+                                let wasEnabled = try rule.Enabled with _ -> true
 
                                 if isNull (FirewallService.FindRule(fwPolicy, newName)) then
                                     let nr = Com.newRule ()
                                     nr.Action <- FwAction.Block
                                     nr.Direction <- FwRuleDirection.Out
-                                    nr.Enabled <- true
+                                    nr.Enabled <- wasEnabled
                                     nr.InterfaceTypes <- "All"
                                     nr.Name <- newName
                                     nr.RemoteAddresses <- ip
@@ -1697,24 +1775,6 @@ type FirewallService(naming: FirewallNaming) =
                             with _ -> ()
 
                 // ── legacy app blocks: 2 rules → 1 outbound v2 rule ──
-                let legacyApps = ResizeArray<string * INetFwRule * string>()
-
-                for r in Com.enumRules fwPolicy.Rules do
-                    try
-                        let name =
-                            match r.Name with
-                            | null -> ""
-                            | n -> n
-
-                        let app =
-                            match r.ApplicationName with
-                            | null -> ""
-                            | a -> a
-
-                        if int r.Action = 0 && app.Length > 0 && startsWithAny naming.LegacyAppPrefixes name then
-                            legacyApps.Add((name, r, app))
-                    with _ -> ()
-
                 for appGroup in legacyApps |> Seq.groupBy (fun (_, _, app) -> app.ToLowerInvariant()) do
                     targets <- targets + 1
 
@@ -1727,12 +1787,13 @@ type FirewallService(naming: FirewallNaming) =
                         else
                             try
                                 let newName = $"{naming.OwnAppPrefix}{Path.GetFileName(app)} (Out)"
+                                let wasEnabled = try rule.Enabled with _ -> true
 
                                 if isNull (FirewallService.FindRule(fwPolicy, newName)) then
                                     let nr = Com.newRule ()
                                     nr.Action <- FwAction.Block
                                     nr.Direction <- FwRuleDirection.Out
-                                    nr.Enabled <- true
+                                    nr.Enabled <- wasEnabled
                                     nr.InterfaceTypes <- "All"
                                     nr.Name <- newName
                                     nr.ApplicationName <- app

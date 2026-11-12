@@ -563,6 +563,167 @@ Check("guard: empty subject allowed (nothing to mistake)",
               toggleAcNaming, "AC-BLOCK-APP a.exe (Out)", false, @"C:\Tools\a.exe", "proc", @"C:\Tools\b.exe"));
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// 12. O(1) rule lookup & single-pass multi-prefix matching — ensures
+//     AddIpBlock / AddAppBlock never enumerate the full COM rules table
+//     on hits or misses, and fallback enumeration short-circuits.
+// ─────────────────────────────────────────────────────────────────────
+{
+    var r1 = new FakeFwRule { Name = "AC-BLOCK-IP 1.2.3.4 (TCP Out)" };
+    var r2 = new FakeFwRule { Name = "AC-BLOCK-IP 1.2.3.4 (UDP Out)" };
+    var r3 = new FakeFwRule { Name = "Trailing Rule" };
+
+    var directHit = new FakeFwRules(new[] { r1, r2, r3 }, mode: "normal");
+    var found = AutoCommand.Engines.Firewall.FirewallService.FindRuleInCollection(
+        directHit, "AC-BLOCK-IP 1.2.3.4 (UDP Out)");
+    Check("find-rule: INetFwRules.Item hit returns rule with zero enumerations",
+          ReferenceEquals(found, r2) && directHit.Enumerations == 0 && directHit.ElementsYielded == 0,
+          $"enums={directHit.Enumerations}");
+
+    var fileNotFoundMiss = new FakeFwRules(new[] { r1, r2 }, mode: "fnf");
+    var missed1 = AutoCommand.Engines.Firewall.FirewallService.FindRuleInCollection(
+        fileNotFoundMiss, "AC-BLOCK-IP 9.9.9.9 (TCP Out)");
+    Check("find-rule: FileNotFoundException miss returns null with zero enumerations",
+          missed1 == null && fileNotFoundMiss.Enumerations == 0,
+          $"enums={fileNotFoundMiss.Enumerations}");
+
+    var comNotFoundMiss = new FakeFwRules(new[] { r1, r2 }, mode: "com-fnf");
+    var missed2 = AutoCommand.Engines.Firewall.FirewallService.FindRuleInCollection(
+        comNotFoundMiss, "AC-BLOCK-IP 9.9.9.9 (TCP Out)");
+    Check("find-rule: HRESULT 0x80070002 miss returns null with zero enumerations",
+          missed2 == null && comNotFoundMiss.Enumerations == 0,
+          $"enums={comNotFoundMiss.Enumerations}");
+
+    var fallback = new FakeFwRules(new[] { r1, r2, r3 }, mode: "com-other");
+    var fbFound = AutoCommand.Engines.Firewall.FirewallService.FindRuleInCollection(
+        fallback, "AC-BLOCK-IP 1.2.3.4 (TCP Out)");
+    Check("find-rule: unexpected COM error falls back to short-circuiting Seq.tryFind",
+          ReferenceEquals(fbFound, r1) && fallback.Enumerations == 1 && fallback.ElementsYielded == 1,
+          $"enums={fallback.Enumerations}, yielded={fallback.ElementsYielded}");
+
+    // Multi-prefix IP unblock matcher (Own + Legacy + Adopted in one pass)
+    var ipPrefixes = new[]
+    {
+        "AutoCommand IP Block - 1.2.3.4 (",
+        "AC-BLOCK-IP 1.2.3.4 (",
+        "AT-BLOCK-IP 1.2.3.4 ("
+    };
+    Check("prefix-match: matches v2, legacy and adopted prefixes in one set",
+          AutoCommand.Engines.Firewall.FirewallService.MatchesAnyNamePrefix(ipPrefixes, "AC-BLOCK-IP 1.2.3.4 (TCP Out)") &&
+          AutoCommand.Engines.Firewall.FirewallService.MatchesAnyNamePrefix(ipPrefixes, "AutoCommand IP Block - 1.2.3.4 (UDP Outbound Block)") &&
+          AutoCommand.Engines.Firewall.FirewallService.MatchesAnyNamePrefix(ipPrefixes, "at-block-ip 1.2.3.4 (TCP Out)"));
+    Check("prefix-match: rejects prefix-colliding IP 1.2.3.40",
+          !AutoCommand.Engines.Firewall.FirewallService.MatchesAnyNamePrefix(ipPrefixes, "AC-BLOCK-IP 1.2.3.40 (TCP Out)"));
+
+    // Case-insensitive duplicate accounting
+    Check("dup: case-insensitive app path identity counts as redundant duplicate",
+          D("AC-BLOCK-APP x.exe (Out)|C:\\Tools\\x.exe", "ac-block-app x.exe (out)|c:\\tools\\x.exe") == 1);
+}
+
+// ── 13. BlockHitFeedService case-insensitive IPv6 aggregation ─────────────
+{
+    var now = DateTime.UtcNow;
+    var feed = new BlockHitFeedService(new[]
+    {
+        new BlockHitFeedService.BlockHit
+        {
+            TimeUtc = now.AddMinutes(-2),
+            Image = @"C:\App\Tool.exe",
+            Pid = 4242,
+            DestIp = "2606:4700::ABCD",
+            DestPort = 443,
+            Protocol = "tcp",
+            MatchKind = "ip"
+        },
+        new BlockHitFeedService.BlockHit
+        {
+            TimeUtc = now.AddMinutes(-1),
+            Image = @"c:\app\tool.exe",
+            Pid = 4242,
+            DestIp = "2606:4700::abcd",
+            DestPort = 443,
+            Protocol = "tcp",
+            MatchKind = "ip"
+        }
+    });
+    var byIp = feed.FeedHitsByIp(60);
+    Check("hit-feed: mixed-case IPv6 DestIp merges into one key",
+          byIp.Count == 1 && byIp.TryGetValue("2606:4700::AbCd", out int hits) && hits == 2,
+          $"keys={byIp.Count}");
+    var aggs = feed.Aggregates(60);
+    Check("hit-feed: mixed-case image/IPv6 aggregates into single rollup",
+          aggs.Count == 1 && aggs[0].Count == 2,
+          $"aggs={aggs.Count}");
+}
+
 Console.WriteLine();
 Console.WriteLine(failures == 0 ? "ALL CONTAIN SELF-TESTS PASSED" : $"{failures} CHECK(S) FAILED");
 return failures == 0 ? 0 : 1;
+
+internal sealed class FakeFwRule : AutoCommand.Engines.Firewall.INetFwRule
+{
+    public string Name { get; set; } = "";
+    public string Description { get; set; } = "";
+    public string ApplicationName { get; set; } = "";
+    public string ServiceName { get; set; } = "";
+    public int Protocol { get; set; }
+    public string LocalPorts { get; set; } = "";
+    public string RemotePorts { get; set; } = "";
+    public string LocalAddresses { get; set; } = "";
+    public string RemoteAddresses { get; set; } = "";
+    public string IcmpTypesAndCodes { get; set; } = "";
+    public string InterfaceTypes { get; set; } = "All";
+    public bool Enabled { get; set; } = true;
+    public string Grouping { get; set; } = "";
+    public int Profiles { get; set; }
+    public bool EdgeTraversal { get; set; }
+    public AutoCommand.Engines.Firewall.FwRuleDirection Direction { get; set; }
+    public AutoCommand.Engines.Firewall.FwAction Action { get; set; }
+}
+
+internal sealed class FakeFwRules : AutoCommand.Engines.Firewall.INetFwRules
+{
+    private readonly System.Collections.Generic.IReadOnlyList<AutoCommand.Engines.Firewall.INetFwRule> _rules;
+    private readonly string _mode;
+    public int Enumerations { get; private set; }
+    public int ElementsYielded { get; private set; }
+
+    public FakeFwRules(System.Collections.Generic.IReadOnlyList<AutoCommand.Engines.Firewall.INetFwRule> rules, string mode)
+    {
+        _rules = rules;
+        _mode = mode;
+    }
+
+    public int Count => _rules.Count;
+    public void Add(AutoCommand.Engines.Firewall.INetFwRule rule) { }
+    public void Remove(string name) { }
+
+    public AutoCommand.Engines.Firewall.INetFwRule this[string name]
+    {
+        get
+        {
+            return _mode switch
+            {
+                "fnf" => throw new FileNotFoundException(),
+                "com-fnf" => throw new System.Runtime.InteropServices.COMException("Not found", unchecked((int)0x80070002)),
+                "com-other" => throw new System.Runtime.InteropServices.COMException("Provider quirk", unchecked((int)0x80004005)),
+                _ => _rules.FirstOrDefault(r => r.Name == name) ?? throw new FileNotFoundException()
+            };
+        }
+    }
+
+    public System.Collections.IEnumerator GetEnumerator()
+    {
+        Enumerations++;
+        return Enumerate().GetEnumerator();
+    }
+
+    private System.Collections.Generic.IEnumerable<AutoCommand.Engines.Firewall.INetFwRule> Enumerate()
+    {
+        foreach (var r in _rules)
+        {
+            ElementsYielded++;
+            yield return r;
+        }
+    }
+}

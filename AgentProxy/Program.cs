@@ -125,7 +125,7 @@ var http = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
         string path = Path.Combine(AgentDir, "session.json");
         var o = JsonNode.Parse(File.ReadAllText(path)) as JsonObject;
         return (o["port"].GetValue<int>(), o["token"].GetValue<string>(),
-                (long?)o["pid"] ?? 0, (string?)o["exe"] ?? "");
+                (long?)o["pid"] ?? 0, o["exe"]?.GetValue<string>() ?? "");
     }
     catch { return null; }
 }
@@ -226,10 +226,76 @@ static bool PidAlive(long pid, string expectedExe)
         string sessionExe = QueryProcessImagePath((int)pid);
         if (sessionExe.Length == 0) return false;   // gone, or unidentifiable
         if (!string.IsNullOrEmpty(expectedExe))
-            return string.Equals(sessionExe, expectedExe, StringComparison.OrdinalIgnoreCase);
+        {
+            if (string.Equals(sessionExe, expectedExe, StringComparison.OrdinalIgnoreCase))
+                return true;
+            // Launched through a directory junction, symlink, subst drive, or
+            // 8.3 alias: compare final Win32 canonical targets on mismatch.
+            string canonSession = CanonicalizePath(sessionExe);
+            string canonExpected = CanonicalizePath(expectedExe);
+            return canonSession.Length > 0 &&
+                   string.Equals(canonSession, canonExpected, StringComparison.OrdinalIgnoreCase);
+        }
         return Path.GetFileName(sessionExe).StartsWith("AutoCommand", StringComparison.OrdinalIgnoreCase);
     }
     catch { return false; }
+}
+
+static bool IsLocalDrivePath(string path) =>
+    !string.IsNullOrEmpty(path) &&
+    path.Length >= 3 &&
+    char.IsLetter(path[0]) &&
+    path[1] == ':' &&
+    (path[2] == '\\' || path[2] == '/') &&
+    path.IndexOfAny(Path.GetInvalidPathChars()) < 0 &&
+    Path.IsPathFullyQualified(path);
+
+static string CanonicalizePath(string path)
+{
+    if (string.IsNullOrEmpty(path)) return "";
+    const uint FILE_SHARE_ALL = 0x00000001 | 0x00000002 | 0x00000004;
+    const uint OPEN_EXISTING = 3;
+    const uint FILE_FLAG_BACKUP_SEMANTICS = 0x02000000;
+    IntPtr h = CreateFileW(path, 0, FILE_SHARE_ALL, IntPtr.Zero, OPEN_EXISTING, FILE_FLAG_BACKUP_SEMANTICS, IntPtr.Zero);
+    if (h == IntPtr.Zero || h == new IntPtr(-1))
+    {
+        try { return Path.GetFullPath(path); } catch { return path; }
+    }
+    try
+    {
+        var sb = new System.Text.StringBuilder(1024);
+        uint len = GetFinalPathNameByHandleW(h, sb, (uint)sb.Capacity, 0);
+        if (len == 0 || len >= sb.Capacity) return path;
+        string resolved = sb.ToString();
+        if (resolved.StartsWith(@"\\?\UNC\", StringComparison.OrdinalIgnoreCase))
+            return @"\\" + resolved.Substring(8);
+        if (resolved.StartsWith(@"\\?\", StringComparison.Ordinal))
+            return resolved.Substring(4);
+        return resolved;
+    }
+    finally { CloseHandle(h); }
+}
+
+static string TryResolveRecordedAppExe(string recorded)
+{
+    if (!IsLocalDrivePath(recorded)) return "";
+    if (!string.Equals(Path.GetFileName(recorded), "AutoCommand.exe", StringComparison.OrdinalIgnoreCase))
+        return "";
+    if (!File.Exists(recorded)) return "";
+    string canonical = CanonicalizePath(Path.GetFullPath(recorded));
+    if (!IsLocalDrivePath(canonical)) return "";
+    if (!string.Equals(Path.GetFileName(canonical), "AutoCommand.exe", StringComparison.OrdinalIgnoreCase))
+        return "";
+    if (!File.Exists(canonical)) return "";
+    try
+    {
+        string orig = (FileVersionInfo.GetVersionInfo(canonical).OriginalFilename ?? "").Trim();
+        if (!string.Equals(orig, "AutoCommand.dll", StringComparison.OrdinalIgnoreCase) &&
+            !string.Equals(orig, "AutoCommand.exe", StringComparison.OrdinalIgnoreCase))
+            return "";
+    }
+    catch { return ""; }
+    return canonical;
 }
 
 static string QueryProcessImagePath(int pid)
@@ -253,6 +319,12 @@ static extern IntPtr OpenProcess(uint desiredAccess, bool inheritHandle, int pro
 [System.Runtime.InteropServices.DllImport("kernel32.dll", SetLastError = true)]
 static extern bool QueryFullProcessImageName(IntPtr process, uint flags, System.Text.StringBuilder exeName, ref uint size);
 
+[System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+static extern IntPtr CreateFileW(string lpFileName, uint dwDesiredAccess, uint dwShareMode, IntPtr lpSecurityAttributes, uint dwCreationDisposition, uint dwFlagsAndAttributes, IntPtr hTemplateFile);
+
+[System.Runtime.InteropServices.DllImport("kernel32.dll", CharSet = System.Runtime.InteropServices.CharSet.Unicode, SetLastError = true)]
+static extern uint GetFinalPathNameByHandleW(IntPtr hFile, System.Text.StringBuilder lpszFilePath, uint cchFilePath, uint dwFlags);
+
 [System.Runtime.InteropServices.DllImport("kernel32.dll")]
 static extern bool CloseHandle(IntPtr handle);
 
@@ -262,7 +334,9 @@ static bool InteractiveAppRunning()
     // probe (test boxes usually have a live interactive instance).
     if (Environment.GetEnvironmentVariable("AC_SIMULATE_APP_RUNNING") is string sim &&
         sim == "0") return false;
-    return Process.GetProcessesByName("AutoCommand").Any();
+    var procs = Process.GetProcessesByName("AutoCommand");
+    try { return procs.Length > 0; }
+    finally { foreach (var p in procs) p.Dispose(); }
 }
 
 string AppExePath()
@@ -271,7 +345,9 @@ string AppExePath()
     //   1. AC_APP_EXE — offline self-tests
     //   2. agent\app_path.txt — written by the app at every startup; the
     //      only source that knows where the real exe lives when the app
-    //      runs from an extracted zip far from this deployed proxy
+    //      runs from an extracted zip far from this deployed proxy. Must
+    //      resolve to a local AutoCommand.exe with AutoCommand PE metadata
+    //      so user-writable app_path.txt cannot spoof UAC onto foreign exes.
     //   3. walk up from this proxy's own folder — the release zip keeps
     //      AutoCommand.exe at the root above tools\AgentProxy
     //   4. the legacy flat guess — proxy directly under <install>\tools\
@@ -283,8 +359,10 @@ string AppExePath()
     try
     {
         string recorded = File.ReadAllText(Path.Combine(AgentDir, "app_path.txt")).Trim();
-        if (recorded.Length > 0 && recorded.EndsWith(".exe", StringComparison.OrdinalIgnoreCase))
-            return recorded;
+        string verified = TryResolveRecordedAppExe(recorded);
+        if (verified.Length > 0) return verified;
+        if (recorded.Length > 0)
+            LogProxy("wake", "ignored untrusted or missing path in app_path.txt");
     }
     catch { /* not written yet — pre-update app */ }
     try

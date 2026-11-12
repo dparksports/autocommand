@@ -270,6 +270,65 @@ try
         Check("7b every registry tool has an offline stub", regNames.IsSubsetOf(stubNames),
               "missing: " + string.Join(",", regNames.Except(stubNames)));
     }
+
+    // ── 9. BlockGateService re-arm verification, retries & ForgetTarget ──
+    string gateStore = Path.Combine(root, "gates.json");
+    int toggleCalls = 0;
+    string mode = "com-error";
+    int statusOnCalls = 0;
+    int openedEvents = 0;
+    int closedEvents = 0;
+    var gates = new BlockGateService(
+        gateStore,
+        (targets, enabled) =>
+        {
+            toggleCalls++;
+            return mode switch
+            {
+                "com-error" => Task.FromResult((1, 0, "Access denied")),
+                "zero-match" => Task.FromResult((0, 0, (string)null)),
+                "flaky-then-ok" when toggleCalls < 2 => Task.FromResult((1, 0, "Transient RPC error")),
+                _ => Task.FromResult((2, 2, (string)null)),
+            };
+        },
+        (targets, status, origin) => { if (status == "on") statusOnCalls++; },
+        retryDelayStepMs: 0);
+    gates.GateOpened += (_, _) => openedEvents++;
+    gates.GateClosed += (_, _) => closedEvents++;
+
+    var g1 = gates.OpenGate("ip", "1.2.3.4", "1.2.3.4", 10, "mcp", "test");
+    gates.NotifyGateOpened(g1, "mcp");
+    Check("9a NotifyGateOpened fires GateOpened event", openedEvents == 1, $"openedEvents={openedEvents}");
+
+    // Persistent COM error: retries 3 times, keeps gate in store for 30s retry
+    toggleCalls = 0;
+    mode = "com-error";
+    await gates.CloseAsync("ip", "1.2.3.4", "gate-expiry");
+    Check("9b COM error retries 3 times and preserves gate record",
+          toggleCalls == 3 && gates.Find("ip", "1.2.3.4") != null && statusOnCalls == 0 && closedEvents == 0,
+          $"calls={toggleCalls}, open={gates.Open.Count}");
+
+    // Zero-match: also retries 3 times and preserves gate record
+    toggleCalls = 0;
+    mode = "zero-match";
+    await gates.CloseAsync("ip", "1.2.3.4", "gate-expiry");
+    Check("9c zero matched rules preserves gate record instead of falsely closing",
+          toggleCalls == 3 && gates.Find("ip", "1.2.3.4") != null && statusOnCalls == 0,
+          $"calls={toggleCalls}, open={gates.Open.Count}");
+
+    // Transient failure on attempt 1, succeeds on attempt 2: closes gate & persists empty store
+    toggleCalls = 0;
+    mode = "flaky-then-ok";
+    await gates.CloseAsync("ip", "1.2.3.4", "gate-expiry");
+    Check("9d transient COM failure recovers on retry and removes gate",
+          toggleCalls == 2 && gates.Find("ip", "1.2.3.4") == null && statusOnCalls == 1 && closedEvents == 1,
+          $"calls={toggleCalls}, open={gates.Open.Count}, statusOn={statusOnCalls}");
+
+    // ForgetTarget drops an open gate when a block is permanently removed
+    gates.OpenGate("proc", @"C:\Apps\Foo\foo.exe", "foo.exe", 10, "mcp", "test");
+    gates.ForgetTarget("proc", @"D:\OtherCopy\FOO.EXE");
+    Check("9e ForgetTarget drops sibling-path app gate when block is removed",
+          gates.Open.Count == 0, $"open={gates.Open.Count}");
 }
 finally
 {

@@ -52,22 +52,27 @@ namespace AutoCommand.Views
         // paused). Rebuilt from GetBlockedInventoryAsync after every
         // block/unblock, when the Blocked-rules window closes, and once a
         // minute to catch out-of-band changes (agent actions, wf.msc edits).
-        private readonly HashSet<string> _activeIps = new();
-        private readonly HashSet<string> _pausedIps = new();
+        private readonly HashSet<string> _activeIps = new(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _pausedIps = new(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _activeApps = new(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _pausedApps = new(StringComparer.OrdinalIgnoreCase);
         private readonly Dictionary<string, string> _blockNotes = new(StringComparer.OrdinalIgnoreCase);
+        private readonly ConcurrentDictionary<int, string> _pidPathCache = new();
         private DispatcherTimer _blockStateTimer;
         private bool _blockStateSyncing;
+        private bool _blockStateResyncRequested;
 
         // Non-modal block feedback (message + Undo, auto-hides)
         private DispatcherTimer _toastTimer;
         private string _toastUndoKind;
         private string _toastUndoKey;
 
-        // High-transmitter threshold in bytes, persisted in tx_threshold.txt
+        // High-transmitter threshold in bytes, persisted under %LOCALAPPDATA%\AutoCommand
         private long _txThreshold = 1024;
-        private readonly string _txThresholdPath = "tx_threshold.txt";
+        private static readonly string _txThresholdPath = System.IO.Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+            "AutoCommand", "tx_threshold.txt");
+        private const string LegacyTxThresholdPath = "tx_threshold.txt";
         private bool _loadingThreshold = true;
 
         // Scheduled-task attribution for taskhostw rows (who/what/why launched)
@@ -186,9 +191,12 @@ namespace AutoCommand.Views
             _blockStateTimer.Tick += (s, args) => _ = RefreshBlockStateFromFirewallAsync();
             _blockStateTimer.Start();
             // firewall-inventory snapshot read — pause the 60 s poll while
-            // this tab is hidden; rows pick their block marks up on the
-            // first tick after the tab is shown again
-            RefreshLoop.GateVisibility(this, () => _blockStateTimer);
+            // this tab is hidden, and trigger an immediate sync when shown
+            // again so Blocks-tab / Restore-Internet toggles reflect right away
+            RefreshLoop.GateVisibility(this, () => _blockStateTimer, () =>
+            {
+                if (_isInitialized) _ = RefreshBlockStateFromFirewallAsync();
+            });
 
             _toastTimer = new DispatcherTimer { Interval = TimeSpan.FromSeconds(6.5) };
             _toastTimer.Tick += (s, args) => HideToast();
@@ -441,11 +449,23 @@ namespace AutoCommand.Views
         {
             try
             {
-                if (File.Exists(_txThresholdPath) &&
-                    long.TryParse(File.ReadAllText(_txThresholdPath).Trim(), out long bytes) &&
+                string pathToRead = File.Exists(_txThresholdPath)
+                    ? _txThresholdPath
+                    : (File.Exists(LegacyTxThresholdPath) ? LegacyTxThresholdPath : null);
+                if (pathToRead != null &&
+                    long.TryParse(File.ReadAllText(pathToRead).Trim(), out long bytes) &&
                     bytes >= 0)
                 {
                     _txThreshold = bytes;
+                    if (pathToRead == LegacyTxThresholdPath)
+                    {
+                        try
+                        {
+                            Directory.CreateDirectory(System.IO.Path.GetDirectoryName(_txThresholdPath));
+                            File.WriteAllText(_txThresholdPath, _txThreshold.ToString());
+                        }
+                        catch { }
+                    }
                 }
             }
             catch { /* first run or unreadable file — keep the 1 KB default */ }
@@ -476,7 +496,11 @@ namespace AutoCommand.Views
 
             _txThreshold = value * unit;
             SvchostMonitorItem.TxThresholdBytes = _txThreshold;
-            try { File.WriteAllText(_txThresholdPath, _txThreshold.ToString()); }
+            try
+            {
+                Directory.CreateDirectory(System.IO.Path.GetDirectoryName(_txThresholdPath));
+                File.WriteAllText(_txThresholdPath, _txThreshold.ToString());
+            }
             catch { /* persistence is best-effort — the live threshold still applies */ }
 
             // Re-sort immediately: live sorting reacts to per-row changes,
@@ -511,14 +535,20 @@ namespace AutoCommand.Views
                 await Task.Run(() =>
                 {
                     foreach (var p in Process.GetProcesses())
-                        alive.Add(p.Id);
+                    {
+                        using (p)
+                            alive.Add(p.Id);
+                    }
                 });
 
                 foreach (var item in _uiCollection)
                 {
                     if (item.ProcessId <= 0 || item.HasExited) continue; // System/Idle never exits
                     if (!alive.Contains(item.ProcessId))
+                    {
+                        _pidPathCache.TryRemove(item.ProcessId, out _);
                         item.MarkExited();
+                    }
                 }
             }
             catch { /* snapshot failed — retried on the next tick */ }
@@ -1223,21 +1253,27 @@ namespace AutoCommand.Views
                 string warning = msApplies && !ConfirmPrefs.IsSuppressed(ConfirmPrefs.WarnMsInfra)
                     ? msWarning + "\n\n⚠ Think twice: this IP is Microsoft infrastructure."
                     : "";
-                // same pre-block brief as the process path, scoped to the
-                // contacting process + this destination
-                string brief = await Task.Run(() =>
-                    AutoCommand.Forensics.Core.BlockFeedbackService.Brief(item.ProcessName, ip));
-                string detail = $"Contacted by '{item.ProcessName}'.\n\n" + brief + (brief.Length > 0 ? "\n" : "") +
-                                "2 rules are created: outbound TCP and UDP — inbound is already covered by the\n" +
-                                "firewall's stateful filtering.\n" +
-                                "Undo anytime: the Undo button on the toast, right-click this row again,\nor 'Blocked' → Manage all.";
+                string procName = item.ProcessName;
+                string footer =
+                    "2 rules are created: outbound TCP and UDP — inbound is already covered by the\n" +
+                    "firewall's stateful filtering.\n" +
+                    "Undo anytime: the Undo button on the toast, right-click this row again,\nor 'Blocked' → Manage all.";
+                string initialDetail = $"Contacted by '{procName}'.\n\n⏳ Loading recent 6-hour activity…\n\n" + footer;
+                // Stream the archive/provenance brief into the open dialog so
+                // clicking "Block Remote IP" opens the window in <16 ms instead
+                // of stalling 1–3 s while scanning 6 h of Sysmon archives.
+                var briefTask = Task.Run(() =>
+                {
+                    string brief = AutoCommand.Forensics.Core.BlockFeedbackService.Brief(procName, ip);
+                    return $"Contacted by '{procName}'.\n\n" + brief + (brief.Length > 0 ? "\n" : "") + footer;
+                });
                 // The checkbox silences the highest-severity thing on screen:
                 // the infra warning when present, otherwise the plain confirm.
                 string key = warning.Length > 0 ? ConfirmPrefs.WarnMsInfra : ConfirmPrefs.ConfirmIp;
                 string label = warning.Length > 0
                     ? "Don't warn me about Microsoft-infrastructure IPs — I know what I'm doing"
                     : "Don't ask again before blocking remote IPs";
-                if (!ConfirmBlockWithDialog($"Block all outbound traffic to remote IP {ip}?", warning, detail, key, label))
+                if (!ConfirmBlockWithDialog($"Block all outbound traffic to remote IP {ip}?", warning, initialDetail, key, label, briefTask))
                     return;
             }
 
@@ -1246,6 +1282,8 @@ namespace AutoCommand.Views
                 string note = BuildProvenance(item, $"→ {ip}", confirmSuppressed);
                 var (created, updated) = await FirewallService.Instance.AddIpBlockAsync(ip, note);
                 RecordBlockedEntry(item, "ip", ip);
+                ApplyOptimisticBlock("ip", ip, note);
+                _ = FirewallBaselineManager.AdoptLiveBlockRulesAsync();
                 _ = RefreshBlockStateFromFirewallAsync();
                 ShowToast(created > 0
                         ? $"⛔ Blocked remote IP {ip} — 2 rules (outbound TCP/UDP).\nProvenance written to the rule description (visible in wf.msc)."
@@ -1350,19 +1388,21 @@ namespace AutoCommand.Views
                       : "") + "\n\n"
                 : "";
 
-            // Pre-block brief: the same investigation the bridge's
-            // investigate_process runs (who/traffic/already-blocked/verdict),
-            // compressed into the dialog so the decision is made with the
-            // evidence in front of the user. Archive-backed → background.
-            string brief = await Task.Run(() =>
-                AutoCommand.Forensics.Core.BlockFeedbackService.Brief(item.ProcessName));
-
             if (!confirmSuppressed)
             {
                 string shownWarning = coreApplies && !ConfirmPrefs.IsSuppressed(warnKey) ? warning : "";
-                string detail = exitedNote + brief + (brief.Length > 0 ? "\n" : "") +
-                                $"{path}\n\n(1 outbound rule)\n" +
-                                "Undo anytime: the Undo button on the toast, right-click the row again,\nor 'Blocked' → Manage all.";
+                string procName = item.ProcessName;
+                string footer =
+                    $"{path}\n\n(1 outbound rule)\n" +
+                    "Undo anytime: the Undo button on the toast, right-click the row again,\nor 'Blocked' → Manage all.";
+                string initialDetail = exitedNote + "⏳ Loading recent 6-hour activity…\n\n" + footer;
+                // Pre-block brief: only run when the dialog is actually shown,
+                // and stream asynchronously so the dialog opens immediately.
+                var briefTask = Task.Run(() =>
+                {
+                    string brief = AutoCommand.Forensics.Core.BlockFeedbackService.Brief(procName);
+                    return exitedNote + brief + (brief.Length > 0 ? "\n" : "") + footer;
+                });
                 string key = shownWarning.Length > 0 ? warnKey : ConfirmPrefs.ConfirmProcess;
                 string label = shownWarning.Length > 0
                     ? (wslWarning
@@ -1373,7 +1413,7 @@ namespace AutoCommand.Views
                         target.SubjectExited
                             ? "Process already exited — block its executable for next time?"
                             : "Block all outbound network traffic for this process?",
-                        shownWarning, detail, key, label))
+                        shownWarning, initialDetail, key, label, briefTask))
                     return;
             }
 
@@ -1392,6 +1432,8 @@ namespace AutoCommand.Views
                 string note = BuildProvenance(item, $"app: {path}", confirmSuppressed, tags);
                 var (created, updated) = await FirewallService.Instance.AddAppBlockAsync(path, note);
                 RecordBlockedEntry(item, "proc", path);
+                ApplyOptimisticBlock("proc", path, note);
+                _ = FirewallBaselineManager.AdoptLiveBlockRulesAsync();
                 _ = RefreshBlockStateFromFirewallAsync();
                 string toast = created > 0
                     ? $"⛔ Blocked application (1 outbound rule):\n{path}"
@@ -1412,9 +1454,10 @@ namespace AutoCommand.Views
         /// a checked box persists the per-class suppression immediately.
         /// </summary>
         private bool ConfirmBlockWithDialog(string headline, string warning, string detail,
-                                            string suppressKey, string suppressLabel)
+                                            string suppressKey, string suppressLabel,
+                                            Task<string> asyncDetailTask = null)
         {
-            var win = new BlockConfirmWindow(headline, warning, detail, suppressKey, suppressLabel)
+            var win = new BlockConfirmWindow(headline, warning, detail, suppressKey, suppressLabel, asyncDetailTask)
             {
                 Owner = Window.GetWindow(this)
             };
@@ -1499,12 +1542,18 @@ namespace AutoCommand.Views
                     AppBlockCoverageService.Instance.NotifyUnblocked(exeName);
                     BlocksStore.RemoveForExeName(exeName);
                 }
+                BlockGateService.Instance.ForgetTarget(kind == "ip" ? "ip" : "proc", key);
                 RefreshBlockedUi();
+                ApplyOptimisticUnblock(kind, key);
+                _ = FirewallBaselineManager.AdoptLiveBlockRulesAsync();
+                if (BlocksView.Current != null) _ = BlocksView.Current.RefreshIfLoadedAsync();
 
                 // Verify against the live firewall before claiming success: a
                 // surviving rule re-blocks on the next run, and "unblocked but
                 // still reported blocked" must never be a silent outcome.
                 var inventory = await FirewallService.Instance.GetBlockedInventoryAsync();
+                await ApplyBlockedInventoryAsync(inventory);
+
                 int surviving = kind == "ip"
                     ? inventory.Count(t => t.Kind == "ip" &&
                         string.Equals(t.Ip, key, StringComparison.OrdinalIgnoreCase) && t.EnabledRules > 0)
@@ -1512,7 +1561,6 @@ namespace AutoCommand.Views
                         string.Equals(System.IO.Path.GetFileName(t.AppPath ?? ""), System.IO.Path.GetFileName(key),
                                       StringComparison.OrdinalIgnoreCase));
 
-                _ = RefreshBlockStateFromFirewallAsync();
                 if (surviving > 0)
                 {
                     ShowToast(removed > 0
@@ -1784,23 +1832,112 @@ namespace AutoCommand.Views
         // Blocked-state marking — the firewall rules are the source of truth
         // -----------------------------------------------------------------------
 
+        public Task RefreshBlockStateIfLoadedAsync() =>
+            _isInitialized ? RefreshBlockStateFromFirewallAsync() : Task.CompletedTask;
+
+        /// <summary>
+        /// Immediately stamps newly blocked target rows on the UI thread (0 ms)
+        /// while background firewall inventory reconciliation catches up.
+        /// </summary>
+        private void ApplyOptimisticBlock(string kind, string key, string note)
+        {
+            if (string.IsNullOrEmpty(key)) return;
+            if (kind == "ip")
+            {
+                _pausedIps.Remove(key);
+                _activeIps.Add(key);
+                if (!string.IsNullOrEmpty(note))
+                    _blockNotes["ip:" + key] = note;
+            }
+            else
+            {
+                string norm = AutoCommand.Engines.Firewall.FirewallService.NormalizeAppPath(key);
+                _pausedApps.Remove(key);
+                _activeApps.Add(key);
+                if (norm.Length > 0)
+                {
+                    _pausedApps.Remove(norm);
+                    _activeApps.Add(norm);
+                }
+                if (!string.IsNullOrEmpty(note))
+                {
+                    _blockNotes["app:" + key.ToLowerInvariant()] = note;
+                    if (norm.Length > 0)
+                        _blockNotes["app:" + norm.ToLowerInvariant()] = note;
+                }
+            }
+
+            foreach (var row in _uiCollection)
+                ApplyBlockState(row);
+        }
+
+        /// <summary>
+        /// Immediately clears unblocked target rows on the UI thread; the
+        /// post-unblock inventory pass verifies no sibling rule survived.
+        /// </summary>
+        private void ApplyOptimisticUnblock(string kind, string key)
+        {
+            if (string.IsNullOrEmpty(key)) return;
+            if (kind == "ip")
+            {
+                _activeIps.Remove(key);
+                _pausedIps.Remove(key);
+                _blockNotes.Remove("ip:" + key);
+            }
+            else
+            {
+                string exeName = System.IO.Path.GetFileName(key);
+                _activeApps.RemoveWhere(p =>
+                    string.Equals(p, key, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(System.IO.Path.GetFileName(p), exeName, StringComparison.OrdinalIgnoreCase));
+                _pausedApps.RemoveWhere(p =>
+                    string.Equals(p, key, StringComparison.OrdinalIgnoreCase) ||
+                    string.Equals(System.IO.Path.GetFileName(p), exeName, StringComparison.OrdinalIgnoreCase));
+            }
+
+            foreach (var row in _uiCollection)
+                ApplyBlockState(row);
+        }
+
         /// <summary>
         /// Rebuilds the blocked-IP / blocked-app sets from the live firewall
         /// inventory (agent- and wf.msc-created blocks included, not just
-        /// this monitor's), then re-marks every row. A failed inventory read
-        /// returns an empty list — marks just clear until the next sync.
+        /// this monitor's), then re-marks every row. Concurrent triggers
+        /// coalesce into one follow-up pass instead of dropping updates.
         /// </summary>
         private async Task RefreshBlockStateFromFirewallAsync()
         {
-            if (_blockStateSyncing) return;
+            if (_blockStateSyncing)
+            {
+                _blockStateResyncRequested = true;
+                return;
+            }
+
             _blockStateSyncing = true;
             try
             {
-                var inventory = await FirewallService.Instance.GetBlockedInventoryAsync();
+                do
+                {
+                    _blockStateResyncRequested = false;
+                    var inventory = await FirewallService.Instance.GetBlockedInventoryAsync();
+                    await ApplyBlockedInventoryAsync(inventory);
+                }
+                while (_blockStateResyncRequested);
+            }
+            finally
+            {
+                _blockStateSyncing = false;
+            }
+        }
 
-                _activeIps.Clear(); _pausedIps.Clear();
-                _activeApps.Clear(); _pausedApps.Clear();
-                _blockNotes.Clear();
+        private async Task ApplyBlockedInventoryAsync(IList<BlockedTarget> inventory)
+        {
+            _activeIps.Clear(); _pausedIps.Clear();
+            _activeApps.Clear(); _pausedApps.Clear();
+            _blockNotes.Clear();
+
+            if (inventory != null)
+            {
                 foreach (var t in inventory)
                 {
                     if (t.Kind == "ip")
@@ -1811,25 +1948,59 @@ namespace AutoCommand.Views
                     else
                     {
                         if (string.IsNullOrEmpty(t.AppPath)) continue;
-                        if (t.EnabledRules > 0) _activeApps.Add(t.AppPath); else _pausedApps.Add(t.AppPath);
+                        string norm = AutoCommand.Engines.Firewall.FirewallService.NormalizeAppPath(t.AppPath);
+                        if (t.EnabledRules > 0)
+                        {
+                            _activeApps.Add(t.AppPath);
+                            if (norm.Length > 0) _activeApps.Add(norm);
+                        }
+                        else
+                        {
+                            _pausedApps.Add(t.AppPath);
+                            if (norm.Length > 0) _pausedApps.Add(norm);
+                        }
+                        if (!string.IsNullOrEmpty(t.Description) && norm.Length > 0)
+                            _blockNotes.TryAdd("app:" + norm.ToLowerInvariant(), t.Description);
                     }
                     if (!string.IsNullOrEmpty(t.Description))
                         _blockNotes[t.Key] = t.Description;
                 }
+            }
 
-                await Dispatcher.InvokeAsync(() =>
-                {
-                    foreach (var item in _uiCollection)
-                        ApplyBlockState(item);
-                });
-            }
-            finally
+            // Resolve any missing live process paths off the UI thread when app
+            // rules exist, so ApplyBlockState never stalls on Process.MainModule.
+            if (_activeApps.Count > 0 || _pausedApps.Count > 0)
             {
-                _blockStateSyncing = false;
+                var missingPids = new List<int>();
+                foreach (var item in _uiCollection)
+                {
+                    if (string.IsNullOrEmpty(item.ImagePath) && item.ProcessId > 0 &&
+                        !item.HasExited && !_pidPathCache.ContainsKey(item.ProcessId))
+                    {
+                        missingPids.Add(item.ProcessId);
+                    }
+                }
+                if (missingPids.Count > 0)
+                {
+                    var distinct = missingPids.Distinct().ToArray();
+                    await Task.Run(() =>
+                    {
+                        foreach (int pid in distinct)
+                        {
+                            _pidPathCache[pid] = LiveProcessPath(pid) ?? "";
+                        }
+                    });
+                }
             }
+
+            await Dispatcher.InvokeAsync(() =>
+            {
+                foreach (var item in _uiCollection)
+                    ApplyBlockState(item);
+            });
         }
 
-        /// <summary>Stamps one row's IP / process block state from the cached sets.</summary>
+        /// <summary>Stamps one row's IP / process block state from the cached sets (pure in-memory, 0 I/O).</summary>
         private void ApplyBlockState(SvchostMonitorItem item)
         {
             string ip = item.RemoteIp ?? "";
@@ -1838,18 +2009,50 @@ namespace AutoCommand.Views
                         : BlockRuleState.None;
             _blockNotes.TryGetValue("ip:" + ip, out string ipNote);
 
-            // Sysmon's image path is the stable identity; the live module
-            // lookup covers rows created before Sysmon stamped one.
-            string appPath = !string.IsNullOrEmpty(item.ImagePath) ? item.ImagePath : LiveProcessPath(item.ProcessId);
             var appState = BlockRuleState.None;
             string appNote = null;
-            if (!string.IsNullOrEmpty(appPath))
+            if (_activeApps.Count > 0 || _pausedApps.Count > 0)
             {
-                appState = _activeApps.Contains(appPath) ? BlockRuleState.Active
-                         : _pausedApps.Contains(appPath) ? BlockRuleState.Paused
-                         : BlockRuleState.None;
-                if (_blockNotes.TryGetValue("app:" + appPath.ToLowerInvariant(), out string note))
-                    appNote = note;
+                bool hasCachedPid = _pidPathCache.TryGetValue(item.ProcessId, out string cached);
+                string appPath = !string.IsNullOrEmpty(item.ImagePath)
+                    ? item.ImagePath
+                    : cached;
+
+                if (!string.IsNullOrEmpty(appPath))
+                {
+                    appState = _activeApps.Contains(appPath) ? BlockRuleState.Active
+                             : _pausedApps.Contains(appPath) ? BlockRuleState.Paused
+                             : BlockRuleState.None;
+                    if (appState == BlockRuleState.None && (appPath.Contains("..") || appPath.Contains('%')))
+                    {
+                        string norm = AutoCommand.Engines.Firewall.FirewallService.NormalizeAppPath(appPath);
+                        if (norm.Length > 0)
+                        {
+                            appState = _activeApps.Contains(norm) ? BlockRuleState.Active
+                                     : _pausedApps.Contains(norm) ? BlockRuleState.Paused
+                                     : BlockRuleState.None;
+                        }
+                    }
+                    if (!_blockNotes.TryGetValue("app:" + appPath.ToLowerInvariant(), out appNote))
+                    {
+                        string norm = AutoCommand.Engines.Firewall.FirewallService.NormalizeAppPath(appPath);
+                        if (norm.Length > 0)
+                            _blockNotes.TryGetValue("app:" + norm.ToLowerInvariant(), out appNote);
+                    }
+                }
+                else if (!hasCachedPid && item.ProcessId > 0 && !item.HasExited)
+                {
+                    int pid = item.ProcessId;
+                    _pidPathCache[pid] = ""; // claim once so concurrent calls don't fan out
+                    _ = Task.Run(() => LiveProcessPath(pid)).ContinueWith(t =>
+                    {
+                        if (t.Status == TaskStatus.RanToCompletion && !string.IsNullOrEmpty(t.Result))
+                        {
+                            _pidPathCache[pid] = t.Result;
+                            Dispatcher.BeginInvoke(new Action(() => ApplyBlockState(item)));
+                        }
+                    });
+                }
             }
 
             item.SetBlockState(ipState, ipNote, appState, appNote);

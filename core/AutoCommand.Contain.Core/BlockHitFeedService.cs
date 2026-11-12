@@ -87,6 +87,11 @@ namespace AutoCommand.Contain.Core
 
         private BlockHitFeedService() { }
 
+        internal BlockHitFeedService(IEnumerable<BlockHit> seedHits)
+        {
+            if (seedHits != null) _hits.AddRange(seedHits);
+        }
+
         /// <summary>Idempotent: safe to call from the Blocks tab, bridge handlers, startup.</summary>
         public void Start()
         {
@@ -215,18 +220,27 @@ namespace AutoCommand.Contain.Core
             lock (_gate)
             {
                 return _hits.Where(h => h.TimeUtc >= cutoff)
-                    .GroupBy(h => new { h.Image, h.Pid, h.DestIp, h.DestPort, h.MatchKind })
-                    .Select(g => new HitAggregate
+                    .GroupBy(h => (
+                        ImageKey: (h.Image ?? "").ToLowerInvariant(),
+                        h.Pid,
+                        DestIpKey: (h.DestIp ?? "").ToLowerInvariant(),
+                        h.DestPort,
+                        MatchKey: (h.MatchKind ?? "").ToLowerInvariant()))
+                    .Select(g =>
                     {
-                        Image = g.Key.Image,
-                        Process = Path.GetFileName(g.Key.Image),
-                        Pid = g.Key.Pid,
-                        DestIp = g.Key.DestIp,
-                        DestPort = g.Key.DestPort,
-                        MatchKind = g.Key.MatchKind,
-                        Count = g.Count(),
-                        FirstUtc = g.Min(h => h.TimeUtc),
-                        LastUtc = g.Max(h => h.TimeUtc),
+                        var first = g.First();
+                        return new HitAggregate
+                        {
+                            Image = first.Image,
+                            Process = Path.GetFileName(first.Image),
+                            Pid = g.Key.Pid,
+                            DestIp = first.DestIp,
+                            DestPort = g.Key.DestPort,
+                            MatchKind = first.MatchKind,
+                            Count = g.Count(),
+                            FirstUtc = g.Min(h => h.TimeUtc),
+                            LastUtc = g.Max(h => h.TimeUtc),
+                        };
                     })
                     .OrderByDescending(a => a.LastUtc)
                     .Take(max).ToList();
@@ -245,9 +259,9 @@ namespace AutoCommand.Contain.Core
         {
             var cutoff = DateTime.UtcNow.AddMinutes(-Math.Max(1, minutes));
             lock (_gate)
-                return _hits.Where(h => h.TimeUtc >= cutoff && h.MatchKind == "ip")
-                            .GroupBy(h => h.DestIp)
-                            .ToDictionary(g => g.Key, g => g.Count());
+                return _hits.Where(h => h.TimeUtc >= cutoff && h.MatchKind == "ip" && !string.IsNullOrEmpty(h.DestIp))
+                            .GroupBy(h => h.DestIp, StringComparer.OrdinalIgnoreCase)
+                            .ToDictionary(g => g.Key, g => g.Count(), StringComparer.OrdinalIgnoreCase);
         }
 
         // ── persistence: plain JSONL, house pattern ──────────────────────

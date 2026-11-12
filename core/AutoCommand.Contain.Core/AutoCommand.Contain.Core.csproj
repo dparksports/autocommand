@@ -25,6 +25,10 @@
   </PropertyGroup>
 
   <ItemGroup>
+    <InternalsVisibleTo Include="ContainSelfTest" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\Engines\Engines.Watch\Engines.Watch.fsproj" />
   </ItemGroup>
 

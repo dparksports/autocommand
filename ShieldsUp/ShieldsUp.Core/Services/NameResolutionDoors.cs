@@ -270,7 +270,7 @@ public static class NameResolutionDoors
         File.WriteAllText(StatePath, snap.ToJsonString(new JsonSerializerOptions { WriteIndented = true }));
     }
 
-    private static JsonObject? LoadSnapshot()
+    private static JsonObject LoadSnapshot()
     {
         try
         {

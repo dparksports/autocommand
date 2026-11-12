@@ -218,11 +218,15 @@ namespace AutoCommand.Services
 
         private static async Task LiftTargetsAsync(List<(string Kind, string Key)> targets, string reason)
         {
+            var opened = new List<BlockGate>();
             foreach (var (kind, key) in targets)
-                BlockGateService.Instance.OpenGate(kind, key, key, GateMinutes, "update-mode", reason);
+                opened.Add(BlockGateService.Instance.OpenGate(kind, key, key, GateMinutes, "update-mode", reason));
             await FirewallService.Instance.SetTargetsEnabledAsync(
                 targets.Select(t => (t.Kind, t.Key)).ToList(), false);
             BlocksStore.SetStatuses(targets, "off", Origin);
+            await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
+            if (opened.Count > 0)
+                BlockGateService.Instance.NotifyGateOpened(opened[0], Origin);
         }
 
         // ── the post-update loop: close → verify → repair → report ──────
@@ -243,6 +247,7 @@ namespace AutoCommand.Services
             // 2. verify — every lifted target must be enabled again; retry
             //    whatever didn't come back, then say so, never skip silently
             var (verified, fixedCount) = await VerifyRestoredAsync(targets.Concat(widened).ToList());
+            await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
             report.Checklist.Add($"Re-applied and verified {verified}/{targets.Count + widened.Count} lifted blocks" +
                 (fixedCount > 0 ? $" ({fixedCount} needed a second attempt)" : "") + ".");
 

@@ -17,6 +17,30 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.12 (2026-11-12)
+================================================================================
+
+# v2026.11.12 — Instant block feedback, O(1) firewall rule lookups & gate/baseline hardening
+
+## Instant block confirmation & O(1) firewall lookups
+
+Blocking an IP or executable in Process Monitor now stamps the row's `⛔` badge immediately on the UI thread instead of stalling behind full Windows Firewall COM table enumerations and 6-hour archive scans.
+
+- **O(1) Direct Rule Lookup (`INetFwRules.Item`)**: `FirewallService.FindRule` and `AddAppBlockCore` now probe `INetFwRules.Item(name)` directly (`0` linear COM enumerations on hit or `0x80070002` miss, with short-circuiting fallback on provider quirks).
+- **Single-Pass Multi-Prefix Unblock, Retire & Consolidation**: `RemoveBlockRulesForIpAsync`, `RetireDeadAppBlockRulesAsync`, and `ConsolidateLegacyIpBlocksAsync` now complete in a single COM pass; legacy IP consolidation also preserves `rule.Enabled` instead of re-enabling paused blocks.
+- **0 ms Optimistic Row Stamping & Coalesced Sync**: `SvchostMonitorView` applies optimistic block/unblock state immediately alongside the confirmation toast, reuses post-unblock inventory snapshots, coalesces concurrent firewall refreshes, caches live PID image paths off the UI thread, and disposes `Process` handles on exit sweeps.
+- **Progressive `BlockConfirmWindow`**: Confirmation dialogs open immediately (`<16 ms`) while streaming the 6-hour Sysmon/WMI/Authenticode brief asynchronously, and skip the brief scan entirely when confirmation prompts are suppressed.
+- **Accurate Duplicate Rule Counts**: Fixed `GetBlockedInventoryAsync` and `CountRedundantDuplicates` so exact and case-insensitive duplicate rules are counted instead of collapsing to `0` before aggregation.
+
+## Block gates, baseline coherence & proxy hardening
+
+- **Verified Gate Re-Arm & Retries**: `BlockGateService.RestoreBlockingAsync` now checks `SetTargetsEnabledWithErrorAsync` for zero-match or COM errors, retrying up to 3 times and retaining expired `gates.json` records for automatic 30-second retry on failure instead of silently reporting success.
+- **Cross-Surface Baseline & Coverage Sync**: `GateOpened`/`GateClosed`, `WindowsUpdateService`, `BlocksView`, `BlockedRulesWindow`, and `RestoreInternetBtn` now keep `FirewallBaselineManager` (upgraded from `dynamic` `IDispatch` to strong-typed `Com.getPolicy2()`, with stale own-rule pruning), `AppBlockCoverageService.NotifyUnblocked`, `BlockGateService.ForgetTarget`, and sibling tabs synchronized.
+- **Case-Insensitive IPv6 Hit Feed**: `BlockHitFeedService.FeedHitsByIp` and `Aggregates` now merge mixed-case IPv6 addresses and image paths case-insensitively.
+- **`AgentProxy` Canonical Path & Wake Hardening**: `PidAlive` resolves junctions, symlinks, and `subst` drives via `GetFinalPathNameByHandleW`; `app_path.txt` wake-on-knock validates local `AutoCommand.exe` paths and PE `OriginalFilename` metadata; `InteractiveAppRunning` disposes `Process` handles cleanly.
+- **Build & Runtime Hygiene**: Moved `tx_threshold.txt` to `%LOCALAPPDATA%\AutoCommand` (with one-time legacy migration), added immediate `onShow` callback support to `RefreshLoop.GateVisibility`, updated `tests\*` globs in `AutoCommand.csproj` and `.gitignore`, and eliminated `CS8632` / `SYSLIB0057` / `FS0044` build warnings.
+
+================================================================================
 v2026.11.11.4 (2026-11-11)
 ================================================================================
 

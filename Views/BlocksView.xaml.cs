@@ -1239,6 +1239,7 @@ $"\nBlocking returns ON automatically at {gate.ExpiresUtc.ToLocalTime():HH:mm}."
 
             BlocksStore.SetStatuses(targets, enable ? "on" : "off", "blocks-tab");
             await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
+            NotifyMonitorIfVisible();
 
             string errSuffix = !string.IsNullOrEmpty(firstError) ? $" · warning: {firstError}" : "";
             ShowBulkToast((enable
@@ -1246,6 +1247,12 @@ $"\nBlocking returns ON automatically at {gate.ExpiresUtc.ToLocalTime():HH:mm}."
                 : $"Blocking stopped — {final.Count} target(s) OFF, traffic flows ({changed}/{matched} rules) · {scopeLabel}") + errSuffix,
                 snapshot);
             await ReloadAsync();
+        }
+
+        private static void NotifyMonitorIfVisible()
+        {
+            if (SvchostMonitorView.Current is { IsVisible: true } mon)
+                _ = mon.RefreshBlockStateIfLoadedAsync();
         }
 
         private async void ResumePausedBtn_Click(object sender, RoutedEventArgs e)
@@ -1310,17 +1317,27 @@ $"\nBlocking returns ON automatically at {gate.ExpiresUtc.ToLocalTime():HH:mm}."
             // restore each target to its pre-action state
             var toOn = snap.Where(t => t.wasEnabled).Select(t => (t.kind, t.key)).ToList();
             var toOff = snap.Where(t => !t.wasEnabled).Select(t => (t.kind, t.key)).ToList();
+            string undoErr = null;
             if (toOn.Count > 0)
             {
-                await FirewallService.Instance.SetTargetsEnabledAsync(toOn, true);
-                BlocksStore.SetStatuses(toOn, "on", "undo");
+                var (m, _, err) = await FirewallService.Instance.SetTargetsEnabledWithErrorAsync(toOn, true);
+                if (m > 0 && string.IsNullOrEmpty(err))
+                    BlocksStore.SetStatuses(toOn, "on", "undo");
+                else
+                    undoErr ??= err ?? "no matching firewall rules found";
             }
             if (toOff.Count > 0)
             {
-                await FirewallService.Instance.SetTargetsEnabledAsync(toOff, false);
-                BlocksStore.SetStatuses(toOff, "off", "undo");
+                var (m, _, err) = await FirewallService.Instance.SetTargetsEnabledWithErrorAsync(toOff, false);
+                if (m > 0 && string.IsNullOrEmpty(err))
+                    BlocksStore.SetStatuses(toOff, "off", "undo");
+                else
+                    undoErr ??= err ?? "no matching firewall rules found";
             }
             await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
+            NotifyMonitorIfVisible();
+            if (!string.IsNullOrEmpty(undoErr))
+                ShowBulkToast($"Undo did not fully apply — {undoErr}", null);
             await ReloadAsync();
         }
 
@@ -1496,6 +1513,7 @@ $"\nBlocking returns ON automatically at {gate.ExpiresUtc.ToLocalTime():HH:mm}."
             }
             BlocksStore.SetStatuses(list, "off", "restore-guide");
             await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
+            NotifyMonitorIfVisible();
             ShowBulkToast($"Blocking stopped for '{sym.Title}' — {list.Count} target(s) OFF, traffic flows ({changed}/{matched} rules)",
                 list.Select(v => (v.Kind, v.Key, true)).ToList());
             await ReloadAsync();
@@ -1520,6 +1538,7 @@ $"\nBlocking returns ON automatically at {gate.ExpiresUtc.ToLocalTime():HH:mm}."
             BlocksStore.AppendEvent(enable ? "resumed" : "paused", vm.Record.Kind, vm.Record.Key,
                 $"{changed}/{matched} rules", "blocks-tab");
             await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
+            NotifyMonitorIfVisible();
             await ReloadAsync();
         }
 
@@ -1538,9 +1557,18 @@ $"\nBlocking returns ON automatically at {gate.ExpiresUtc.ToLocalTime():HH:mm}."
                 ? await FirewallService.Instance.RemoveBlockRulesForIpAsync(vm.Record.Key)
                 : await FirewallService.Instance.RemoveBlockRulesForAppAsync(vm.Record.Key);
             if (vm.Record.IsIp)
+            {
                 BlocksStore.Remove(vm.Record.Kind, vm.Record.Key, "blocks-tab");
+            }
             else
-                BlocksStore.RemoveForExeName(System.IO.Path.GetFileName(vm.Record.Key), "blocks-tab");
+            {
+                string exeName = System.IO.Path.GetFileName(vm.Record.Key);
+                AppBlockCoverageService.Instance.NotifyUnblocked(exeName);
+                BlocksStore.RemoveForExeName(exeName, "blocks-tab");
+            }
+            BlockGateService.Instance.ForgetTarget(vm.Record.Kind, vm.Record.Key);
+            await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
+            NotifyMonitorIfVisible();
             // ConcurrentDictionary has no one-arg Remove — TryRemove is the drop-in
             _trafficCache.TryRemove(vm.Record.Kind + vm.Record.Key, out _);
             await ReloadAsync();

@@ -19,6 +19,11 @@
 
 namespace AutoCommand.Engines.Watch
 
+// SYSLIB0057 / FS0044: X509CertificateLoader does not parse Authenticode
+// signatures embedded in PE (.exe) files; CreateFromSignedFile remains the
+// supported API for Authenticode signer extraction on Windows.
+#nowarn "44"
+
 open System
 open System.Diagnostics
 open System.Diagnostics.Eventing.Reader
@@ -172,12 +177,11 @@ type SysmonInstallerService() =
         WinTrust.verifyFile exePath
         && (
             try
-                let subject =
+                use cert =
                     System.Security.Cryptography.X509Certificates.X509Certificate
                         .CreateFromSignedFile(exePath)
-                        .Subject
 
-                subject.IndexOf("Microsoft Corporation", StringComparison.OrdinalIgnoreCase) >= 0
+                cert.Subject.IndexOf("Microsoft Corporation", StringComparison.OrdinalIgnoreCase) >= 0
             with _ ->
                 false
         )

@@ -2,8 +2,8 @@ bin/
 obj/
 Sdk/bin/
 Sdk/obj/
-ScratchTest/bin/
-ScratchTest/obj/
+tests/ScratchTest/bin/
+tests/ScratchTest/obj/
 *.zip
 *.csv
 .vs/
@@ -21,9 +21,10 @@ confirm_prefs.txt
 whitelisted_tasks.txt
 # machine-specific ignore list the monitor rewrites at runtime
 ignored_processes.txt
+tx_threshold.txt
 Assets/icons/
-PyTraceSelfTest/bin/
-PyTraceSelfTest/obj/
+tests/PyTraceSelfTest/bin/
+tests/PyTraceSelfTest/obj/
 publish/
 
 # local incident artifacts (2026-11-08 and later) — kept at the desk, not in git

@@ -69,11 +69,7 @@ namespace AutoCommand.Views
 
             // reading service-side snapshots only — pausing while hidden
             // never pauses collection (RefreshLoop's stated precondition)
-            RefreshLoop.GateVisibility(this, () => _timer);
-            IsVisibleChanged += (_, _) =>
-            {
-                if (IsVisible) _ = LoadAsync();
-            };
+            RefreshLoop.GateVisibility(this, () => _timer, () => _ = LoadAsync());
         }
 
         /// <summary>Structured tab state for AI auditability.</summary>

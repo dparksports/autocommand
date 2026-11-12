@@ -90,6 +90,7 @@ namespace AutoCommand.Views
                     {
                         StatusText.Text = $"Migrating {legacy} legacy firewall rule(s) to the current naming scheme…";
                         var (targets, removedInbound, migratedOutbound) = await FirewallService.Instance.ConsolidateLegacyIpBlocksAsync();
+                        await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
                         _migrationNote = $"Auto-migrated {migratedOutbound} legacy rule(s) ({removedInbound} redundant inbound rules removed) across {targets} target(s). ";
                     }
                     await ReloadAsync();
@@ -279,11 +280,26 @@ namespace AutoCommand.Views
 
             int removed = 0;
             foreach (var r in sel)
-                removed += r.Kind == "ip"
-                    ? await FirewallService.Instance.RemoveBlockRulesForIpAsync(r.Ip)
-                    : await FirewallService.Instance.RemoveBlockRulesForAppAsync(r.AppPath);
+            {
+                if (r.Kind == "ip")
+                {
+                    removed += await FirewallService.Instance.RemoveBlockRulesForIpAsync(r.Ip);
+                    BlocksStore.Remove("ip", r.Ip, "manage-all");
+                    BlockGateService.Instance.ForgetTarget("ip", r.Ip);
+                }
+                else
+                {
+                    removed += await FirewallService.Instance.RemoveBlockRulesForAppAsync(r.AppPath);
+                    string exeName = Path.GetFileName(r.AppPath);
+                    AppBlockCoverageService.Instance.NotifyUnblocked(exeName);
+                    BlocksStore.RemoveForExeName(exeName, "manage-all");
+                    BlockGateService.Instance.ForgetTarget("proc", r.AppPath);
+                }
+            }
+            await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
             StatusText.Text = $"Removed {removed} firewall rule(s).";
             await ReloadAsync();
+            await SyncSiblingViewsAsync();
         }
 
         private async void UnblockMsBtn_Click(object sender, RoutedEventArgs e)
@@ -299,11 +315,26 @@ namespace AutoCommand.Views
 
             int removed = 0;
             foreach (var r in risky)
-                removed += r.Kind == "ip"
-                    ? await FirewallService.Instance.RemoveBlockRulesForIpAsync(r.Ip)
-                    : await FirewallService.Instance.RemoveBlockRulesForAppAsync(r.AppPath);
+            {
+                if (r.Kind == "ip")
+                {
+                    removed += await FirewallService.Instance.RemoveBlockRulesForIpAsync(r.Ip);
+                    BlocksStore.Remove("ip", r.Ip, "manage-all");
+                    BlockGateService.Instance.ForgetTarget("ip", r.Ip);
+                }
+                else
+                {
+                    removed += await FirewallService.Instance.RemoveBlockRulesForAppAsync(r.AppPath);
+                    string exeName = Path.GetFileName(r.AppPath);
+                    AppBlockCoverageService.Instance.NotifyUnblocked(exeName);
+                    BlocksStore.RemoveForExeName(exeName, "manage-all");
+                    BlockGateService.Instance.ForgetTarget("proc", r.AppPath);
+                }
+            }
+            await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
             StatusText.Text = $"Removed {removed} rule(s) blocking Microsoft/Windows infrastructure.";
             await ReloadAsync();
+            await SyncSiblingViewsAsync();
         }
 
         private async void DedupBtn_Click(object sender, RoutedEventArgs e)
@@ -323,12 +354,22 @@ namespace AutoCommand.Views
                 var (cleaned, retired, error) = await FirewallService.Instance.RemoveDuplicateBlockRulesAsync();
                 BlocksStore.LogFleet("dedup-retired",
                     $"{retired} duplicate rule(s) retired across {cleaned} target(s)", "rules-tab");
+                await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
                 StatusText.Text = error == null
                     ? $"Removed {retired} duplicate rule(s) across {cleaned} target(s)."
                     : $"Removed {retired} duplicate rule(s); some failed: {error}";
             }
             finally { DedupBtn.IsEnabled = true; }
             await ReloadAsync();
+            await SyncSiblingViewsAsync();
+        }
+
+        private static async Task SyncSiblingViewsAsync()
+        {
+            if (BlocksView.Current != null)
+                await BlocksView.Current.RefreshIfLoadedAsync();
+            if (SvchostMonitorView.Current is { IsVisible: true } mon)
+                await mon.RefreshBlockStateIfLoadedAsync();
         }
 
         private async void ConsolidateBtn_Click(object sender, RoutedEventArgs e)
@@ -345,7 +386,7 @@ namespace AutoCommand.Views
             await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
             StatusText.Text = $"Consolidated {targets} target(s): {removedIn} redundant inbound rule(s) deleted, {migratedOut} migrated to v2 naming.";
             await ReloadAsync();
-            if (BlocksView.Current != null) await BlocksView.Current.RefreshIfLoadedAsync();
+            await SyncSiblingViewsAsync();
         }
 
         private async void ReenableBtn_Click(object sender, RoutedEventArgs e)
@@ -358,7 +399,7 @@ namespace AutoCommand.Views
             await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
             StatusText.Text = $"Re-enabled AutoCommand blocks ({res.Changed} rule(s) changed).";
             await ReloadAsync();
-            if (BlocksView.Current != null) await BlocksView.Current.RefreshIfLoadedAsync();
+            await SyncSiblingViewsAsync();
         }
 
         private async void RestoreExceptRiskyBtn_Click(object sender, RoutedEventArgs e)
@@ -384,7 +425,7 @@ namespace AutoCommand.Views
             await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
             StatusText.Text = $"Restored {res.Changed} rule(s); kept {res.SkippedRisky} risky rule(s) disabled.";
             await ReloadAsync();
-            if (BlocksView.Current != null) await BlocksView.Current.RefreshIfLoadedAsync();
+            await SyncSiblingViewsAsync();
         }
 
         // RFC-4180 minimal: quote a field holding a comma, quote or newline,

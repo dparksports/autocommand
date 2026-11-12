@@ -22,10 +22,13 @@ namespace AutoCommand.Helpers
         {
             try
             {
-                // CreateFromSignedFile returns the base X509Certificate; the
-                // chain builder needs the X509Certificate2 wrapper.
+                // X509CertificateLoader does not extract Authenticode signer
+                // certificates from PE (.exe/.dll) files (SYSLIB0057 guidance:
+                // keep CreateFromSignedFile for Authenticode binaries).
+#pragma warning disable SYSLIB0057
                 using var signed = X509Certificate.CreateFromSignedFile(path);
                 using var cert = new X509Certificate2(signed);
+#pragma warning restore SYSLIB0057
                 using var chain = new X509Chain();
                 chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
                 if (!chain.Build(cert)) return false;

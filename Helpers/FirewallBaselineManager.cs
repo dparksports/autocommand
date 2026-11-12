@@ -90,28 +90,42 @@ namespace AutoCommand.Helpers
                 try
                 {
                     var liveStates = new List<(string Name, bool Enabled)>();
-                    dynamic fwPolicy = Activator.CreateInstance(Type.GetTypeFromProgID("HNetCfg.FwPolicy2"));
-                    foreach (dynamic rule in fwPolicy.Rules)
+                    var fwPolicy = AutoCommand.Engines.Firewall.Com.getPolicy2();
+                    foreach (var rule in AutoCommand.Engines.Firewall.Com.enumRules(fwPolicy.Rules))
                     {
                         try
                         {
-                            string name = (string)rule.Name;
+                            string name = rule.Name;
                             if (IsOwnBlockRuleName(name))
-                                liveStates.Add((name, (bool)rule.Enabled));
+                                liveStates.Add((name, rule.Enabled));
                         }
                         catch { }
                     }
                     lock (_gate)
                     {
                         bool dirty = false;
+                        var liveNames = new HashSet<string>(StringComparer.Ordinal);
                         foreach (var (name, enabled) in liveStates)
                         {
+                            liveNames.Add(name);
                             if (!b.Rules.TryGetValue(name, out bool prev) || prev != enabled)
                             {
                                 b.Rules[name] = enabled;
                                 dirty = true;
                             }
                         }
+
+                        // Prune deleted/retired AutoCommand block rules so permanent
+                        // unblocks, legacy consolidation and dedup keep baseline clean.
+                        var staleOwn = b.Rules.Keys
+                            .Where(k => IsOwnBlockRuleName(k) && !liveNames.Contains(k))
+                            .ToList();
+                        foreach (string gone in staleOwn)
+                        {
+                            b.Rules.Remove(gone);
+                            dirty = true;
+                        }
+
                         if (dirty) SaveBaseline(b);
                     }
                 }
@@ -135,8 +149,8 @@ namespace AutoCommand.Helpers
                 try
                 {
                     var matchedNames = new List<string>();
-                    dynamic fwPolicy = Activator.CreateInstance(Type.GetTypeFromProgID("HNetCfg.FwPolicy2"));
-                    foreach (dynamic rule in fwPolicy.Rules)
+                    var fwPolicy = AutoCommand.Engines.Firewall.Com.getPolicy2();
+                    foreach (var rule in AutoCommand.Engines.Firewall.Com.enumRules(fwPolicy.Rules))
                     {
                         try
                         {
@@ -147,7 +161,9 @@ namespace AutoCommand.Helpers
                             if (string.Equals(resolved, group, StringComparison.OrdinalIgnoreCase)
                                 || string.Equals(rawGroup, group, StringComparison.OrdinalIgnoreCase))
                             {
-                                matchedNames.Add((string)rule.Name);
+                                string name = rule.Name;
+                                if (!string.IsNullOrEmpty(name))
+                                    matchedNames.Add(name);
                             }
                         }
                         catch { }
@@ -184,12 +200,14 @@ namespace AutoCommand.Helpers
             return Task.Run(() =>
             {
                 var rules = new Dictionary<string, bool>(StringComparer.Ordinal);
-                dynamic fwPolicy = Activator.CreateInstance(Type.GetTypeFromProgID("HNetCfg.FwPolicy2"));
-                foreach (dynamic rule in fwPolicy.Rules)
+                var fwPolicy = AutoCommand.Engines.Firewall.Com.getPolicy2();
+                foreach (var rule in AutoCommand.Engines.Firewall.Com.enumRules(fwPolicy.Rules))
                 {
                     try
                     {
-                        rules[(string)rule.Name] = (bool)rule.Enabled;
+                        string name = rule.Name;
+                        if (!string.IsNullOrEmpty(name))
+                            rules[name] = rule.Enabled;
                     }
                     catch { }
                 }
@@ -224,14 +242,15 @@ namespace AutoCommand.Helpers
 
                 try
                 {
-                    dynamic fwPolicy = Activator.CreateInstance(Type.GetTypeFromProgID("HNetCfg.FwPolicy2"));
+                    var fwPolicy = AutoCommand.Engines.Firewall.Com.getPolicy2();
                     var seen = new HashSet<string>(StringComparer.Ordinal);
-                    foreach (dynamic rule in fwPolicy.Rules)
+                    foreach (var rule in AutoCommand.Engines.Firewall.Com.enumRules(fwPolicy.Rules))
                     {
                         try
                         {
-                            string name = (string)rule.Name;
-                            bool enabled = (bool)rule.Enabled;
+                            string name = rule.Name;
+                            if (string.IsNullOrEmpty(name)) continue;
+                            bool enabled = rule.Enabled;
                             if (!seen.Add(name)) continue;
 
                             if (!baselineRules.TryGetValue(name, out bool expected))
@@ -280,13 +299,14 @@ namespace AutoCommand.Helpers
             int changed = 0;
             try
             {
-                dynamic fwPolicy = Activator.CreateInstance(Type.GetTypeFromProgID("HNetCfg.FwPolicy2"));
-                foreach (dynamic rule in fwPolicy.Rules)
+                var fwPolicy = AutoCommand.Engines.Firewall.Com.getPolicy2();
+                foreach (var rule in AutoCommand.Engines.Firewall.Com.enumRules(fwPolicy.Rules))
                 {
                     try
                     {
-                        if (!targets.Contains((string)rule.Name)) continue;
-                        if ((bool)rule.Enabled != enabled)
+                        string name = rule.Name;
+                        if (string.IsNullOrEmpty(name) || !targets.Contains(name)) continue;
+                        if (rule.Enabled != enabled)
                         {
                             rule.Enabled = enabled;
                             changed++;

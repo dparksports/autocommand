@@ -27,7 +27,8 @@ namespace AutoCommand.Views
         public string SuppressKey { get; }
 
         public BlockConfirmWindow(string headline, string warning, string detail,
-                                  string suppressKey, string suppressLabel)
+                                  string suppressKey, string suppressLabel,
+                                  System.Threading.Tasks.Task<string> asyncDetailTask = null)
         {
             InitializeComponent();
             WindowPlacement.ConstrainToMonitor(this);   // must fit an 800×600 screen
@@ -44,6 +45,25 @@ namespace AutoCommand.Views
             {
                 SuppressCheck.Content = suppressLabel;
             }
+
+            if (asyncDetailTask != null)
+            {
+                _ = PopulateAsyncDetail(asyncDetailTask);
+            }
+        }
+
+        private async System.Threading.Tasks.Task PopulateAsyncDetail(System.Threading.Tasks.Task<string> asyncDetailTask)
+        {
+            try
+            {
+                string resolved = await asyncDetailTask;
+                if (!string.IsNullOrEmpty(resolved) && IsLoaded)
+                {
+                    DetailText.Text = resolved;
+                    WindowPlacement.ConstrainToMonitor(this);
+                }
+            }
+            catch { /* keep initial detail text if background brief fails */ }
         }
 
         private void BlockBtn_Click(object sender, RoutedEventArgs e)

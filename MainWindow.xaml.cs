@@ -493,6 +493,9 @@ namespace AutoCommand
                     $"{result.Changed}/{result.Matched} rule(s) disabled", "panic-button");
                 await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
                 var blocksRefresh = BlocksTab != null ? BlocksTab.RefreshIfLoadedAsync() : Task.CompletedTask;
+                var monitorRefresh = Views.SvchostMonitorView.Current != null
+                    ? Views.SvchostMonitorView.Current.RefreshBlockStateIfLoadedAsync()
+                    : Task.CompletedTask;
 
                 string extra = result.FirstError != null ? $"\nFirst error: {result.FirstError}" : "";
                 MessageBox.Show(
@@ -504,6 +507,7 @@ namespace AutoCommand
                     "  · 'Re-enable all' — everything back on",
                     "🚑 Restore Internet", MessageBoxButton.OK, MessageBoxImage.Information);
                 await blocksRefresh;
+                await monitorRefresh;
             }
             finally { RestoreInternetBtn.IsEnabled = true; }
         }
