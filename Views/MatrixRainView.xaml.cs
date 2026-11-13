@@ -55,6 +55,7 @@ namespace AutoCommand.Views
         /// how the first cut hid its failure.</summary>
         private void Attach()
         {
+            if (!IsVisible) return;
             if (_renderer != null)
             {
                 // Re-connected to the tree (every return to the tab after a
@@ -129,7 +130,11 @@ namespace AutoCommand.Views
         /// costs nothing.</summary>
         private void ApplyVisibility()
         {
-            if (_renderer == null) return;
+            if (_renderer == null)
+            {
+                if (IsVisible && IsLoaded) Attach();
+                return;
+            }
             if (IsVisible && IsLoaded)
             {
                 _feed?.Start();

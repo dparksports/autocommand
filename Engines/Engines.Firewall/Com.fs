@@ -75,10 +75,12 @@ type internal NetFwRuleX =
     abstract Direction: FwRuleDirection with get, set
     abstract Interfaces: obj with get, set // SAFEARRAY(VARIANT); slot filler, never called
     abstract InterfaceTypes: string with get, set
-    abstract Enabled: bool with get, set
+    abstract get_Enabled: unit -> [<MarshalAs(UnmanagedType.VariantBool)>] bool
+    abstract put_Enabled: [<MarshalAs(UnmanagedType.VariantBool)>] value: bool -> unit
     abstract Grouping: string with get, set
     abstract Profiles: int with get, set
-    abstract EdgeTraversal: bool with get, set
+    abstract get_EdgeTraversal: unit -> [<MarshalAs(UnmanagedType.VariantBool)>] bool
+    abstract put_EdgeTraversal: [<MarshalAs(UnmanagedType.VariantBool)>] value: bool -> unit
     abstract Action: FwAction with get, set
 
 [<ComImport; Guid("AF230D26-BABA-4E42-ACED-F524F22CFCE2")>]
@@ -97,10 +99,12 @@ type internal NetFwRuleLegacy =
     abstract Direction: FwRuleDirection with get, set
     abstract Interfaces: obj with get, set // SAFEARRAY(VARIANT); slot filler, never called
     abstract InterfaceTypes: string with get, set
-    abstract Enabled: bool with get, set
+    abstract get_Enabled: unit -> [<MarshalAs(UnmanagedType.VariantBool)>] bool
+    abstract put_Enabled: [<MarshalAs(UnmanagedType.VariantBool)>] value: bool -> unit
     abstract Grouping: string with get, set
     abstract Profiles: int with get, set
-    abstract EdgeTraversal: bool with get, set
+    abstract get_EdgeTraversal: unit -> [<MarshalAs(UnmanagedType.VariantBool)>] bool
+    abstract put_EdgeTraversal: [<MarshalAs(UnmanagedType.VariantBool)>] value: bool -> unit
     abstract Action: FwAction with get, set
 
 // INetFwRules vtable order: get_Count, Add, Remove, Item, _NewEnum — the
@@ -138,40 +142,40 @@ type internal NetFwRulesLegacy =
 [<AllowNullLiteral>]
 type internal NetFwPolicy2X =
     abstract CurrentProfileTypes: int
-    abstract get_FirewallEnabled: profileType: int -> bool
-    abstract put_FirewallEnabled: profileType: int * value: bool -> unit
+    abstract get_FirewallEnabled: profileType: int -> [<MarshalAs(UnmanagedType.VariantBool)>] bool
+    abstract put_FirewallEnabled: profileType: int * [<MarshalAs(UnmanagedType.VariantBool)>] value: bool -> unit
     abstract get_ExcludedInterfaces: profileType: int -> obj // slot filler, never called
     abstract put_ExcludedInterfaces: profileType: int * value: obj -> unit // slot filler, never called
-    abstract get_BlockAllInboundTraffic: profileType: int -> bool
-    abstract put_BlockAllInboundTraffic: profileType: int * value: bool -> unit
-    abstract get_NotificationsDisabled: profileType: int -> bool
-    abstract put_NotificationsDisabled: profileType: int * value: bool -> unit
-    abstract get_UnicastResponsesToMulticastBroadcastDisabled: profileType: int -> bool
-    abstract put_UnicastResponsesToMulticastBroadcastDisabled: profileType: int * value: bool -> unit
+    abstract get_BlockAllInboundTraffic: profileType: int -> [<MarshalAs(UnmanagedType.VariantBool)>] bool
+    abstract put_BlockAllInboundTraffic: profileType: int * [<MarshalAs(UnmanagedType.VariantBool)>] value: bool -> unit
+    abstract get_NotificationsDisabled: profileType: int -> [<MarshalAs(UnmanagedType.VariantBool)>] bool
+    abstract put_NotificationsDisabled: profileType: int * [<MarshalAs(UnmanagedType.VariantBool)>] value: bool -> unit
+    abstract get_UnicastResponsesToMulticastBroadcastDisabled: profileType: int -> [<MarshalAs(UnmanagedType.VariantBool)>] bool
+    abstract put_UnicastResponsesToMulticastBroadcastDisabled: profileType: int * [<MarshalAs(UnmanagedType.VariantBool)>] value: bool -> unit
     abstract Rules: NetFwRulesX
     abstract get_ServiceRestriction: unit -> obj // slot filler, never called
-    abstract EnableRuleGroup: profileTypesBitmask: int * group: string * enable: bool -> unit
-    abstract IsRuleGroupEnabled: profileTypesBitmask: int * group: string -> bool
+    abstract EnableRuleGroup: profileTypesBitmask: int * group: string * [<MarshalAs(UnmanagedType.VariantBool)>] enable: bool -> unit
+    abstract IsRuleGroupEnabled: profileTypesBitmask: int * group: string -> [<MarshalAs(UnmanagedType.VariantBool)>] bool
     abstract RestoreLocalFirewallDefaults: unit -> unit
 
 [<ComImport; Guid("98325047-C671-4174-8D81-DACD38CE1C54")>]
 [<AllowNullLiteral>]
 type internal NetFwPolicy2Legacy =
     abstract CurrentProfileTypes: int
-    abstract get_FirewallEnabled: profileType: int -> bool
-    abstract put_FirewallEnabled: profileType: int * value: bool -> unit
+    abstract get_FirewallEnabled: profileType: int -> [<MarshalAs(UnmanagedType.VariantBool)>] bool
+    abstract put_FirewallEnabled: profileType: int * [<MarshalAs(UnmanagedType.VariantBool)>] value: bool -> unit
     abstract get_ExcludedInterfaces: profileType: int -> obj // slot filler, never called
     abstract put_ExcludedInterfaces: profileType: int * value: obj -> unit // slot filler, never called
-    abstract get_BlockAllInboundTraffic: profileType: int -> bool
-    abstract put_BlockAllInboundTraffic: profileType: int * value: bool -> unit
-    abstract get_NotificationsDisabled: profileType: int -> bool
-    abstract put_NotificationsDisabled: profileType: int * value: bool -> unit
-    abstract get_UnicastResponsesToMulticastBroadcastDisabled: profileType: int -> bool
-    abstract put_UnicastResponsesToMulticastBroadcastDisabled: profileType: int * value: bool -> unit
+    abstract get_BlockAllInboundTraffic: profileType: int -> [<MarshalAs(UnmanagedType.VariantBool)>] bool
+    abstract put_BlockAllInboundTraffic: profileType: int * [<MarshalAs(UnmanagedType.VariantBool)>] value: bool -> unit
+    abstract get_NotificationsDisabled: profileType: int -> [<MarshalAs(UnmanagedType.VariantBool)>] bool
+    abstract put_NotificationsDisabled: profileType: int * [<MarshalAs(UnmanagedType.VariantBool)>] value: bool -> unit
+    abstract get_UnicastResponsesToMulticastBroadcastDisabled: profileType: int -> [<MarshalAs(UnmanagedType.VariantBool)>] bool
+    abstract put_UnicastResponsesToMulticastBroadcastDisabled: profileType: int * [<MarshalAs(UnmanagedType.VariantBool)>] value: bool -> unit
     abstract Rules: NetFwRulesLegacy
     abstract get_ServiceRestriction: unit -> obj // slot filler, never called
-    abstract EnableRuleGroup: profileTypesBitmask: int * group: string * enable: bool -> unit
-    abstract IsRuleGroupEnabled: profileTypesBitmask: int * group: string -> bool
+    abstract EnableRuleGroup: profileTypesBitmask: int * group: string * [<MarshalAs(UnmanagedType.VariantBool)>] enable: bool -> unit
+    abstract IsRuleGroupEnabled: profileTypesBitmask: int * group: string -> [<MarshalAs(UnmanagedType.VariantBool)>] bool
     abstract RestoreLocalFirewallDefaults: unit -> unit
 
 // ── Public face (plain F# interfaces; COM detail stays behind Com) ──────
@@ -250,8 +254,8 @@ type internal RuleShim(x: NetFwRuleX, legacy: NetFwRuleLegacy) =
             with get () = (if not (isNull x) then x.IcmpTypesAndCodes else legacy.IcmpTypesAndCodes)
             and set v = (if not (isNull x) then x.IcmpTypesAndCodes <- v else legacy.IcmpTypesAndCodes <- v)
         member s.EdgeTraversal
-            with get () = (if not (isNull x) then x.EdgeTraversal else legacy.EdgeTraversal)
-            and set v = (if not (isNull x) then x.EdgeTraversal <- v else legacy.EdgeTraversal <- v)
+            with get () = (if not (isNull x) then x.get_EdgeTraversal() else legacy.get_EdgeTraversal())
+            and set v = (if not (isNull x) then x.put_EdgeTraversal(v) else legacy.put_EdgeTraversal(v))
         member s.Protocol
             with get () = (if not (isNull x) then x.Protocol else legacy.Protocol)
             and set v = (if not (isNull x) then x.Protocol <- v else legacy.Protocol <- v)
@@ -268,8 +272,8 @@ type internal RuleShim(x: NetFwRuleX, legacy: NetFwRuleLegacy) =
             with get () = (if not (isNull x) then x.InterfaceTypes else legacy.InterfaceTypes)
             and set v = (if not (isNull x) then x.InterfaceTypes <- v else legacy.InterfaceTypes <- v)
         member s.Enabled
-            with get () = (if not (isNull x) then x.Enabled else legacy.Enabled)
-            and set v = (if not (isNull x) then x.Enabled <- v else legacy.Enabled <- v)
+            with get () = (if not (isNull x) then x.get_Enabled() else legacy.get_Enabled())
+            and set v = (if not (isNull x) then x.put_Enabled(v) else legacy.put_Enabled(v))
         member s.Grouping
             with get () = (if not (isNull x) then x.Grouping else legacy.Grouping)
             and set v = (if not (isNull x) then x.Grouping <- v else legacy.Grouping <- v)
@@ -332,13 +336,18 @@ type internal RulesShim(x: NetFwRulesX, legacy: NetFwRulesLegacy) =
 
 /// <summary>Adapts the policy object (either IID flavor) to INetFwPolicy2.</summary>
 type internal Policy2Shim(x: NetFwPolicy2X, legacy: NetFwPolicy2Legacy) =
+    let mutable cachedRules: INetFwRules = null
     interface INetFwPolicy2 with
         member _.CurrentProfileTypes =
             (if not (isNull x) then x.CurrentProfileTypes else legacy.CurrentProfileTypes)
         member _.Rules =
-            (if not (isNull x) then RulesShim(x.Rules, null) :> INetFwRules
-             else RulesShim(null, legacy.Rules) :> INetFwRules)
+            if isNull cachedRules then
+                cachedRules <-
+                    if not (isNull x) then RulesShim(x.Rules, null) :> INetFwRules
+                    else RulesShim(null, legacy.Rules) :> INetFwRules
+            cachedRules
         member _.RestoreLocalFirewallDefaults() =
+            cachedRules <- null
             (if not (isNull x) then x.RestoreLocalFirewallDefaults() else legacy.RestoreLocalFirewallDefaults())
 
 /// <summary>
@@ -346,6 +355,9 @@ type internal Policy2Shim(x: NetFwPolicy2X, legacy: NetFwPolicy2Legacy) =
 /// collection enumeration. All COM late-binding detail stops here.
 /// </summary>
 module Com =
+
+    let private fwPolicyType = lazy Type.GetTypeFromProgID("HNetCfg.FwPolicy2")
+    let private fwRuleType = lazy Type.GetTypeFromProgID("HNetCfg.FWRule")
 
     /// <summary>
     /// Enumerates a rules collection as adapted INetFwRule values.
@@ -360,10 +372,10 @@ module Com =
     /// known IID.
     /// </summary>
     let getPolicy2 () : INetFwPolicy2 =
-        let fwPolicyType = Type.GetTypeFromProgID("HNetCfg.FwPolicy2")
-        if isNull fwPolicyType then
+        let policyType = fwPolicyType.Value
+        if isNull policyType then
             invalidOp "Windows Firewall COM component not available."
-        let o = Activator.CreateInstance(fwPolicyType)
+        let o = Activator.CreateInstance(policyType)
         match ComImpl.tryCast<NetFwPolicy2X> o with
         | Some x -> Policy2Shim(x, null) :> INetFwPolicy2
         | None ->
@@ -373,7 +385,7 @@ module Com =
 
     /// <summary>New mutable rule object via the HNetCfg.FWRule ProgID.</summary>
     let newRule () : INetFwRule =
-        let ruleType = Type.GetTypeFromProgID("HNetCfg.FWRule")
+        let ruleType = fwRuleType.Value
         if isNull ruleType then
             invalidOp "Windows Firewall COM component not available."
         ComAdapt.adaptRule (Activator.CreateInstance(ruleType))

@@ -289,9 +289,11 @@ type AgentBridgeService (identity: AppIdentity, tools: IAgentTools,
                         if c > 0 then
                             headers.[lines.[i].Substring(0, c).Trim()] <- lines.[i].Substring(c + 1).Trim()
 
+                    let mutable earlyReject = false
                     if method <> "POST" then
                         // JSON-RPC error body like every other rejection, so
                         // a misdirected client sees one dialect everywhere
+                        earlyReject <- true
                         do! AgentBridgeService.DrainBody(stream, headers)
                         do! AgentBridgeService.WriteJsonResponse(stream,
                             (if method = "GET" then 405 else 400),
@@ -305,6 +307,7 @@ type AgentBridgeService (identity: AppIdentity, tools: IAgentTools,
                                 host.StartsWith("localhost:", StringComparison.OrdinalIgnoreCase)
                             | _ -> false
                         if not hostOk then
+                            earlyReject <- true
                             do! AgentBridgeService.DrainBody(stream, headers)
                             do! AgentBridgeService.WriteJsonResponse(stream, 403, AgentBridgeService.RpcError(null, -32001, "Forbidden: the bridge is loopback only"))
                         else
@@ -313,6 +316,7 @@ type AgentBridgeService (identity: AppIdentity, tools: IAgentTools,
                                 | true, auth -> this.TokenMatches(auth)
                                 | _ -> false
                             if not authOk then
+                                earlyReject <- true
                                 do! AgentBridgeService.DrainBody(stream, headers)
                                 do! AgentBridgeService.WriteJsonResponse(stream, 401, AgentBridgeService.RpcError(null, -32001, "Unauthorized: bad or missing session token. Tokens change on every session restart - re-read session.json in the AutoCommand agent folder (no file = no active session: start one from the app's AI access settings)"))
                             else
@@ -330,9 +334,12 @@ type AgentBridgeService (identity: AppIdentity, tools: IAgentTools,
                                     // NO response — clients read that as the
                                     // flaky "empty body" (field report). State
                                     // the requirement instead.
+                                    earlyReject <- true
+                                    do! AgentBridgeService.DrainBody(stream, headers)
                                     do! AgentBridgeService.WriteJsonResponse(stream, 411,
                                         AgentBridgeService.RpcError(null, -32002, "Content-Length required (the bridge does not read chunked bodies)"))
                                 elif contentLength.Value > AgentBridgeService.MaxBodyBytes then
+                                    earlyReject <- true
                                     do! AgentBridgeService.DrainBody(stream, headers)
                                     do! AgentBridgeService.WriteJsonResponse(stream, 413, AgentBridgeService.RpcError(null, -32002, "Payload too large"))
                                 else
@@ -369,6 +376,7 @@ type AgentBridgeService (identity: AppIdentity, tools: IAgentTools,
                                     | _ ->
                                         do! AgentBridgeService.WriteJsonResponse(stream, 400,
                                             AgentBridgeService.RpcError(null, -32700, "Parse error"))
+                    do! AgentBridgeService.ShutdownAndDrainAsync(client, stream, earlyReject)
             with _ ->
                 // last resort: answer SOMETHING — a bare close reads as an
                 // empty response on the client (the flaky-empty class).
@@ -764,10 +772,9 @@ type AgentBridgeService (identity: AppIdentity, tools: IAgentTools,
                 match headers.TryGetValue("Content-Length") with
                 | true, cl -> (match Int32.TryParse(cl) with true, n when n > 0 && n <= AgentBridgeService.MaxBodyBytes -> Some n | _ -> None)
                 | _ -> None
+            let buffer = Array.zeroCreate<byte> 8192
             match announced with
-            | None -> ()
             | Some total ->
-                let buffer = Array.zeroCreate<byte> 8192
                 let mutable read = 0
                 let mutable draining = true
                 while draining && read < total do
@@ -775,6 +782,43 @@ type AgentBridgeService (identity: AppIdentity, tools: IAgentTools,
                         let! n = stream.ReadAsync(buffer, 0, Math.Min(buffer.Length, total - read))
                         if n = 0 then draining <- false else read <- read + n
                     with _ -> draining <- false
+            | None ->
+                // Chunked / missing-length / oversize early rejection: drain any
+                // bytes already sitting in the receive buffer without blocking.
+                let mutable read = 0
+                let mutable draining = true
+                while draining && read < AgentBridgeService.MaxBodyBytes && stream.DataAvailable do
+                    try
+                        let! n = stream.ReadAsync(buffer, 0, buffer.Length)
+                        if n = 0 then draining <- false else read <- read + n
+                    with _ -> draining <- false
+        } :> Task
+
+    /// <summary>Half-closes Send so our response + FIN go out cleanly, then
+    /// drains unread incoming bytes before closing the socket (RFC 7230 6.6).
+    /// Without this, chunked/unbounded bodies arriving right after headers
+    /// leave unread bytes in SO_RCVBUF when TcpClient disposes, causing
+    /// Windows Winsock to emit TCP RST that wipes out the 411/4xx response.</summary>
+    static member private ShutdownAndDrainAsync (client: TcpClient, stream: NetworkStream, linger: bool) : Task =
+        task {
+            try client.Client.Shutdown(SocketShutdown.Send) with _ -> ()
+            let buffer = Array.zeroCreate<byte> 4096
+            let mutable drained = 0
+            if linger then
+                use drainCts = new CancellationTokenSource(200)
+                let mutable reading = true
+                while reading && drained < 65536 do
+                    try
+                        let! n = stream.ReadAsync(buffer.AsMemory(0, buffer.Length), drainCts.Token).AsTask()
+                        if n = 0 then reading <- false else drained <- drained + n
+                    with _ -> reading <- false
+            else
+                let mutable reading = true
+                while reading && drained < 65536 && stream.DataAvailable do
+                    try
+                        let! n = stream.ReadAsync(buffer, 0, buffer.Length)
+                        if n = 0 then reading <- false else drained <- drained + n
+                    with _ -> reading <- false
         } :> Task
 
     static member private WriteRaw (stream: NetworkStream, text: string) : Task =
@@ -799,12 +843,17 @@ type AgentBridgeService (identity: AppIdentity, tools: IAgentTools,
                 | 403 -> "Forbidden" | 405 -> "Method Not Allowed" | 411 -> "Length Required"
                 | 413 -> "Payload Too Large" | 500 -> "Internal Server Error"
                 | _ -> "Error"
-            let head = $"HTTP/1.1 {status} {reason}\r\n" +
-                       "Content-Type: application/json\r\n" +
-                       $"Content-Length: {payload.Length}\r\n" +
-                       "Connection: close\r\n\r\n"
-            do! AgentBridgeService.WriteRaw(stream, head)
-            if payload.Length > 0 then do! stream.WriteAsync(payload, 0, payload.Length)
+            let headBytes =
+                Encoding.ASCII.GetBytes(
+                    $"HTTP/1.1 {status} {reason}\r\n" +
+                    "Content-Type: application/json\r\n" +
+                    $"Content-Length: {payload.Length}\r\n" +
+                    "Connection: close\r\n\r\n")
+            let frame = Array.zeroCreate<byte> (headBytes.Length + payload.Length)
+            Buffer.BlockCopy(headBytes, 0, frame, 0, headBytes.Length)
+            if payload.Length > 0 then
+                Buffer.BlockCopy(payload, 0, frame, headBytes.Length, payload.Length)
+            do! stream.WriteAsync(frame, 0, frame.Length)
             do! stream.FlushAsync()
         } :> Task
 

@@ -79,6 +79,24 @@ namespace AutoCommand
         private string _paneState = "both";
         private double _rainWidth = 110;     // rain pane width in DIP (auto-fit or user-dragged)
         private bool _rainWidthManual;       // the splitter was dragged — auto-fit stands down
+        private bool _matrixRainEnabled = true;
+
+        public bool IsMatrixRainEnabled => _matrixRainEnabled;
+
+        public void SetMatrixRainEnabled(bool enabled)
+        {
+            if (_matrixRainEnabled == enabled && (!enabled || _paneState != "grid"))
+                return;
+
+            _matrixRainEnabled = enabled;
+            if (enabled && _paneState == "grid")
+                _paneState = "both";
+
+            ApplyPaneState();
+            if (enabled)
+                ApplyRainColumnWidth();
+            SavePaneState();
+        }
 
         private static string RainPanelPath => System.IO.Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
@@ -100,10 +118,31 @@ namespace AutoCommand
 
         private void ApplyPaneState()
         {
+            if (!_matrixRainEnabled)
+            {
+                _rainWidthDebounce.Stop();
+                ListColumn.Width = new GridLength(1, GridUnitType.Star);
+                SvchostTab.Visibility = Visibility.Visible;
+                RailColumn.Width = new GridLength(0);
+                RainColumn.MinWidth = 0;
+                RainColumn.Width = new GridLength(0);
+                RainSplitter.Visibility = Visibility.Collapsed;
+                ListToggleBtn.Visibility = Visibility.Collapsed;
+                RainToggleBtn.Visibility = Visibility.Collapsed;
+                MatrixRainTab.Visibility = Visibility.Collapsed;
+                return;
+            }
+
+            RailColumn.Width = new GridLength(22);
+            RainSplitter.Visibility = Visibility.Visible;
+            ListToggleBtn.Visibility = Visibility.Visible;
+            RainToggleBtn.Visibility = Visibility.Visible;
+
             bool list = _paneState != "rain";
             bool rain = _paneState != "grid";
             ListColumn.Width = new GridLength(1, GridUnitType.Star);
             SvchostTab.Visibility = list ? Visibility.Visible : Visibility.Collapsed;
+            RainColumn.MinWidth = rain ? 24 : 0;
             RainColumn.Width = rain ? new GridLength(_rainWidth) : new GridLength(0);
             MatrixRainTab.Visibility = rain ? Visibility.Visible : Visibility.Collapsed;
             RainSplitter.IsEnabled = rain;   // dragging must not widen a hidden pane
@@ -133,7 +172,7 @@ namespace AutoCommand
 
         private void ApplyRainColumnWidth()
         {
-            if (_rainWidthManual || _paneState == "grid") return;
+            if (!_matrixRainEnabled || _rainWidthManual || _paneState == "grid") return;
             double dip = MatrixRainTab.DesiredWidthDip;
             if (dip <= 0 || Math.Abs(dip - _rainWidth) < 0.5) return;
             if (_rainWidthDebounce.IsEnabled)
@@ -149,7 +188,7 @@ namespace AutoCommand
         private void RainWidthDebounce_Tick(object sender, EventArgs e)
         {
             _rainWidthDebounce.Stop();
-            if (_rainWidthManual || _paneState == "grid" ||
+            if (!_matrixRainEnabled || _rainWidthManual || _paneState == "grid" ||
                 double.IsNaN(_rainWidthPending) ||
                 Math.Abs(_rainWidthPending - _rainWidth) < 0.5) return;
             _rainWidth = _rainWidthPending;
@@ -180,7 +219,8 @@ namespace AutoCommand
             {
                 System.IO.Directory.CreateDirectory(System.IO.Path.GetDirectoryName(RainPanelPath));
                 var width = _rainWidthManual ? $"manual={_rainWidth.ToString("0", System.Globalization.CultureInfo.InvariantCulture)}" : "auto";
-                System.IO.File.WriteAllText(RainPanelPath, _paneState + "\n" + width);
+                var enabledLine = _matrixRainEnabled ? "enabled=true" : "enabled=false";
+                System.IO.File.WriteAllText(RainPanelPath, _paneState + "\n" + width + "\n" + enabledLine);
             }
             catch { /* read-only profile — the choice lives for this session */ }
         }
@@ -204,16 +244,28 @@ namespace AutoCommand
                     "collapsed" => "grid",   // pre-two-pane file: the rain was hidden
                     _ => "both",
                 };
-                if (lines.Length > 1 && lines[1].Trim().StartsWith("manual=", System.StringComparison.Ordinal)
-                    && double.TryParse(lines[1].Trim().AsSpan(7), System.Globalization.NumberStyles.Float,
-                        System.Globalization.CultureInfo.InvariantCulture, out var w)
-                    && w >= 24 && w <= 1200)
+                for (int i = 1; i < lines.Length; i++)
                 {
-                    _rainWidth = w;
-                    _rainWidthManual = true;
+                    string ln = lines[i].Trim();
+                    if (ln.StartsWith("manual=", System.StringComparison.OrdinalIgnoreCase)
+                        && double.TryParse(ln.AsSpan(7), System.Globalization.NumberStyles.Float,
+                            System.Globalization.CultureInfo.InvariantCulture, out var w)
+                        && w >= 24 && w <= 1200)
+                    {
+                        _rainWidth = w;
+                        _rainWidthManual = true;
+                    }
+                    else if (string.Equals(ln, "enabled=false", System.StringComparison.OrdinalIgnoreCase))
+                    {
+                        _matrixRainEnabled = false;
+                    }
+                    else if (string.Equals(ln, "enabled=true", System.StringComparison.OrdinalIgnoreCase))
+                    {
+                        _matrixRainEnabled = true;
+                    }
                 }
             }
-            catch { _paneState = "both"; }
+            catch { _paneState = "both"; _matrixRainEnabled = true; }
             MatrixRainTab.ColumnWidthChanged += ApplyRainColumnWidth;
             _rainWidthDebounce.Tick += RainWidthDebounce_Tick;
             ApplyPaneState();
@@ -301,7 +353,7 @@ namespace AutoCommand
                 string msg = $"{_currentThreatDetails}\n\n" +
                              "This task is running with the highest system privileges. While some third-party updaters (like Edge or Chrome) do this legitimately, malware often uses it for persistence.\n\n" +
                              "Would you like to ignore this task permanently (Whitelist)?\n" +
-                             "Click 'No' to keep alerting. To investigate or delete the task, use the Tasks page in Shields Up.";
+                             "Click 'No' to keep alerting. To investigate or delete the task, use Windows Task Scheduler (taskschd.msc) or the standalone Shields Up app.";
                 
                 var result = MessageBox.Show(msg, "Review Threat", MessageBoxButton.YesNoCancel, MessageBoxImage.Warning);
                 if (result == MessageBoxResult.Yes)

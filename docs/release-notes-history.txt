@@ -17,6 +17,31 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.13 (2026-11-13)
+================================================================================
+
+# v2026.11.13 — Zero-scan new-block fast path, verified block-restore persistence & shell streamlining
+
+## Instant new-target blocking in Process Monitor
+
+Blocking a brand-new remote IP or executable in Process Monitor now responds in `<16 ms` on the UI thread and commits firewall rules without triggering unindexed full-store COM scans, UI-thread WMI queries, or post-block table re-enumerations:
+
+- **Seeded Own-Rule Index (`0` `INetFwRules.Item` Miss Scans on New Blocks)**: `Engines.Firewall.FirewallService` maintains a thread-safe, case-insensitive index of managed block rule names seeded on clean inventory/snapshot walks (`GetBlockedInventoryAsync`, `SetAllBlocksEnabledSnapshotAsync`, `SetTargetsEnabledSnapshotAsync`) and kept in sync across additions, removals, consolidations, and external `wf.msc` deletions. Blocking a new IP (`AddIpBlockWithRulesAsync`) or executable (`AddAppBlockWithPathAsync`) bypasses Windows Firewall's unindexed `INetFwRules.Item(name)` full-store miss scan completely (`0` COM lookups, `0` enumerations), probes sibling-hash rules lazily, caches `Policy2Shim.Rules` and COM ProgID types, and treats `0x8002802B` (`TYPE_E_ELEMENTNOTFOUND`), `0x80070490`, and `0x80070003` as clean misses.
+- **Truly Optimistic Row & Toast Feedback + `O(1)` Baseline/Coverage Sync**: `SvchostMonitorView` (`BlockRemoteIP_Click` and `BlockProcess_Click`) now stamps the row's `⛔` badge and displays immediate feedback *before* awaiting the BFE COM write (with full rollback on failure), adopts exact created/refreshed rule names via `FirewallBaselineManager.AdoptRuleStatesAsync` and `AppBlockCoverageService.NotifyBlocked` in `O(1)`, and removes the two redundant post-block full-firewall COM enumerations (`AdoptLiveBlockRulesAsync` + `RefreshBlockStateFromFirewallAsync`).
+- **`<0.05 ms` Win32 `QueryFullProcessImageNameW` Path Lookup**: Replaced the UI-thread `Process.MainModule` + synchronous `Win32_Process` WMI fallback in `SvchostMonitorView` (`TryQueryProcessImagePath`, `GetProcessPath`, `ResolveBlockTargetAsync`, `LiveProcessPath`, and `ApplyBlockState`) with `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` + `QueryFullProcessImageNameW`, eliminating 0.5–2.5 s pre-dialog UI freezes on PPL/protected system processes while preserving PID-reuse guards and dead-process Sysmon archive recovery.
+
+## Verified block-restore persistence & baseline coherence
+
+- **Explicit `VARIANT_BOOL` COM Marshaling & Read-Back Verification**: Added `[<MarshalAs(UnmanagedType.VariantBool)>]` across `get_Enabled`/`put_Enabled`, `get_EdgeTraversal`/`put_EdgeTraversal`, and per-profile boolean vtable slots in `Engines.Firewall`, plus `writeAndVerifyEnabled` read-back verification across `TryToggleSingleTargetInCollection`, `SetTargetsEnabledSnapshotAsync`, and `SetAllBlocksEnabledSnapshotAsync` so silent BFE non-persistence is surfaced immediately. Re-blocking an existing paused rule via `AddIpBlockAsync` / `AddAppBlockAsync` also re-enables it in place.
+- **Case-Insensitive `FirewallBaselineLogic` & Synchronous In-Memory Adoption**: Normalized `firewall_baseline.json` maps on `StringComparer.OrdinalIgnoreCase`, preserved true COM `r.Name` casing on fast-path toggles, updated `_cache.Rules` synchronously under `_gate` with versioned background disk saves so `SecurityEnforcer`'s 60-second drift check never reverts restored or paused blocks, and added `FilterTargetsReachingState` + self-healing `ReloadAsync` reconciliation in `BlocksView` (covered by `ContainSelfTest` Sections 16 & 17).
+
+## Shell navigation & appearance settings
+
+- **Streamlined Shell Tabs**: Retired the embedded Shields Up tab (superseded by the standalone native WinUI 3 `Shields Up` app) and the Windows Update tab (`Views/UpdateView.*`, `Services/WindowsUpdateService.cs`) from `MainWindow`.
+- **Matrix Animation Toggle in Settings**: Added `Show Matrix animation in Process Monitor` under **Settings → Appearance** (`%LOCALAPPDATA%\AutoCommand\rain_panel.txt`), collapsing the Rain pane and skipping `MatrixRenderer` / `MatrixRainFeed` initialization when disabled.
+- **Bridge & Intercept Crash-Recovery Hardening**: `AgentBridgeService` now emits single-frame HTTP error responses and performs RFC 7230 §6.6 lingering half-close (`SocketShutdown.Send` + bounded drain) on early rejections (`401`/`403`/`405`/`411`/`413`) so unread chunked trailers never trigger a Windows TCP `RST`, and `InterceptCaService.RemoveFromRoot` checks `LocalMachine\Root` read-only first when confirming a never-installed CA thumbprint absent.
+
+================================================================================
 v2026.11.12.2 (2026-11-12)
 ================================================================================
 

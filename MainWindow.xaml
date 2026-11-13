@@ -161,16 +161,6 @@
                 </TabItem.Header>
                 <views:AuditView x:Name="AuditTab"/>
             </TabItem>
-            <TabItem x:Name="ShieldsUpNavItem">
-                <TabItem.Header>
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="🔒" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                        <TextBlock Text="Shields Up" Style="{StaticResource NavPaneLabel}" VerticalAlignment="Center"
-                                   ToolTip="The standalone Shields Up app, folded in as sub-tabs: quick scan checklist, doors closed, phone-home silenced, junk out, OS hardening."/>
-                    </StackPanel>
-                </TabItem.Header>
-                <views:ShieldsUpView x:Name="ShieldsUpTab"/>
-            </TabItem>
 
             <!-- ═══ SYSTEM ═══ -->
             <TabItem x:Name="SystemHeaderItem" IsEnabled="False" Focusable="False">
@@ -198,16 +188,6 @@
                     </StackPanel>
                 </TabItem.Header>
                 <views:SettingsView x:Name="SettingsTab"/>
-            </TabItem>
-            <TabItem x:Name="UpdateNavItem">
-                <TabItem.Header>
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="🪟" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                        <TextBlock Text="Windows Update" Style="{StaticResource NavPaneLabel}" VerticalAlignment="Center"
-                                   ToolTip="The sanctioned way to update: lift exactly the update-pathway blocks, run the update, put everything back and verify."/>
-                    </StackPanel>
-                </TabItem.Header>
-                <views:UpdateView x:Name="UpdateTab"/>
             </TabItem>
         </TabControl>
 

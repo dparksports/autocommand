@@ -360,6 +360,11 @@ namespace AutoCommand.Contain.Core
                 var (created, _, ruleName) = await FirewallService.Instance.AddAppBlockWithPathAsync(imagePath, desc);
                 if (created > 0)
                 {
+                    lock (_gate)
+                    {
+                        _blockedNames.Add(exe);
+                        _coveredPaths.Add(pathKey);
+                    }
                     Record(new CoverageEvent
                     {
                         TimeUtc = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"),
@@ -374,10 +379,32 @@ namespace AutoCommand.Contain.Core
                         RuleName = ruleName ?? "",
                         Detail = $"trigger: {trigger} · parent: {parentImage ?? "unknown"}",
                     });
-                    await RefreshCacheAsync();
                 }
             }
             catch { /* never let a coverage check disturb the caller */ }
+        }
+
+        /// <summary>
+        /// Called immediately when an executable path is blocked so coverage
+        /// tracking and disk-copy extension take effect in O(1) without waiting
+        /// on or firing a full-firewall inventory scan.
+        /// </summary>
+        public void NotifyBlocked(string appPath)
+        {
+            if (string.IsNullOrEmpty(appPath)) return;
+            string exe;
+            try { exe = Path.GetFileName(appPath); } catch { return; }
+            if (string.IsNullOrEmpty(exe)) return;
+
+            bool isNewExe;
+            lock (_gate)
+            {
+                isNewExe = _blockedNames.Add(exe);
+                _coveredPaths.Add(appPath.ToLowerInvariant());
+            }
+
+            if (isNewExe)
+                _ = ProactiveSweepAsync(new[] { exe });
         }
 
         /// <summary>

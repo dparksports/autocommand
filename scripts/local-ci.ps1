@@ -29,6 +29,11 @@ New-Item -ItemType Directory -Force -Path $citmp | Out-Null
 $env:TMP = $citmp; $env:TEMP = $citmp
 Step "TMP/TEMP redirected to $citmp"
 
+if (-not $env:DOTNET_ROOT) {
+    $dotnetCmd = Get-Command dotnet -ErrorAction SilentlyContinue
+    if ($dotnetCmd) { $env:DOTNET_ROOT = Split-Path $dotnetCmd.Source -Parent }
+}
+
 Step 'Dependency vulnerability scan'
 $out = dotnet list AutoCommand.csproj package --vulnerable --include-transitive
 Write-Host $out
@@ -60,14 +65,14 @@ $strict = @(
 Step 'Offline suites (strict)'
 foreach ($s in $strict) {
     Write-Host "== $s =="
-    dotnet run --project $s
+    dotnet run --project $s -p:UseAppHost=false
     if ($LASTEXITCODE -ne 0) { Die "$s failed" }
 }
 
 Step 'Live-channel suites (advisory - failures do not gate here)'
 foreach ($s in @('tests/SiteDoctorSelfTest', 'tests/TaskAttributionSelfTest')) {
     Write-Host "== $s =="
-    dotnet run --project $s
+    dotnet run --project $s -p:UseAppHost=false
     if ($LASTEXITCODE -ne 0) { Write-Host "ADVISORY: $s failed (does not gate)" -ForegroundColor Yellow }
 }
 

@@ -50,6 +50,8 @@
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
                             <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
+                            <RowDefinition Height="Auto"/>
                         </Grid.RowDefinitions>
 
                         <TextBlock Text="Appearance" Style="{StaticResource SectionHeader}"/>
@@ -63,6 +65,16 @@
                         </StackPanel>
 
                         <TextBlock Grid.Row="2" Text="Dark = deep slate with the Fluent blue accent. Light = airy white-card Fluent theme. Applies instantly across every tab and is remembered for next launch."
+                                   Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" TextWrapping="Wrap"/>
+
+                        <StackPanel Grid.Row="3" Orientation="Horizontal" Margin="0,14,0,6">
+                            <CheckBox x:Name="ShowMatrixRainCheck"
+                                      Content="Show Matrix animation in Process Monitor"
+                                      Checked="ShowMatrixRainCheck_Changed"
+                                      Unchecked="ShowMatrixRainCheck_Changed"/>
+                        </StackPanel>
+
+                        <TextBlock Grid.Row="4" Text="Displays the live Matrix rain animation alongside the Process Monitor grid (one column per PID, red for blocked processes). Uncheck to hide the animation pane and divider rail completely — zero rendering or background feed overhead."
                                    Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" TextWrapping="Wrap"/>
                     </Grid>
                 </Border>

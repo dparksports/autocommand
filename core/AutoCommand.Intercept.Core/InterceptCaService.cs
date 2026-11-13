@@ -278,6 +278,12 @@ namespace AutoCommand.Intercept.Core
             string tp = thumbprint ?? GetOrCreateCa().Thumbprint;
             try
             {
+                using (var ro = new X509Store(StoreName.Root, StoreLocation.LocalMachine))
+                {
+                    ro.Open(OpenFlags.ReadOnly);
+                    if (ro.Certificates.Find(X509FindType.FindByThumbprint, tp, validOnly: false).Count == 0)
+                        return true;
+                }
                 using var store = new X509Store(StoreName.Root, StoreLocation.LocalMachine);
                 store.Open(OpenFlags.ReadWrite);
                 var matches = store.Certificates.Find(X509FindType.FindByThumbprint, tp, validOnly: false);

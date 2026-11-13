@@ -11,6 +11,8 @@ using System.ComponentModel;
 using System.Diagnostics;
 using System.IO;
 using System.Linq;
+using System.Runtime.InteropServices;
+using System.Text;
 using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
@@ -1277,14 +1279,23 @@ namespace AutoCommand.Views
                     return;
             }
 
+            string note = BuildProvenance(item, $"→ {ip}", confirmSuppressed);
+            bool wasActive = _activeIps.Contains(ip);
+            bool wasPaused = _pausedIps.Contains(ip);
+            bool hadPrevNote = _blockNotes.TryGetValue("ip:" + ip, out string prevNote);
+
+            ApplyOptimisticBlock("ip", ip, note);
+            ShowToast($"⛔ Blocked remote IP {ip} — applying 2 outbound rules (TCP/UDP)…");
+
             try
             {
-                string note = BuildProvenance(item, $"→ {ip}", confirmSuppressed);
-                var (created, updated) = await FirewallService.Instance.AddIpBlockAsync(ip, note);
+                var (created, updated, ruleNames) = await FirewallService.Instance.AddIpBlockWithRulesAsync(ip, note);
                 RecordBlockedEntry(item, "ip", ip);
-                ApplyOptimisticBlock("ip", ip, note);
-                _ = FirewallBaselineManager.AdoptLiveBlockRulesAsync();
-                _ = RefreshBlockStateFromFirewallAsync();
+                if (ruleNames != null && ruleNames.Length > 0)
+                {
+                    _ = FirewallBaselineManager.AdoptRuleStatesAsync(
+                        ruleNames.Select(n => (n, true)));
+                }
                 ShowToast(created > 0
                         ? $"⛔ Blocked remote IP {ip} — 2 rules (outbound TCP/UDP).\nProvenance written to the rule description (visible in wf.msc)."
                         : $"Block for {ip} already existed — refreshed its provenance (no duplicate rules).",
@@ -1292,6 +1303,12 @@ namespace AutoCommand.Views
             }
             catch (Exception ex)
             {
+                if (wasActive) _activeIps.Add(ip); else _activeIps.Remove(ip);
+                if (wasPaused) _pausedIps.Add(ip); else _pausedIps.Remove(ip);
+                if (hadPrevNote) _blockNotes["ip:" + ip] = prevNote; else _blockNotes.Remove("ip:" + ip);
+                foreach (var row in _uiCollection)
+                    ApplyBlockState(row);
+                HideToast();
                 MessageBox.Show($"Failed to block remote IP: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
@@ -1417,24 +1434,44 @@ namespace AutoCommand.Views
                     return;
             }
 
+            // Ran-away blocks say so in the rule description — auditable
+            // in wf.msc that the rule was armed on an exited process and
+            // where the path was recovered from.
+            string tags = null;
+            if (target.SubjectExited)
+            {
+                if (target.ReuseNote != null) tags = "exited · pid-reused";
+                else if (target.Source == BlockPathSource.Archive) tags = "exited · path-from-archive";
+                else tags = "exited";
+            }
+            string note = BuildProvenance(item, $"app: {path}", confirmSuppressed, tags);
+
+            string normPath = AutoCommand.Engines.Firewall.FirewallService.NormalizeAppPath(path);
+            bool wasActiveRaw = _activeApps.Contains(path);
+            bool wasPausedRaw = _pausedApps.Contains(path);
+            bool wasActiveNorm = normPath.Length > 0 && _activeApps.Contains(normPath);
+            bool wasPausedNorm = normPath.Length > 0 && _pausedApps.Contains(normPath);
+            string rawNoteKey = "app:" + path.ToLowerInvariant();
+            string normNoteKey = normPath.Length > 0 ? "app:" + normPath.ToLowerInvariant() : null;
+            bool hadRawNote = _blockNotes.TryGetValue(rawNoteKey, out string prevRawNote);
+            string prevNormNote = null;
+            bool hadNormNote = normNoteKey != null && _blockNotes.TryGetValue(normNoteKey, out prevNormNote);
+
+            if (!target.SubjectExited && item.ProcessId > 0 && string.IsNullOrEmpty(item.ImagePath))
+                _pidPathCache[item.ProcessId] = path;
+
+            ApplyOptimisticBlock("proc", path, note);
+            ShowToast($"⛔ Blocked application — applying outbound rule:\n{path}");
+
             try
             {
-                // Ran-away blocks say so in the rule description — auditable
-                // in wf.msc that the rule was armed on an exited process and
-                // where the path was recovered from.
-                string tags = null;
-                if (target.SubjectExited)
-                {
-                    if (target.ReuseNote != null) tags = "exited · pid-reused";
-                    else if (target.Source == BlockPathSource.Archive) tags = "exited · path-from-archive";
-                    else tags = "exited";
-                }
-                string note = BuildProvenance(item, $"app: {path}", confirmSuppressed, tags);
-                var (created, updated) = await FirewallService.Instance.AddAppBlockAsync(path, note);
+                var (created, updated, ruleName) = await FirewallService.Instance.AddAppBlockWithPathAsync(path, note);
                 RecordBlockedEntry(item, "proc", path);
-                ApplyOptimisticBlock("proc", path, note);
-                _ = FirewallBaselineManager.AdoptLiveBlockRulesAsync();
-                _ = RefreshBlockStateFromFirewallAsync();
+                if (!string.IsNullOrEmpty(ruleName))
+                {
+                    _ = FirewallBaselineManager.AdoptRuleStatesAsync(new[] { (ruleName, true) });
+                }
+                AppBlockCoverageService.Instance.NotifyBlocked(path);
                 string toast = created > 0
                     ? $"⛔ Blocked application (1 outbound rule):\n{path}"
                     : $"Block for {System.IO.Path.GetFileName(path)} already existed — provenance refreshed.";
@@ -1444,6 +1481,21 @@ namespace AutoCommand.Views
             }
             catch (Exception ex)
             {
+                if (wasActiveRaw) _activeApps.Add(path); else _activeApps.Remove(path);
+                if (wasPausedRaw) _pausedApps.Add(path); else _pausedApps.Remove(path);
+                if (normPath.Length > 0)
+                {
+                    if (wasActiveNorm) _activeApps.Add(normPath); else _activeApps.Remove(normPath);
+                    if (wasPausedNorm) _pausedApps.Add(normPath); else _pausedApps.Remove(normPath);
+                }
+                if (hadRawNote) _blockNotes[rawNoteKey] = prevRawNote; else _blockNotes.Remove(rawNoteKey);
+                if (normNoteKey != null)
+                {
+                    if (hadNormNote) _blockNotes[normNoteKey] = prevNormNote; else _blockNotes.Remove(normNoteKey);
+                }
+                foreach (var row in _uiCollection)
+                    ApplyBlockState(row);
+                HideToast();
                 MessageBox.Show($"Failed to block process: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
@@ -1485,7 +1537,7 @@ namespace AutoCommand.Views
 
         private void BlockedListBtn_Click(object sender, RoutedEventArgs e)
         {
-            RefreshBlockedUi();
+            RefreshBlockedUi(forceList: true);
             BlockedListPopup.IsOpen = true;
         }
 
@@ -1689,19 +1741,69 @@ namespace AutoCommand.Views
             }
         }
 
+        private const uint PROCESS_QUERY_LIMITED_INFORMATION = 0x1000;
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        private static extern IntPtr OpenProcess(uint dwDesiredAccess, bool bInheritHandle, uint dwProcessId);
+
+        [DllImport("kernel32.dll", SetLastError = true)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool CloseHandle(IntPtr hObject);
+
+        [DllImport("kernel32.dll", SetLastError = true, CharSet = CharSet.Unicode)]
+        [return: MarshalAs(UnmanagedType.Bool)]
+        private static extern bool QueryFullProcessImageNameW(
+            IntPtr hProcess, uint dwFlags, StringBuilder lpExeName, ref uint lpdwSize);
+
         /// <summary>
-        /// Resolves an executable path for a PID; falls back to WMI when the
-        /// process module cannot be read (bitness mismatch) or the process exited.
+        /// Direct Win32 executable path lookup via PROCESS_QUERY_LIMITED_INFORMATION
+        /// (&lt;0.05 ms, succeeds on PPL/protected system services and across bitness
+        /// boundaries where Process.MainModule throws Win32Exception, with zero WMI).
+        /// </summary>
+        private static string TryQueryProcessImagePath(int pid)
+        {
+            if (pid <= 0 || pid == 4) return null;
+            IntPtr hProc = OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION, false, (uint)pid);
+            if (hProc == IntPtr.Zero) return null;
+            try
+            {
+                var sb = new StringBuilder(1024);
+                uint cap = (uint)sb.Capacity;
+                if (QueryFullProcessImageNameW(hProc, 0, sb, ref cap) && cap > 0)
+                    return sb.ToString(0, (int)cap);
+            }
+            catch { }
+            finally { CloseHandle(hProc); }
+            return null;
+        }
+
+        /// <summary>
+        /// Resolves an executable path for a PID: Win32 QueryFullProcessImageNameW
+        /// first (&lt;0.05 ms), falling back to Process.MainModule and WMI only when
+        /// the process is still running yet unreadable by both fast paths.
         /// </summary>
         private static string GetProcessPath(int processId)
         {
+            string fast = TryQueryProcessImagePath(processId);
+            if (!string.IsNullOrEmpty(fast)) return fast;
+
+            bool alive = false;
             try
             {
                 using var proc = Process.GetProcessById(processId);
+                alive = true;
                 string path = proc.MainModule?.FileName;
                 if (!string.IsNullOrEmpty(path)) return path;
             }
+            catch (ArgumentException)
+            {
+                // PID already exited — Win32_Process only lists live processes,
+                // so a WMI query here would waste 0.5–2.5 s to return nothing.
+                return null;
+            }
             catch { }
+
+            if (!alive) return null;
 
             try
             {
@@ -1753,7 +1855,8 @@ namespace AutoCommand.Views
             }
             else
             {
-                string live = GetProcessPath(item.ProcessId);
+                string live = TryQueryProcessImagePath(item.ProcessId)
+                    ?? await Task.Run(() => GetProcessPath(item.ProcessId));
                 if (!string.IsNullOrEmpty(live))
                 {
                     // Name cross-check — the kill flow's reuse guard, applied
@@ -2018,6 +2121,29 @@ namespace AutoCommand.Views
                     ? item.ImagePath
                     : cached;
 
+                if (!hasCachedPid && string.IsNullOrEmpty(appPath) && item.ProcessId > 0 && !item.HasExited)
+                {
+                    int pid = item.ProcessId;
+                    string fastPath = TryQueryProcessImagePath(pid);
+                    if (!string.IsNullOrEmpty(fastPath))
+                    {
+                        _pidPathCache[pid] = fastPath;
+                        appPath = fastPath;
+                    }
+                    else
+                    {
+                        _pidPathCache[pid] = ""; // claim once so concurrent calls don't fan out
+                        _ = Task.Run(() => LiveProcessPath(pid)).ContinueWith(t =>
+                        {
+                            if (t.Status == TaskStatus.RanToCompletion && !string.IsNullOrEmpty(t.Result))
+                            {
+                                _pidPathCache[pid] = t.Result;
+                                Dispatcher.BeginInvoke(new Action(() => ApplyBlockState(item)));
+                            }
+                        });
+                    }
+                }
+
                 if (!string.IsNullOrEmpty(appPath))
                 {
                     appState = _activeApps.Contains(appPath) ? BlockRuleState.Active
@@ -2040,28 +2166,17 @@ namespace AutoCommand.Views
                             _blockNotes.TryGetValue("app:" + norm.ToLowerInvariant(), out appNote);
                     }
                 }
-                else if (!hasCachedPid && item.ProcessId > 0 && !item.HasExited)
-                {
-                    int pid = item.ProcessId;
-                    _pidPathCache[pid] = ""; // claim once so concurrent calls don't fan out
-                    _ = Task.Run(() => LiveProcessPath(pid)).ContinueWith(t =>
-                    {
-                        if (t.Status == TaskStatus.RanToCompletion && !string.IsNullOrEmpty(t.Result))
-                        {
-                            _pidPathCache[pid] = t.Result;
-                            Dispatcher.BeginInvoke(new Action(() => ApplyBlockState(item)));
-                        }
-                    });
-                }
             }
 
             item.SetBlockState(ipState, ipNote, appState, appNote);
         }
 
-        /// <summary>Cheap live module path (no WMI fallback — the periodic sync must stay fast).</summary>
+        /// <summary>Cheap live module path (Win32 QueryFullProcessImageNameW first, no WMI).</summary>
         private static string LiveProcessPath(int pid)
         {
-            if (pid <= 0) return null;
+            string fast = TryQueryProcessImagePath(pid);
+            if (!string.IsNullOrEmpty(fast)) return fast;
+            if (pid <= 0 || pid == 4) return null;
             try
             {
                 using var p = Process.GetProcessById(pid);
@@ -2117,13 +2232,16 @@ namespace AutoCommand.Views
             RefreshBlockedUi();
         }
 
-        private void RefreshBlockedUi()
+        private void RefreshBlockedUi(bool forceList = false)
         {
             var records = BlocksStore.Records;
             BlockedListBtn.Content = $"Blocked: {records.Count}";
-            BlockedListBox.ItemsSource = records
-                .OrderBy(b => b.Kind).ThenBy(b => b.Key, StringComparer.OrdinalIgnoreCase)
-                .ToList();
+            if (forceList || BlockedListPopup.IsOpen)
+            {
+                BlockedListBox.ItemsSource = records
+                    .OrderBy(b => b.Kind).ThenBy(b => b.Key, StringComparer.OrdinalIgnoreCase)
+                    .ToList();
+            }
             RefreshConfirmPrefsUi();
         }
 

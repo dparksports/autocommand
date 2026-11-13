@@ -24,7 +24,7 @@ namespace AutoCommand.Helpers
         private sealed class BaselineFile
         {
             public DateTime CapturedAt { get; set; }
-            public Dictionary<string, bool> Rules { get; set; } = new Dictionary<string, bool>();
+            public Dictionary<string, bool> Rules { get; set; } = FirewallBaselineLogic.CreateRulesMap();
         }
 
         public sealed class DriftReport
@@ -41,16 +41,22 @@ namespace AutoCommand.Helpers
 
         private static readonly string BaselinePath = Path.Combine(ProgramDataGuard.Root, "firewall_baseline.json");
         private static readonly object _gate = new object();
+        private static readonly object _saveGate = new object();
         private static BaselineFile _cache;
+        private static long _saveVersion;
+        private static long _lastSavedVersion;
 
         private static bool IsOwnBlockRuleName(string name) =>
-            !string.IsNullOrEmpty(name) && (
-                name.StartsWith(FirewallService.NewIpPrefix, StringComparison.OrdinalIgnoreCase) ||
-                name.StartsWith(FirewallService.NewAppPrefix, StringComparison.OrdinalIgnoreCase) ||
-                name.StartsWith("AutoCommand IP Block - ", StringComparison.OrdinalIgnoreCase) ||
-                name.StartsWith("AutoCommand Process Block - ", StringComparison.OrdinalIgnoreCase));
+            FirewallBaselineLogic.IsOwnBlockRuleName(name);
 
-        public static bool HasBaseline => GetCachedBaseline() != null;
+        public static bool HasBaseline
+        {
+            get
+            {
+                lock (_gate)
+                    return GetCachedBaselineLocked() != null;
+            }
+        }
 
         // While paused, baseline drift is neither fixed nor alerted — for users who
         // want to edit rules externally (wf.msc / netsh) without being fought. The
@@ -65,70 +71,96 @@ namespace AutoCommand.Helpers
         /// </summary>
         public static void UpdateRuleState(string ruleName, bool enabled)
         {
+            if (string.IsNullOrEmpty(ruleName)) return;
+            long version;
+            BaselineFile snapshot;
             lock (_gate)
             {
-                var b = GetCachedBaseline();
-                if (b == null || string.IsNullOrEmpty(ruleName)) return; // no baseline yet — nothing to adopt into
+                var b = GetCachedBaselineLocked();
+                if (b == null) return; // no baseline yet — nothing to adopt into
+                if (b.Rules.TryGetValue(ruleName, out bool prev) && prev == enabled) return;
                 b.Rules[ruleName] = enabled;
-                SaveBaseline(b);
+                version = ++_saveVersion;
+                snapshot = CloneBaselineLocked(b);
             }
+            SaveBaselineVersioned(version, snapshot);
+        }
+
+        /// <summary>
+        /// Adopts explicit own-block rule states (e.g. newly added IP/app block
+        /// rule names returned directly from AddIpBlockWithRulesAsync /
+        /// AddAppBlockWithPathAsync) into the cached baseline in O(1) with ZERO
+        /// COM enumerations. Updates in-memory state synchronously under _gate
+        /// and persists firewall_baseline.json off the UI thread.
+        /// </summary>
+        public static Task AdoptRuleStatesAsync(IEnumerable<(string Name, bool Enabled)> ruleStates)
+        {
+            if (ruleStates == null) return Task.CompletedTask;
+
+            long version = 0;
+            BaselineFile snapshot = null;
+            lock (_gate)
+            {
+                var b = GetCachedBaselineLocked();
+                if (b == null) return Task.CompletedTask;
+                if (FirewallBaselineLogic.ApplyOwnBlockStates(b.Rules, ruleStates, isFullSnapshot: false))
+                {
+                    version = ++_saveVersion;
+                    snapshot = CloneBaselineLocked(b);
+                }
+            }
+
+            if (snapshot == null) return Task.CompletedTask;
+            return Task.Run(() => SaveBaselineVersioned(version, snapshot));
         }
 
         /// <summary>
         /// Applies post-toggle rule states captured during a single-pass firewall
         /// toggle directly into the cached baseline with ZERO extra COM scans.
-        /// Updates in-memory state immediately so SecurityEnforcer sees it at once,
-        /// and persists firewall_baseline.json off the UI thread.
+        /// Updates in-memory state SYNCHRONOUSLY under _gate so SecurityEnforcer's
+        /// drift monitor can never observe stale pre-toggle entries, and persists
+        /// firewall_baseline.json off the UI thread.
         /// </summary>
         public static Task ApplyToggleSnapshotAsync(AutoCommand.Engines.Firewall.TargetToggleSnapshot snap)
         {
             if (snap == null || snap.RuleStates == null || snap.RuleStates.Count == 0)
                 return Task.CompletedTask;
-            if (GetCachedBaseline() == null) return Task.CompletedTask;
 
-            return Task.Run(() => ApplyBlockRuleStatesCore(snap.RuleStates, snap.IsFullSnapshot));
+            long version = 0;
+            BaselineFile snapshot = null;
+            lock (_gate)
+            {
+                var b = GetCachedBaselineLocked();
+                if (b == null) return Task.CompletedTask;
+                if (FirewallBaselineLogic.ApplyOwnBlockStates(b.Rules, snap.RuleStates, snap.IsFullSnapshot))
+                {
+                    version = ++_saveVersion;
+                    snapshot = CloneBaselineLocked(b);
+                }
+            }
+
+            if (snapshot == null) return Task.CompletedTask;
+            return Task.Run(() => SaveBaselineVersioned(version, snapshot));
         }
 
         private static void ApplyBlockRuleStatesCore(
             IEnumerable<(string Name, bool Enabled)> liveStates,
             bool isFullSnapshot)
         {
-            var b = GetCachedBaseline();
-            if (b == null) return;
+            long version = 0;
+            BaselineFile snapshot = null;
             lock (_gate)
             {
-                bool dirty = false;
-                HashSet<string> liveNames = isFullSnapshot
-                    ? new HashSet<string>(StringComparer.Ordinal)
-                    : null;
-
-                foreach (var (name, enabled) in liveStates)
+                var b = GetCachedBaselineLocked();
+                if (b == null) return;
+                if (FirewallBaselineLogic.ApplyOwnBlockStates(b.Rules, liveStates, isFullSnapshot))
                 {
-                    if (string.IsNullOrEmpty(name) || !IsOwnBlockRuleName(name)) continue;
-                    liveNames?.Add(name);
-                    if (!b.Rules.TryGetValue(name, out bool prev) || prev != enabled)
-                    {
-                        b.Rules[name] = enabled;
-                        dirty = true;
-                    }
+                    version = ++_saveVersion;
+                    snapshot = CloneBaselineLocked(b);
                 }
-
-                if (isFullSnapshot)
-                {
-                    // Prune deleted/retired AutoCommand block rules so permanent
-                    // unblocks, legacy consolidation and dedup keep baseline clean.
-                    var staleOwn = b.Rules.Keys
-                        .Where(k => IsOwnBlockRuleName(k) && !liveNames.Contains(k))
-                        .ToList();
-                    foreach (string gone in staleOwn)
-                    {
-                        b.Rules.Remove(gone);
-                        dirty = true;
-                    }
-                }
-
-                if (dirty) SaveBaseline(b);
             }
+            if (snapshot != null)
+                SaveBaselineVersioned(version, snapshot);
         }
 
         /// <summary>
@@ -139,10 +171,10 @@ namespace AutoCommand.Helpers
         /// </summary>
         public static Task AdoptLiveBlockRulesAsync()
         {
-            if (GetCachedBaseline() == null) return Task.CompletedTask;
+            if (!HasBaseline) return Task.CompletedTask;
             return Task.Run(() =>
             {
-                if (GetCachedBaseline() == null) return;
+                if (!HasBaseline) return;
                 try
                 {
                     var liveStates = new List<(string Name, bool Enabled)>();
@@ -172,10 +204,10 @@ namespace AutoCommand.Helpers
         /// </summary>
         public static Task UpdateGroupStateAsync(string group, bool enabled)
         {
+            if (string.IsNullOrEmpty(group)) return Task.CompletedTask;
             return Task.Run(() =>
             {
-                var b = GetCachedBaseline();
-                if (b == null || string.IsNullOrEmpty(group)) return;
+                if (!HasBaseline) return;
                 try
                 {
                     var matchedNames = new List<string>();
@@ -198,12 +230,31 @@ namespace AutoCommand.Helpers
                         }
                         catch { }
                     }
+                    if (matchedNames.Count == 0) return;
+
+                    long version = 0;
+                    BaselineFile snapshot = null;
                     lock (_gate)
                     {
+                        var b = GetCachedBaselineLocked();
+                        if (b == null) return;
+                        bool dirty = false;
                         foreach (string name in matchedNames)
-                            b.Rules[name] = enabled;
-                        if (matchedNames.Count > 0) SaveBaseline(b);
+                        {
+                            if (!b.Rules.TryGetValue(name, out bool prev) || prev != enabled)
+                            {
+                                b.Rules[name] = enabled;
+                                dirty = true;
+                            }
+                        }
+                        if (dirty)
+                        {
+                            version = ++_saveVersion;
+                            snapshot = CloneBaselineLocked(b);
+                        }
                     }
+                    if (snapshot != null)
+                        SaveBaselineVersioned(version, snapshot);
                 }
                 catch (Exception ex)
                 {
@@ -216,8 +267,11 @@ namespace AutoCommand.Helpers
         {
             get
             {
-                var b = GetCachedBaseline();
-                return b == null ? null : (b.CapturedAt, b.Rules.Count);
+                lock (_gate)
+                {
+                    var b = GetCachedBaselineLocked();
+                    return b == null ? null : (b.CapturedAt, b.Rules.Count);
+                }
             }
         }
 
@@ -229,7 +283,7 @@ namespace AutoCommand.Helpers
         {
             return Task.Run(() =>
             {
-                var rules = new Dictionary<string, bool>(StringComparer.Ordinal);
+                var rules = FirewallBaselineLogic.CreateRulesMap();
                 var fwPolicy = AutoCommand.Engines.Firewall.Com.getPolicy2();
                 foreach (var rule in AutoCommand.Engines.Firewall.Com.enumRules(fwPolicy.Rules))
                 {
@@ -243,11 +297,15 @@ namespace AutoCommand.Helpers
                 }
 
                 var file = new BaselineFile { CapturedAt = DateTime.Now, Rules = rules };
+                long version;
+                BaselineFile snapshot;
                 lock (_gate)
                 {
-                    SaveBaseline(file);
                     _cache = file;
+                    version = ++_saveVersion;
+                    snapshot = CloneBaselineLocked(file);
                 }
+                SaveBaselineVersioned(version, snapshot);
                 return (rules.Count, file.CapturedAt);
             });
         }
@@ -264,16 +322,16 @@ namespace AutoCommand.Helpers
                 Dictionary<string, bool> baselineRules;
                 lock (_gate)
                 {
-                    var baseline = GetCachedBaseline();
+                    var baseline = GetCachedBaselineLocked();
                     if (baseline == null) return report;
-                    baselineRules = new Dictionary<string, bool>(baseline.Rules, StringComparer.Ordinal);
+                    baselineRules = FirewallBaselineLogic.CreateRulesMap(baseline.Rules);
                 }
                 report.BaselineCount = baselineRules.Count;
 
                 try
                 {
                     var fwPolicy = AutoCommand.Engines.Firewall.Com.getPolicy2();
-                    var seen = new HashSet<string>(StringComparer.Ordinal);
+                    var liveRules = new List<(string Name, bool Enabled, string Grouping)>();
                     foreach (var rule in AutoCommand.Engines.Firewall.Com.enumRules(fwPolicy.Rules))
                     {
                         try
@@ -281,27 +339,21 @@ namespace AutoCommand.Helpers
                             string name = rule.Name;
                             if (string.IsNullOrEmpty(name)) continue;
                             bool enabled = rule.Enabled;
-                            if (!seen.Add(name)) continue;
-
-                            if (!baselineRules.TryGetValue(name, out bool expected))
+                            string group = "";
+                            if (enabled && !baselineRules.ContainsKey(name))
                             {
-                                if (enabled)
-                                {
-                                    string group = "";
-                                    try { group = rule.Grouping ?? ""; } catch { }
-                                    report.SneakedIn.Add(Tuple.Create(name, group));
-                                }
-                                continue;
+                                try { group = rule.Grouping ?? ""; } catch { }
                             }
-
-                            if (!expected && enabled)
-                                report.ReEnabled.Add(name);
-                            else if (expected && !enabled)
-                                report.UnexpectedlyDisabled.Add(name);
+                            liveRules.Add((name, enabled, group));
                         }
                         catch { }
                     }
-                    report.LiveCount = seen.Count;
+
+                    var eval = FirewallBaselineLogic.EvaluateDrift(baselineRules, liveRules);
+                    report.ReEnabled.AddRange(eval.ReEnabled);
+                    report.UnexpectedlyDisabled.AddRange(eval.UnexpectedlyDisabled);
+                    report.SneakedIn.AddRange(eval.SneakedIn);
+                    report.LiveCount = eval.LiveCount;
                 }
                 catch (Exception ex)
                 {
@@ -325,7 +377,9 @@ namespace AutoCommand.Helpers
 
         private static int SetEnabledState(IEnumerable<string> ruleNames, bool enabled)
         {
-            var targets = new HashSet<string>(ruleNames, StringComparer.Ordinal);
+            if (ruleNames == null) return 0;
+            var targets = new HashSet<string>(ruleNames, StringComparer.OrdinalIgnoreCase);
+            if (targets.Count == 0) return 0;
             int changed = 0;
             try
             {
@@ -339,7 +393,8 @@ namespace AutoCommand.Helpers
                         if (rule.Enabled != enabled)
                         {
                             rule.Enabled = enabled;
-                            changed++;
+                            if (rule.Enabled == enabled)
+                                changed++;
                         }
                     }
                     catch { }
@@ -352,29 +407,54 @@ namespace AutoCommand.Helpers
             return changed;
         }
 
-        private static BaselineFile GetCachedBaseline()
+        private static BaselineFile CloneBaselineLocked(BaselineFile source) =>
+            new BaselineFile
+            {
+                CapturedAt = source.CapturedAt,
+                Rules = FirewallBaselineLogic.CreateRulesMap(source.Rules)
+            };
+
+        private static BaselineFile GetCachedBaselineLocked()
         {
             if (_cache != null) return _cache;
             try
             {
                 if (File.Exists(BaselinePath))
                 {
-                    _cache = JsonSerializer.Deserialize<BaselineFile>(File.ReadAllText(BaselinePath));
+                    var loaded = JsonSerializer.Deserialize<BaselineFile>(File.ReadAllText(BaselinePath));
+                    if (loaded != null)
+                    {
+                        loaded.Rules = FirewallBaselineLogic.CreateRulesMap(loaded.Rules);
+                        _cache = loaded;
+                    }
                 }
             }
             catch { }
             return _cache;
         }
 
-        private static void SaveBaseline(BaselineFile file)
+        private static void SaveBaselineVersioned(long version, BaselineFile snapshot)
         {
-            try
+            if (snapshot == null) return;
+            lock (_saveGate)
             {
-                var dir = Path.GetDirectoryName(BaselinePath);
-                if (!Directory.Exists(dir)) Directory.CreateDirectory(dir);
-                File.WriteAllText(BaselinePath, JsonSerializer.Serialize(file, new JsonSerializerOptions { WriteIndented = true }));
+                if (version < _lastSavedVersion) return;
+                try
+                {
+                    var dir = Path.GetDirectoryName(BaselinePath);
+                    if (!string.IsNullOrEmpty(dir) && !Directory.Exists(dir))
+                        Directory.CreateDirectory(dir);
+                    string json = JsonSerializer.Serialize(snapshot, new JsonSerializerOptions { WriteIndented = true });
+                    string tmp = BaselinePath + ".tmp";
+                    File.WriteAllText(tmp, json);
+                    if (File.Exists(BaselinePath))
+                        File.Replace(tmp, BaselinePath, destinationBackupFileName: null);
+                    else
+                        File.Move(tmp, BaselinePath);
+                    _lastSavedVersion = version;
+                }
+                catch { }
             }
-            catch { }
         }
     }
 }

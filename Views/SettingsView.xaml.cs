@@ -59,6 +59,14 @@ namespace AutoCommand.Views
             }
             ThemeCombo.SelectionChanged += ThemeCombo_SelectionChanged;
 
+            // Load Matrix animation visibility preference
+            var mainWin = Window.GetWindow(this) as MainWindow ?? Application.Current?.MainWindow as MainWindow;
+            ShowMatrixRainCheck.Checked -= ShowMatrixRainCheck_Changed;
+            ShowMatrixRainCheck.Unchecked -= ShowMatrixRainCheck_Changed;
+            ShowMatrixRainCheck.IsChecked = mainWin?.IsMatrixRainEnabled ?? true;
+            ShowMatrixRainCheck.Checked += ShowMatrixRainCheck_Changed;
+            ShowMatrixRainCheck.Unchecked += ShowMatrixRainCheck_Changed;
+
             // Protected-surface verdicts (SSTP / kernel debug): render now and
             // stay live on every enforcement sweep while this view is open.
             SecurityEnforcer.VerdictsUpdated -= OnVerdictsUpdated;
@@ -144,6 +152,12 @@ namespace AutoCommand.Views
             {
                 ThemeService.ApplyTheme(theme);
             }
+        }
+
+        private void ShowMatrixRainCheck_Changed(object sender, RoutedEventArgs e)
+        {
+            var mainWin = Window.GetWindow(this) as MainWindow ?? Application.Current?.MainWindow as MainWindow;
+            mainWin?.SetMatrixRainEnabled(ShowMatrixRainCheck.IsChecked == true);
         }
 
         // ── instrumentation calibration ──────────────────────────────────

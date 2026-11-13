@@ -1487,26 +1487,74 @@ namespace AutoCommand.Views
                 StatusText.Text = $"{verb} — {p.Changed} firewall rule(s) updated ({p.Matched} matched)…");
 
             var snap = await FirewallService.Instance.SetTargetsEnabledSnapshotAsync(targets, enable, true, progress);
-            if (snap.Matched == 0 || (snap.Changed == 0 && !string.IsNullOrEmpty(snap.FirstError)))
+            var verifiedTargets = FilterTargetsReachingState(targets, snap.Inventory, enable);
+            if (snap.Matched == 0 || verifiedTargets.Count == 0 || (snap.Changed == 0 && !string.IsNullOrEmpty(snap.FirstError)))
             {
                 string detail = !string.IsNullOrEmpty(snap.FirstError)
                     ? $" — {snap.FirstError}"
-                    : " — no matching firewall rules found on disk";
+                    : " — no matching firewall rules reached the requested state";
                 ShowBulkToast($"{verb} did not change any rules ({snap.Changed}/{snap.Matched}){detail}", null);
-                await ReloadAsync(snap.Inventory);
+                await ReloadAsync(string.IsNullOrEmpty(snap.FirstError) ? snap.Inventory : null);
                 return;
             }
 
-            BlocksStore.SetStatuses(targets, enable ? "on" : "off", "blocks-tab");
+            BlocksStore.SetStatuses(verifiedTargets, enable ? "on" : "off", "blocks-tab");
             await Helpers.FirewallBaselineManager.ApplyToggleSnapshotAsync(snap);
             NotifyMonitorIfVisible();
 
+            string targetSummary = verifiedTargets.Count == final.Count
+                ? $"{final.Count} target(s)"
+                : $"{verifiedTargets.Count} of {final.Count} target(s)";
             string errSuffix = !string.IsNullOrEmpty(snap.FirstError) ? $" · warning: {snap.FirstError}" : "";
             ShowBulkToast((enable
-                ? $"Blocking restored — {final.Count} target(s) ON again ({snap.Changed}/{snap.Matched} rules) · {scopeLabel}"
-                : $"Blocking stopped — {final.Count} target(s) OFF, traffic flows ({snap.Changed}/{snap.Matched} rules) · {scopeLabel}") + errSuffix,
+                ? $"Blocking restored — {targetSummary} ON again ({snap.Changed}/{snap.Matched} rules) · {scopeLabel}"
+                : $"Blocking stopped — {targetSummary} OFF, traffic flows ({snap.Changed}/{snap.Matched} rules) · {scopeLabel}") + errSuffix,
                 snapshot);
-            await ReloadAsync(snap.Inventory);
+            await ReloadAsync(string.IsNullOrEmpty(snap.FirstError) ? snap.Inventory : null);
+        }
+
+        private static List<(string Kind, string Key)> FilterTargetsReachingState(
+            IEnumerable<(string Kind, string Key)> requested,
+            List<AutoCommand.Engines.Firewall.BlockedTarget> inventory,
+            bool enable)
+        {
+            var list = requested?.ToList() ?? new List<(string Kind, string Key)>();
+            if (inventory == null || list.Count == 0) return list;
+
+            var byKey = new Dictionary<string, AutoCommand.Engines.Firewall.BlockedTarget>(
+                StringComparer.OrdinalIgnoreCase);
+            foreach (var item in inventory)
+            {
+                if (item == null || string.IsNullOrEmpty(item.Key)) continue;
+                byKey[item.Key] = item;
+                if (item.Kind == "app" && !string.IsNullOrEmpty(item.AppPath))
+                {
+                    string norm = AutoCommand.Engines.Firewall.FirewallService.NormalizeAppPath(item.AppPath);
+                    if (norm.Length > 0)
+                        byKey.TryAdd("app:" + norm.ToLowerInvariant(), item);
+                }
+            }
+
+            var verified = new List<(string Kind, string Key)>(list.Count);
+            foreach (var (kind, key) in list)
+            {
+                bool isIp = string.Equals(kind, "ip", StringComparison.OrdinalIgnoreCase);
+                string invKey = (isIp ? "ip:" : "app:") + (key ?? "").Trim().ToLowerInvariant();
+                if (!byKey.TryGetValue(invKey, out var t) && !isIp && !string.IsNullOrEmpty(key))
+                {
+                    string norm = AutoCommand.Engines.Firewall.FirewallService.NormalizeAppPath(key);
+                    if (norm.Length > 0)
+                        byKey.TryGetValue("app:" + norm.ToLowerInvariant(), out t);
+                }
+
+                if (t == null) continue;
+                bool reached = enable
+                    ? (t.Rules > 0 && t.EnabledRules == t.Rules)
+                    : (t.EnabledRules == 0);
+                if (reached)
+                    verified.Add((kind, key));
+            }
+            return verified;
         }
 
         private static void NotifyMonitorIfVisible()
@@ -1583,19 +1631,21 @@ namespace AutoCommand.Views
             {
                 var res = await FirewallService.Instance.SetTargetsEnabledSnapshotAsync(toOn, true, toOff.Count == 0, null);
                 lastSnap = res;
-                if (res.Matched > 0 && string.IsNullOrEmpty(res.FirstError))
-                    BlocksStore.SetStatuses(toOn, "on", "undo");
+                var verifiedOn = FilterTargetsReachingState(toOn, res.Inventory, true);
+                if (res.Matched > 0 && verifiedOn.Count > 0 && string.IsNullOrEmpty(res.FirstError))
+                    BlocksStore.SetStatuses(verifiedOn, "on", "undo");
                 else
-                    undoErr ??= res.FirstError ?? "no matching firewall rules found";
+                    undoErr ??= res.FirstError ?? "no matching firewall rules reached ON";
             }
             if (toOff.Count > 0)
             {
                 var res = await FirewallService.Instance.SetTargetsEnabledSnapshotAsync(toOff, false, true, null);
                 lastSnap = res;
-                if (res.Matched > 0 && string.IsNullOrEmpty(res.FirstError))
-                    BlocksStore.SetStatuses(toOff, "off", "undo");
+                var verifiedOff = FilterTargetsReachingState(toOff, res.Inventory, false);
+                if (res.Matched > 0 && verifiedOff.Count > 0 && string.IsNullOrEmpty(res.FirstError))
+                    BlocksStore.SetStatuses(verifiedOff, "off", "undo");
                 else
-                    undoErr ??= res.FirstError ?? "no matching firewall rules found";
+                    undoErr ??= res.FirstError ?? "no matching firewall rules reached OFF";
             }
             if (lastSnap != null)
                 await Helpers.FirewallBaselineManager.ApplyToggleSnapshotAsync(lastSnap);
@@ -1604,7 +1654,7 @@ namespace AutoCommand.Views
             NotifyMonitorIfVisible();
             if (!string.IsNullOrEmpty(undoErr))
                 ShowBulkToast($"Undo did not fully apply — {undoErr}", null);
-            await ReloadAsync(lastSnap?.Inventory);
+            await ReloadAsync(string.IsNullOrEmpty(undoErr) ? lastSnap?.Inventory : null);
         }
 
         // ── audit digest ────────────────────────────────────────────────────
@@ -1776,19 +1826,23 @@ namespace AutoCommand.Views
                 $"Stopping blocking for '{sym.Title}' ({list.Count} target(s))…");
 
             var snap = await FirewallService.Instance.SetTargetsEnabledSnapshotAsync(list, false, true, null);
-            if (snap.Matched == 0 || (snap.Changed == 0 && !string.IsNullOrEmpty(snap.FirstError)))
+            var verifiedOff = FilterTargetsReachingState(list, snap.Inventory, false);
+            if (snap.Matched == 0 || verifiedOff.Count == 0 || (snap.Changed == 0 && !string.IsNullOrEmpty(snap.FirstError)))
             {
                 ShowBulkToast($"Stop blocking for '{sym.Title}' did not change any rules ({snap.Changed}/{snap.Matched})" +
                     (!string.IsNullOrEmpty(snap.FirstError) ? $" — {snap.FirstError}" : ""), null);
-                await ReloadAsync(snap.Inventory);
+                await ReloadAsync(string.IsNullOrEmpty(snap.FirstError) ? snap.Inventory : null);
                 return;
             }
-            BlocksStore.SetStatuses(list, "off", "restore-guide");
+            BlocksStore.SetStatuses(verifiedOff, "off", "restore-guide");
             await Helpers.FirewallBaselineManager.ApplyToggleSnapshotAsync(snap);
             NotifyMonitorIfVisible();
-            ShowBulkToast($"Blocking stopped for '{sym.Title}' — {list.Count} target(s) OFF, traffic flows ({snap.Changed}/{snap.Matched} rules)",
-                list.Select(v => (v.Kind, v.Key, true)).ToList());
-            await ReloadAsync(snap.Inventory);
+            string targetSummary = verifiedOff.Count == list.Count
+                ? $"{list.Count} target(s)"
+                : $"{verifiedOff.Count} of {list.Count} target(s)";
+            ShowBulkToast($"Blocking stopped for '{sym.Title}' — {targetSummary} OFF, traffic flows ({snap.Changed}/{snap.Matched} rules)",
+                verifiedOff.Select(v => (v.Kind, v.Key, true)).ToList());
+            await ReloadAsync(string.IsNullOrEmpty(snap.FirstError) ? snap.Inventory : null);
         }
 
         // ── actions ────────────────────────────────────────────────────────
@@ -1810,7 +1864,7 @@ namespace AutoCommand.Views
             {
                 ShowBulkToast($"{(enable ? "Restore blocking" : "Stop blocking")} for '{vm.Target}' did not change any rules ({snap.Changed}/{snap.Matched})" +
                     (!string.IsNullOrEmpty(snap.FirstError) ? $" — {snap.FirstError}" : " — no matching firewall rules found"), null);
-                await ReloadAsync(snap.Inventory);
+                await ReloadAsync(string.IsNullOrEmpty(snap.FirstError) ? snap.Inventory : null);
                 return;
             }
             BlocksStore.SetStatus(vm.Record.Kind, vm.Record.Key, enable ? "on" : "off");
@@ -1819,11 +1873,11 @@ namespace AutoCommand.Views
             await Helpers.FirewallBaselineManager.ApplyToggleSnapshotAsync(snap);
             NotifyMonitorIfVisible();
 
-            if (snap.UsedFastPath && string.IsNullOrEmpty(snap.FirstError))
+            if (snap.UsedFastPath && string.IsNullOrEmpty(snap.FirstError) && snap.Changed > 0)
             {
-                // Fast path toggled deterministic v2 rules directly with zero COM
-                // enumerations — keep the optimistic UI state in place instead of
-                // forcing a full firewall rescan.
+                // Fast path toggled deterministic v2 rules directly and verified
+                // live COM Enabled read-back — keep the optimistic UI state in
+                // place instead of forcing a full firewall rescan.
                 StatusText.Text = $"synced {DateTime.Now:HH:mm:ss}" +
                     (BlocksStore.Unrecognized.Count > 0
                         ? $" · {BlocksStore.Unrecognized.Count} unrecognized line(s) preserved in blocks.txt" : "");
@@ -1832,7 +1886,7 @@ namespace AutoCommand.Views
             }
             else
             {
-                await ReloadAsync(snap.Inventory);
+                await ReloadAsync(string.IsNullOrEmpty(snap.FirstError) ? snap.Inventory : null);
             }
         }
 

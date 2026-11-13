@@ -784,6 +784,214 @@ Console.WriteLine("== 15. Consolidated FirewallConfigManager & ServiceHelper =="
     }
 }
 
+// ---------------------------------------------------------------------------
+// 16. Restore-blocking read-back verification, COM VariantBool ABI & baseline sync
+// ---------------------------------------------------------------------------
+Console.WriteLine();
+Console.WriteLine("== 16. Restore-blocking read-back, COM VariantBool ABI & baseline sync ==");
+{
+    // 16a. Pin explicit [MarshalAs(UnmanagedType.VariantBool)] on ComImport interfaces
+    var fwAsm = typeof(AutoCommand.Engines.Firewall.Com).Assembly;
+    foreach (string ifaceName in new[] { "AutoCommand.Engines.Firewall.NetFwRuleX", "AutoCommand.Engines.Firewall.NetFwRuleLegacy" })
+    {
+        var t = fwAsm.GetType(ifaceName, throwOnError: true, ignoreCase: false);
+        var getEn = t.GetMethod("get_Enabled");
+        var putEn = t.GetMethod("put_Enabled");
+        var retAttr = getEn?.ReturnParameter?.GetCustomAttributes(typeof(System.Runtime.InteropServices.MarshalAsAttribute), false)
+            .Cast<System.Runtime.InteropServices.MarshalAsAttribute>().FirstOrDefault();
+        var valAttr = putEn?.GetParameters().FirstOrDefault()?.GetCustomAttributes(typeof(System.Runtime.InteropServices.MarshalAsAttribute), false)
+            .Cast<System.Runtime.InteropServices.MarshalAsAttribute>().FirstOrDefault();
+        Check($"com-abi: {t.Name} get_Enabled/put_Enabled carry VariantBool marshaling",
+              retAttr?.Value == System.Runtime.InteropServices.UnmanagedType.VariantBool &&
+              valAttr?.Value == System.Runtime.InteropServices.UnmanagedType.VariantBool);
+    }
+
+    var naming = AutoCommand.Engines.Firewall.Naming.autocommand();
+
+    // 16b. Fast-path read-back verification when firewall silently refuses Enabled flip
+    var lockedTcp = new FakeFwRule
+    {
+        Name = "AC-BLOCK-IP 203.0.113.99 (TCP Out)",
+        Enabled = false,
+        RefuseEnableWrites = true,
+        Action = AutoCommand.Engines.Firewall.FwAction.Block
+    };
+    var lockedUdp = new FakeFwRule
+    {
+        Name = "AC-BLOCK-IP 203.0.113.99 (UDP Out)",
+        Enabled = false,
+        RefuseEnableWrites = true,
+        Action = AutoCommand.Engines.Firewall.FwAction.Block
+    };
+    var lockedColl = new FakeFwRules(new[] { lockedTcp, lockedUdp }, mode: "direct");
+    var lockedFast = AutoCommand.Engines.Firewall.FirewallService.TryToggleSingleTargetInCollection(
+        naming, lockedColl, "ip", "203.0.113.99", 2, true);
+    Check("restore-verify: fast path detects silent BFE non-persistence (Changed=0, FirstError set, RuleStates=false)",
+          lockedFast != null && lockedFast.Matched == 2 && lockedFast.Changed == 0 &&
+          !string.IsNullOrEmpty(lockedFast.FirstError) &&
+          lockedFast.RuleStates.All(rs => !rs.Item2));
+
+    // 16c. SetTargetsEnabledSnapshotAsync & SetAllBlocksEnabledSnapshotAsync never report
+    // optimistic EnabledRules>0 in Inventory when firewall kept rules disabled
+    var fakePolicy = new FakeFwPolicy2(lockedColl);
+    var svc = new AutoCommand.Engines.Firewall.FirewallService(naming, () => fakePolicy);
+    var lockedBulk = await svc.SetTargetsEnabledSnapshotAsync(
+        new[] { ("ip", "203.0.113.99") }, true, true, null);
+    Check("restore-verify: bulk snapshot Inventory keeps EnabledRules=0 when BFE refuses enable",
+          lockedBulk.Matched == 2 && lockedBulk.Changed == 0 &&
+          !string.IsNullOrEmpty(lockedBulk.FirstError) &&
+          lockedBulk.Inventory != null && lockedBulk.Inventory.Count == 1 &&
+          lockedBulk.Inventory[0].EnabledRules == 0);
+
+    var lockedFleet = await svc.SetAllBlocksEnabledSnapshotAsync(true, false, true, null);
+    Check("restore-verify: fleet snapshot Inventory keeps EnabledRules=0 when BFE refuses enable",
+          lockedFleet.Matched == 2 && lockedFleet.Changed == 0 &&
+          !string.IsNullOrEmpty(lockedFleet.FirstError) &&
+          lockedFleet.Inventory != null && lockedFleet.Inventory[0].EnabledRules == 0);
+
+    // Unlock and confirm restore flips both rules and updates Inventory EnabledRules=2
+    lockedTcp.RefuseEnableWrites = false;
+    lockedUdp.RefuseEnableWrites = false;
+    var okBulk = await svc.SetTargetsEnabledSnapshotAsync(
+        new[] { ("ip", "203.0.113.99") }, true, true, null);
+    Check("restore-verify: unlocked bulk restore flips both rules and Inventory EnabledRules=2",
+          okBulk.Matched == 2 && okBulk.Changed == 2 && string.IsNullOrEmpty(okBulk.FirstError) &&
+          okBulk.Inventory != null && okBulk.Inventory[0].EnabledRules == 2 &&
+          lockedTcp.Enabled && lockedUdp.Enabled);
+
+    // 16d. Case-preserving rule name capture on fast path + re-block re-enables paused rules
+    var mixedApp = new FakeFwRule
+    {
+        Name = "AC-BLOCK-APP Upd.exe (Out)",
+        ApplicationName = @"C:\Tools\Upd.exe",
+        Enabled = false,
+        Action = AutoCommand.Engines.Firewall.FwAction.Block
+    };
+    var mixedColl = new FakeFwRules(new[] { lockedTcp, lockedUdp, mixedApp }, mode: "direct");
+    var mixedFast = AutoCommand.Engines.Firewall.FirewallService.TryToggleSingleTargetInCollection(
+        naming, mixedColl, "proc", @"c:\tools\upd.exe", 1, true);
+    Check("restore-verify: fast path resolves lowercase store key and records actual COM r.Name casing",
+          mixedFast != null && mixedFast.Changed == 1 && mixedApp.Enabled &&
+          mixedFast.RuleStates.Count == 1 &&
+          mixedFast.RuleStates[0].Item1 == "AC-BLOCK-APP Upd.exe (Out)" &&
+          mixedFast.RuleStates[0].Item2);
+
+    // Re-blocking an existing paused rule via AddIpBlockAsync / AddAppBlockAsync re-enables it
+    lockedTcp.Enabled = false;
+    lockedUdp.Enabled = false;
+    mixedApp.Enabled = false;
+    var mixedSvc = new AutoCommand.Engines.Firewall.FirewallService(naming, () => new FakeFwPolicy2(mixedColl));
+    var (_, ipUpdated) = await mixedSvc.AddIpBlockAsync("203.0.113.99", "[blocked] refresh");
+    var (_, appUpdated) = await mixedSvc.AddAppBlockAsync(@"C:\Tools\Upd.exe", "[blocked] refresh");
+    Check("reblock-paused: AddIpBlockAsync and AddAppBlockAsync re-enable existing paused rules",
+          ipUpdated == 2 && appUpdated == 1 && lockedTcp.Enabled && lockedUdp.Enabled && mixedApp.Enabled);
+
+    // 16e. FirewallBaselineLogic case-insensitive JSON map normalization, adoption & drift check
+    var rawJsonMap = new System.Collections.Generic.Dictionary<string, bool>(StringComparer.Ordinal)
+    {
+        ["AC-BLOCK-APP Upd.exe (Out)"] = false,
+        ["Core Networking - DNS (UDP-Out)"] = true
+    };
+    var baselineRules = FirewallBaselineLogic.CreateRulesMap(rawJsonMap);
+    bool baselineDirty = FirewallBaselineLogic.ApplyOwnBlockStates(
+        baselineRules,
+        new[] { ("AC-BLOCK-APP upd.exe (Out)", true) },
+        isFullSnapshot: false);
+    var drift = FirewallBaselineLogic.EvaluateDrift(
+        baselineRules,
+        new[]
+        {
+            ("AC-BLOCK-APP Upd.exe (Out)", true, ""),
+            ("Core Networking - DNS (UDP-Out)", true, "@FirewallAPI.dll,-25000")
+        });
+    Check("baseline-sync: mixed-case fast-path adoption updates existing entry in place with zero false ReEnabled drift",
+          baselineDirty && baselineRules.Count == 2 &&
+          baselineRules.TryGetValue("AC-BLOCK-APP Upd.exe (Out)", out bool adoptedState) && adoptedState &&
+          drift.ReEnabled.Count == 0 && drift.UnexpectedlyDisabled.Count == 0 && drift.SneakedIn.Count == 0);
+
+    // Full snapshot prunes retired own-block rules while keeping non-AutoCommand baseline entries intact
+    bool pruneDirty = FirewallBaselineLogic.ApplyOwnBlockStates(
+        baselineRules,
+        Array.Empty<(string Name, bool Enabled)>(),
+        isFullSnapshot: true);
+    Check("baseline-sync: full snapshot prunes deleted own-block rules without touching Windows rules",
+          pruneDirty && baselineRules.Count == 1 && baselineRules.ContainsKey("Core Networking - DNS (UDP-Out)"));
+}
+
+// ---------------------------------------------------------------------------
+// 17. Zero-scan new-block fast path (seeded own-rule index + COM miss HResults)
+// ---------------------------------------------------------------------------
+Console.WriteLine();
+Console.WriteLine("== 17. Zero-scan new-block fast path ==");
+{
+    var naming = AutoCommand.Engines.Firewall.Naming.autocommand();
+
+    // 17a. TYPE_E_ELEMENTNOTFOUND (0x8002802B) & ERROR_NOT_FOUND (0x80070490) return null with 0 enumerations
+    var elemMissColl = new FakeFwRules(new[] { new FakeFwRule { Name = "Other" } }, mode: "com-elem-nf");
+    var elemMiss = AutoCommand.Engines.Firewall.FirewallService.FindRuleInCollection(elemMissColl, "AC-BLOCK-IP 198.51.100.1 (TCP Out)");
+    Check("find-rule: TYPE_E_ELEMENTNOTFOUND (0x8002802B) returns null with 0 COM enumerations",
+          elemMiss == null && elemMissColl.Enumerations == 0);
+
+    // 17b. Seeded own-rule index skips Rules.Item completely on brand-new IP and process blocks
+    var seededColl = new FakeFwRules(
+        new[]
+        {
+            new FakeFwRule
+            {
+                Name = "AC-BLOCK-IP 203.0.113.10 (TCP Out)",
+                Enabled = true,
+                Action = AutoCommand.Engines.Firewall.FwAction.Block
+            }
+        },
+        mode: "direct");
+    var fastSvc = new AutoCommand.Engines.Firewall.FirewallService(
+        naming,
+        () => new FakeFwPolicy2(seededColl),
+        () => new FakeFwRule());
+
+    var initInv = await fastSvc.GetBlockedInventoryAsync();
+    Check("new-block-fast: initial inventory seeds own-rule index in 1 enumeration",
+          initInv.Count == 1 && seededColl.Enumerations == 1);
+
+    int lookupsBeforeNewIp = seededColl.ItemLookups;
+    int enumsBeforeNewIp = seededColl.Enumerations;
+    var (ipCreated, ipUpdated, ipNames) = await fastSvc.AddIpBlockWithRulesAsync("198.51.100.77", "[blocked] new ip");
+    Check("new-block-fast: brand-new IP block skips Rules.Item (0 ItemLookups, 0 Enumerations) and returns 2 rule names",
+          ipCreated == 2 && ipUpdated == 0 &&
+          seededColl.ItemLookups == lookupsBeforeNewIp &&
+          seededColl.Enumerations == enumsBeforeNewIp &&
+          ipNames != null && ipNames.Length == 2 &&
+          ipNames.Contains("AC-BLOCK-IP 198.51.100.77 (TCP Out)") &&
+          ipNames.Contains("AC-BLOCK-IP 198.51.100.77 (UDP Out)"));
+
+    int lookupsBeforeNewApp = seededColl.ItemLookups;
+    int enumsBeforeNewApp = seededColl.Enumerations;
+    var (appCreated, appUpdated, appRuleName) = await fastSvc.AddAppBlockWithPathAsync(@"C:\Tools\BrandNew.exe", "[blocked] new app");
+    Check("new-block-fast: brand-new process block skips Rules.Item (0 ItemLookups, 0 Enumerations) and returns primary rule name",
+          appCreated == 1 && appUpdated == 0 &&
+          seededColl.ItemLookups == lookupsBeforeNewApp &&
+          seededColl.Enumerations == enumsBeforeNewApp &&
+          appRuleName == "AC-BLOCK-APP BrandNew.exe (Out)");
+
+    // 17c. Immediate re-block hits O(1) Item(name) and updates in place with zero duplicate rules
+    int countBeforeReblock = seededColl.Count;
+    var (reIpCreated, reIpUpdated, _) = await fastSvc.AddIpBlockWithRulesAsync("198.51.100.77", "[blocked] refresh ip");
+    var (reAppCreated, reAppUpdated, _) = await fastSvc.AddAppBlockWithPathAsync(@"C:\Tools\BrandNew.exe", "[blocked] refresh app");
+    Check("new-block-fast: immediate re-block updates existing rules in place with 0 duplicates and 0 enumerations",
+          reIpCreated == 0 && reIpUpdated == 2 &&
+          reAppCreated == 0 && reAppUpdated == 1 &&
+          seededColl.Count == countBeforeReblock &&
+          seededColl.Enumerations == enumsBeforeNewApp);
+
+    // 17d. External deletion (wf.msc) self-heals ownRuleNames and recreates missing rule cleanly
+    seededColl.Remove("AC-BLOCK-APP BrandNew.exe (Out)");
+    var (healedCreated, healedUpdated, healedName) = await fastSvc.AddAppBlockWithPathAsync(@"C:\Tools\BrandNew.exe", "[blocked] recreated");
+    Check("new-block-fast: externally deleted rule self-heals index and recreates rule cleanly",
+          healedCreated == 1 && healedUpdated == 0 &&
+          healedName == "AC-BLOCK-APP BrandNew.exe (Out)" &&
+          seededColl.Count == countBeforeReblock);
+}
+
 Console.WriteLine();
 Console.WriteLine(failures == 0 ? "ALL CONTAIN SELF-TESTS PASSED" : $"{failures} CHECK(S) FAILED");
 return failures == 0 ? 0 : 1;
@@ -791,6 +999,7 @@ return failures == 0 ? 0 : 1;
 internal sealed class FakeFwRule : AutoCommand.Engines.Firewall.INetFwRule
 {
     private bool _enabled = true;
+    public bool RefuseEnableWrites { get; set; }
     public int EnabledSetterCount { get; set; }
     public string Name { get; set; } = "";
     public string Description { get; set; } = "";
@@ -806,7 +1015,11 @@ internal sealed class FakeFwRule : AutoCommand.Engines.Firewall.INetFwRule
     public bool Enabled
     {
         get => _enabled;
-        set { _enabled = value; EnabledSetterCount++; }
+        set
+        {
+            EnabledSetterCount++;
+            if (!RefuseEnableWrites) _enabled = value;
+        }
     }
     public string Grouping { get; set; } = "";
     public int Profiles { get; set; }
@@ -815,33 +1028,52 @@ internal sealed class FakeFwRule : AutoCommand.Engines.Firewall.INetFwRule
     public AutoCommand.Engines.Firewall.FwAction Action { get; set; }
 }
 
+internal sealed class FakeFwPolicy2 : AutoCommand.Engines.Firewall.INetFwPolicy2
+{
+    private readonly AutoCommand.Engines.Firewall.INetFwRules _rules;
+    public FakeFwPolicy2(AutoCommand.Engines.Firewall.INetFwRules rules) => _rules = rules;
+    public int CurrentProfileTypes => 0x7FF;
+    public AutoCommand.Engines.Firewall.INetFwRules Rules => _rules;
+    public void RestoreLocalFirewallDefaults() { }
+}
+
 internal sealed class FakeFwRules : AutoCommand.Engines.Firewall.INetFwRules
 {
-    private readonly System.Collections.Generic.IReadOnlyList<AutoCommand.Engines.Firewall.INetFwRule> _rules;
+    private readonly System.Collections.Generic.List<AutoCommand.Engines.Firewall.INetFwRule> _rules;
     private readonly string _mode;
     public int Enumerations { get; private set; }
     public int ElementsYielded { get; private set; }
+    public int ItemLookups { get; private set; }
 
     public FakeFwRules(System.Collections.Generic.IReadOnlyList<AutoCommand.Engines.Firewall.INetFwRule> rules, string mode)
     {
-        _rules = rules;
+        _rules = new System.Collections.Generic.List<AutoCommand.Engines.Firewall.INetFwRule>(rules);
         _mode = mode;
     }
 
     public int Count => _rules.Count;
-    public void Add(AutoCommand.Engines.Firewall.INetFwRule rule) { }
-    public void Remove(string name) { }
+    public void Add(AutoCommand.Engines.Firewall.INetFwRule rule)
+    {
+        if (rule != null) _rules.Add(rule);
+    }
+    public void Remove(string name)
+    {
+        _rules.RemoveAll(r => string.Equals(r.Name, name, StringComparison.OrdinalIgnoreCase));
+    }
 
     public AutoCommand.Engines.Firewall.INetFwRule this[string name]
     {
         get
         {
+            ItemLookups++;
             return _mode switch
             {
                 "fnf" => throw new FileNotFoundException(),
                 "com-fnf" => throw new System.Runtime.InteropServices.COMException("Not found", unchecked((int)0x80070002)),
+                "com-elem-nf" => throw new System.Runtime.InteropServices.COMException("Element not found", unchecked((int)0x8002802B)),
                 "com-other" => throw new System.Runtime.InteropServices.COMException("Provider quirk", unchecked((int)0x80004005)),
-                _ => _rules.FirstOrDefault(r => r.Name == name) ?? throw new FileNotFoundException()
+                _ => _rules.FirstOrDefault(r => string.Equals(r.Name, name, StringComparison.OrdinalIgnoreCase))
+                     ?? throw new FileNotFoundException()
             };
         }
     }
