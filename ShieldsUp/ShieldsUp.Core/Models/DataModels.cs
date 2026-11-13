@@ -1,14 +1,5 @@
 namespace ShieldsUp.Core.Models
 {
-    public class ScheduledTaskItem
-    {
-        public string TaskName { get; set; }
-        public string TaskPath { get; set; }
-        public string State { get; set; }
-        public string Action { get; set; }
-        public string User { get; set; }
-    }
-
     public class NetworkAdapterItem
     {
         public string Name { get; set; }

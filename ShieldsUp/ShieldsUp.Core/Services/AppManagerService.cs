@@ -395,7 +395,7 @@ namespace ShieldsUp.Core.Services
                 {
                     string oneDriveExe = System.IO.Path.Combine(item.InstallLocation, "OneDrive.exe");
                     if (IsTrustedOneDriveBinary(oneDriveExe, "OneDrive.exe"))
-                        await Task.Run(() => Helpers.ProcessRunner.Run(oneDriveExe, "/shutdown"))
+                        await Task.Run(() => ProcessRunner.Run(oneDriveExe, "/shutdown"))
                                  .WaitAsync(TimeSpan.FromSeconds(10));
                 }
                 catch { }
@@ -404,13 +404,13 @@ namespace ShieldsUp.Core.Services
                 string uninstaller = LocateOneDriveUninstaller(item.InstallLocation);
                 if (uninstaller != null)
                 {
-                    var (_, _, exitCode) = await Helpers.ProcessRunner.RunWithDetailsAsync(uninstaller, "/uninstall");
+                    var (_, _, exitCode) = await ProcessRunner.RunWithDetailsAsync(uninstaller, "/uninstall");
                     success = exitCode == 0;
                 }
 
                 if (!success)
                 {
-                    var (_, _, wingetCode) = await Helpers.ProcessRunner.RunWithDetailsAsync(
+                    var (_, _, wingetCode) = await ProcessRunner.RunWithDetailsAsync(
                         "winget", "uninstall --id Microsoft.OneDrive --silent --disable-interactivity");
                     success = wingetCode == 0;
                 }

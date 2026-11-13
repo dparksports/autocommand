@@ -399,7 +399,7 @@ namespace AutoCommand
                 if (Helpers.FirewallBaselineManager.PausedUntilUtc > DateTime.UtcNow)
                     return;
 
-                var overrides = Helpers.FirewallConfigManager.Instance.RuleOverrides;
+                var overrides = FirewallConfigManager.Instance.RuleOverrides;
                 if (overrides.Count > 0)
                 {
                     var driftItems = await FirewallService.Instance.CheckDriftAsync(overrides);
@@ -527,8 +527,8 @@ namespace AutoCommand
 
                 if (AutoMitigateAdapters)
                 {
-                    Helpers.ServiceHelper.StopAndDisable("SstpSvc");
-                    Helpers.WanMiniportRemover.SetSstpMiniportsEnabled(false);
+                    ServiceHelper.StopAndDisable("SstpSvc");
+                    WanMiniportRemover.SetSstpMiniportsEnabled(false);
 
                     if (DateTime.UtcNow - _lastSstpDriftAlertUtc >= DriftAlertDebounce)
                     {
@@ -580,7 +580,7 @@ namespace AutoCommand
 
             try
             {
-                var listed = Helpers.WanMiniportRemover.ListSstpMiniports();
+                var listed = WanMiniportRemover.ListSstpMiniports();
                 state.SstpMiniportsPresent =
                     listed.Count > 0 && !listed[0].StartsWith("Failed", StringComparison.Ordinal);
             }
@@ -637,7 +637,7 @@ namespace AutoCommand
                     if (debugOn)
                         ProcessRunner.RunDetached("bcdedit", "/debug off");
                     if (kdnicActive)
-                        Helpers.WanMiniportRemover.RemoveKdnet();
+                        WanMiniportRemover.RemoveKdnet();
 
                     if (DateTime.UtcNow - _lastKdnetDriftAlertUtc >= DriftAlertDebounce)
                     {
@@ -760,15 +760,15 @@ namespace AutoCommand
                     if (isSstp)
                     {
                         // Stop the RAS/SSTP service first
-                        Helpers.ServiceHelper.StopAndDisable("SstpSvc");
+                        ServiceHelper.StopAndDisable("SstpSvc");
                         // Use native SetupAPI via WanMiniportRemover (more reliable than pnputil)
-                        var results = Helpers.WanMiniportRemover.RemoveSstpMiniports();
+                        var results = WanMiniportRemover.RemoveSstpMiniports();
                         foreach (var r in results)
                             Debug.WriteLine($"MitigateAdapter (SSTP): {r}");
                     }
                     else if (isKdnic)
                     {
-                        var results = Helpers.WanMiniportRemover.RemoveKdnet();
+                        var results = WanMiniportRemover.RemoveKdnet();
                         foreach (var r in results)
                             Debug.WriteLine($"MitigateAdapter (KDNET): {r}");
                     }

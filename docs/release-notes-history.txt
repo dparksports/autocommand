@@ -17,6 +17,26 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.12.2 (2026-11-12)
+================================================================================
+
+# v2026.11.12.2 — Three-tier codebase pruning, core consolidation & firewall/service state fixes
+
+## Shared-core consolidation & bug fixes
+
+Duplicate services and helpers across the WPF host (`AutoCommand`), `ShieldsUp.Core`, `AutoCommand.Forensics.Core`, and `AutoCommand.Contain.Core` have been unified into single authoritative implementations inside `AutoCommand.Contain.Core` and `AutoCommand.NetWatch.Core`, resolving two silent runtime defects uncovered during the audit:
+
+- **Unified `FirewallConfigManager` (Eliminates Split-Brain Overrides)**: Consolidated the host and `ShieldsUp.Core` copies into `AutoCommand.Contain.Core.FirewallConfigManager`. `SetOverride` always performs reload-merge-write on disk and synchronizes `FirewallConfigManager.Instance.RuleOverrides` in memory when targeting the default `firewall_config.json` path, so `SecurityEnforcer` sees rule overrides written from any surface immediately without requiring a restart.
+- **Unified `ServiceHelper` (`NullReferenceException` Fix & Legacy Backup Carry-Over)**: Consolidated both `ServiceHelper` implementations into `AutoCommand.Contain.Core.ServiceHelper`, fixing a `NullReferenceException` in `EnableAndStart` when no pre-disable start mode was recorded (`ResolveRestoreStartType(null)` now safely restores `SERVICE_DEMAND_START`) and reading legacy `%ProgramData%\ShieldsUp\service_start_backup.txt` entries alongside `%ProgramData%\AutoCommand\service_start_backup.txt`.
+- **Authenticode Signer Verification for OneDrive Removal in `ShieldsUp.Core`**: Ported `IsTrustedOneDriveBinary` / `IsMicrosoftSigned` into `ShieldsUp.Core.Services.AppManagerService` so elevated OneDrive shutdown and uninstall paths resolved from user-writable `HKCU` or `%LOCALAPPDATA%` locations verify a trusted Microsoft Corporation Authenticode chain before execution.
+- **Unified `TaskSchedulerService`, `WanMiniportRemover`, `FirewallProfileService` & `ProcessRunner`**: Consolidated `TaskSchedulerService` (preserving the `\Microsoft\Windows\` trailing-slash classification fix and `GetTaskStateText`), `ScheduledTaskItem`, `WanMiniportRemover` (including `ListSstpMiniports()`), `FirewallProfileService`, and `ProcessRunner` (preserving synchronous `pnputil.exe` adapter toggling in `PrivacyService`).
+
+## Codebase pruning & CI gate coverage
+
+- **Removed Unreferenced Legacy Subtrees & Dead Code (~24,700+ Lines Removed)**: Pruned the unreferenced `systemmonitor/` legacy prototype tree, standalone CLI wrappers (`OneSettingsCadence/Program.cs`, `svchost-watch/SvchostAnalyzer`), `tests/ScratchTest/`, unused image assets, and 16 unreachable classes/files and dead methods across `AutoCommand`, `Contain.Core`, `ShieldsUp.Core`, and `Engines.Firewall`.
+- **CI Suite Coverage**: Wired `WatchSelfTest` into both `.github/workflows/ci.yml` and `scripts/local-ci.ps1`, and added `ContainSelfTest` Section 15 assertions covering `FirewallConfigManager` singleton coherence, `ServiceHelper` null-safe start-type resolution, and legacy service-backup fallback.
+
+================================================================================
 v2026.11.12.1 (2026-11-12)
 ================================================================================
 

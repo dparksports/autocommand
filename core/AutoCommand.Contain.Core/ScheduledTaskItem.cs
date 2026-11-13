@@ -1,10 +1,8 @@
 namespace AutoCommand.Models
 {
     /// <summary>
-    /// One row of the scheduled-tasks list (TaskHostw Spawns attribution).
-    /// Extracted from Models\DataModels.cs in the phase 4 Forensics
-    /// extraction because TaskSchedulerService — which builds these rows —
-    /// now lives in that core.
+    /// One row of the scheduled-tasks list, shared across Forensics,
+    /// Shields Up, and Agent tools via Contain.Core.
     /// </summary>
     public class ScheduledTaskItem
     {

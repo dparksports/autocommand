@@ -1,18 +1,14 @@
 using System;
 using System.Collections.Generic;
+using System.Diagnostics;
 using System.IO;
 using System.Linq;
 using System.Runtime.InteropServices;
 using System.ServiceProcess;
-using System.Diagnostics;
-
-using AutoCommand.Agent.Core;
-using AutoCommand.Contain.Core;
-using AutoCommand.Forensics.Core;
+using AutoCommand.Helpers;
 using AutoCommand.NetWatch.Core;
-using AutoCommand.Sitedoctor.Core;
 
-namespace AutoCommand.Helpers
+namespace AutoCommand.Contain.Core
 {
     /// <summary>
     /// Native service management — replaces PowerShell Set-Service -StartupType.
@@ -23,7 +19,6 @@ namespace AutoCommand.Helpers
         private const uint SERVICE_NO_CHANGE = 0xFFFFFFFF;
         private const uint SC_MANAGER_ALL_ACCESS = 0xF003F;
         private const uint SERVICE_CHANGE_CONFIG = 0x0002;
-        private const uint SERVICE_QUERY_CONFIG = 0x0001;
 
         // Start types
         public const uint SERVICE_AUTO_START = 2;
@@ -108,13 +103,18 @@ namespace AutoCommand.Helpers
             }
             catch { }
             string before = GetStartMode(serviceName);
-            if (before.Equals("Auto", StringComparison.OrdinalIgnoreCase)
-                || before.Equals("Manual", StringComparison.OrdinalIgnoreCase))
+            if (string.Equals(before, "Auto", StringComparison.OrdinalIgnoreCase)
+                || string.Equals(before, "Manual", StringComparison.OrdinalIgnoreCase))
             {
                 RecordStartType(serviceName, before);
             }
             SetStartupType(serviceName, SERVICE_DISABLED);
         }
+
+        internal static uint ResolveRestoreStartType(string recorded) =>
+            string.Equals(recorded, "Auto", StringComparison.OrdinalIgnoreCase)
+                ? SERVICE_AUTO_START
+                : SERVICE_DEMAND_START;
 
         /// <summary>
         /// Re-enable and start a service, restoring the start type it had
@@ -124,9 +124,7 @@ namespace AutoCommand.Helpers
         public static void EnableAndStart(string serviceName)
         {
             string restore = TakeRecordedStartType(serviceName);
-            uint startType = restore.Equals("Auto", StringComparison.OrdinalIgnoreCase)
-                ? SERVICE_AUTO_START
-                : SERVICE_DEMAND_START;
+            uint startType = ResolveRestoreStartType(restore);
             SetStartupType(serviceName, startType);
             try
             {
@@ -146,6 +144,10 @@ namespace AutoCommand.Helpers
         private static string BackupPath => Path.Combine(
             ProgramDataGuard.Root, "service_start_backup.txt");
 
+        private static string LegacyShieldsUpBackupPath => Path.Combine(
+            Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+            "ShieldsUp", "service_start_backup.txt");
+
         private static readonly object BackupLock = new();
 
         private static void RecordStartType(string serviceName, string startMode)
@@ -154,7 +156,7 @@ namespace AutoCommand.Helpers
             {
                 try
                 {
-                    var map = ReadBackupMap();
+                    var map = ReadBackupMapFromPaths(BackupPath, LegacyShieldsUpBackupPath);
                     // First disable wins: a double disable must not overwrite
                     // the true pre-disable state with the intermediate one.
                     if (map.ContainsKey(serviceName)) return;
@@ -172,9 +174,10 @@ namespace AutoCommand.Helpers
             {
                 try
                 {
-                    var map = ReadBackupMap();
+                    var map = ReadBackupMapFromPaths(BackupPath, LegacyShieldsUpBackupPath);
                     if (!map.TryGetValue(serviceName, out string mode)) return null;
                     map.Remove(serviceName);
+                    Directory.CreateDirectory(ProgramDataGuard.Root);
                     File.WriteAllLines(BackupPath, map.Select(kv => kv.Key + "=" + kv.Value));
                     return mode;
                 }
@@ -185,14 +188,21 @@ namespace AutoCommand.Helpers
             }
         }
 
-        private static Dictionary<string, string> ReadBackupMap()
+        internal static Dictionary<string, string> ReadBackupMapFromPaths(string primaryPath, string legacyPath)
         {
             var map = new Dictionary<string, string>(StringComparer.OrdinalIgnoreCase);
+            LoadLinesInto(legacyPath, map);
+            LoadLinesInto(primaryPath, map);
+            return map;
+        }
+
+        private static void LoadLinesInto(string path, Dictionary<string, string> map)
+        {
             try
             {
-                if (File.Exists(BackupPath))
+                if (!string.IsNullOrEmpty(path) && File.Exists(path))
                 {
-                    foreach (var line in File.ReadAllLines(BackupPath))
+                    foreach (var line in File.ReadAllLines(path))
                     {
                         int eq = line.IndexOf('=');
                         if (eq > 0 && line.Length > eq + 1)
@@ -201,7 +211,6 @@ namespace AutoCommand.Helpers
                 }
             }
             catch { }
-            return map;
         }
 
         /// <summary>
@@ -224,4 +233,3 @@ namespace AutoCommand.Helpers
         }
     }
 }
-

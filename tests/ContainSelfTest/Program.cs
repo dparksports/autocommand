@@ -728,6 +728,62 @@ Check("guard: empty subject allowed (nothing to mistake)",
           $"name={procName}, started={startedUtc}, ms={sw.ElapsedMilliseconds}");
 }
 
+// ---------------------------------------------------------------------------
+// 15. Consolidated FirewallConfigManager coherence & ServiceHelper NRE guard
+// ---------------------------------------------------------------------------
+Console.WriteLine();
+Console.WriteLine("== 15. Consolidated FirewallConfigManager & ServiceHelper ==");
+{
+    var tempDir = Path.Combine(Path.GetTempPath(), "ac-contain-tier3-" + Guid.NewGuid().ToString("N")[..8]);
+    Directory.CreateDirectory(tempDir);
+    var prevDefault = FirewallConfigManager.DefaultConfigPath;
+    try
+    {
+        string sharedCfg = Path.Combine(tempDir, "firewall_config.json");
+        FirewallConfigManager.DefaultConfigPath = sharedCfg;
+        FirewallConfigManager.Instance.Load();
+
+        var writerA = new FirewallConfigManager();
+        writerA.SetOverride("Rule Alpha", false);
+        var writerB = new FirewallConfigManager();
+        writerB.SetOverride("Rule Beta", true);
+
+        Check("fw-config: singleton Instance.RuleOverrides reflects non-singleton SetOverride immediately",
+              FirewallConfigManager.Instance.GetOverride("Rule Alpha") == "False" &&
+              FirewallConfigManager.Instance.GetOverride("Rule Beta") == "True");
+
+        // Explicit isolated path does not pollute singleton Instance
+        string isolatedCfg = Path.Combine(tempDir, "other_config.json");
+        var isolated = new FirewallConfigManager(isolatedCfg);
+        isolated.SetOverride("Rule Isolated", true);
+        Check("fw-config: explicit configPath stays isolated from default Instance",
+              FirewallConfigManager.Instance.GetOverride("Rule Isolated") == null);
+
+        // ServiceHelper null-safe start-type resolution (prevents NRE when no backup record exists)
+        Check("svc-helper: null recorded start type resolves safely to SERVICE_DEMAND_START",
+              ServiceHelper.ResolveRestoreStartType(null) == ServiceHelper.SERVICE_DEMAND_START &&
+              ServiceHelper.ResolveRestoreStartType("Manual") == ServiceHelper.SERVICE_DEMAND_START &&
+              ServiceHelper.ResolveRestoreStartType("Auto") == ServiceHelper.SERVICE_AUTO_START &&
+              ServiceHelper.ResolveRestoreStartType("auto") == ServiceHelper.SERVICE_AUTO_START);
+
+        // Legacy ShieldsUp backup fallback + primary ProgramData precedence
+        string legacyBackup = Path.Combine(tempDir, "legacy_backup.txt");
+        string primaryBackup = Path.Combine(tempDir, "primary_backup.txt");
+        File.WriteAllLines(legacyBackup, new[] { "RasMan=Auto", "IKEEXT=Manual" });
+        File.WriteAllLines(primaryBackup, new[] { "IKEEXT=Auto" });
+        var mergedMap = ServiceHelper.ReadBackupMapFromPaths(primaryBackup, legacyBackup);
+        Check("svc-helper: legacy backup seeds missing keys while primary backup wins",
+              mergedMap.TryGetValue("RasMan", out var ras) && ras == "Auto" &&
+              mergedMap.TryGetValue("IKEEXT", out var ike) && ike == "Auto");
+    }
+    finally
+    {
+        FirewallConfigManager.DefaultConfigPath = prevDefault;
+        FirewallConfigManager.Instance.Load();
+        try { Directory.Delete(tempDir, recursive: true); } catch { }
+    }
+}
+
 Console.WriteLine();
 Console.WriteLine(failures == 0 ? "ALL CONTAIN SELF-TESTS PASSED" : $"{failures} CHECK(S) FAILED");
 return failures == 0 ? 0 : 1;

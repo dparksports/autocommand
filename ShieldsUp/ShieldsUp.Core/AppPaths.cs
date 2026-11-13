@@ -21,7 +21,12 @@ public static class AppPaths
     /// match by design, so firewall_config.json becomes one desired-state
     /// store both apps' enforcers read.
     /// </summary>
-    public static void Configure(string dataRoot) => DataRoot = dataRoot;
+    public static void Configure(string dataRoot)
+    {
+        DataRoot = dataRoot;
+        AutoCommand.Contain.Core.FirewallConfigManager.DefaultConfigPath = FirewallConfigPath;
+        AutoCommand.Contain.Core.FirewallConfigManager.Instance.Load();
+    }
 
     public static string BloatwareConfigPath => Path.Combine(DataRoot, "bloatware_config.json");
     public static string FirewallConfigPath => Path.Combine(DataRoot, "firewall_config.json");

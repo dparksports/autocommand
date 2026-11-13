@@ -75,7 +75,7 @@ public static class PrivacyService
                 string deviceId = obj["PNPDeviceID"]?.ToString();
                 if (!string.IsNullOrEmpty(deviceId))
                 {
-                    ProcessRunner.RunDetached("pnputil.exe", $"/{(enabled ? "enable" : "disable")}-device \"{deviceId}\"");
+                    ProcessRunner.Run("pnputil.exe", $"/{(enabled ? "enable" : "disable")}-device \"{deviceId}\"");
                     acted++;
                 }
             }

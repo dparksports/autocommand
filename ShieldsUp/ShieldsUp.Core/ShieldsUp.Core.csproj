@@ -30,6 +30,12 @@
   <ItemGroup>
     <!-- engine types under the names this core's call sites already use -->
     <Using Include="FirewallService = AutoCommand.Contain.Core.FirewallService" />
+    <Using Include="FirewallConfigManager = AutoCommand.Contain.Core.FirewallConfigManager" />
+    <Using Include="ServiceHelper = AutoCommand.Contain.Core.ServiceHelper" />
+    <Using Include="WanMiniportRemover = AutoCommand.Contain.Core.WanMiniportRemover" />
+    <Using Include="ProcessRunner = AutoCommand.NetWatch.Core.ProcessRunner" />
+    <Using Include="ScheduledTaskItem = AutoCommand.Models.ScheduledTaskItem" />
+    <Using Include="TaskSchedulerService = AutoCommand.Forensics.Core.TaskSchedulerService" />
     <Using Include="GroupToggleResult = AutoCommand.Engines.Firewall.GroupToggleResult" />
     <Using Include="FleetToggleResult = AutoCommand.Engines.Firewall.FleetToggleResult" />
   </ItemGroup>

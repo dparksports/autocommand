@@ -1,19 +1,12 @@
 using System;
 using System.Collections.Generic;
 using System.Runtime.InteropServices;
-using System.Diagnostics;
 
-using AutoCommand.Agent.Core;
-using AutoCommand.Contain.Core;
-using AutoCommand.Forensics.Core;
-using AutoCommand.NetWatch.Core;
-using AutoCommand.Sitedoctor.Core;
-
-namespace AutoCommand.Helpers
+namespace AutoCommand.Contain.Core
 {
     /// <summary>
-    /// Native device removal using SetupAPI P/Invoke.
-    /// Ported from DeviceMonitorCS — removes WAN Miniports, WiFi Direct, KDNET adapters.
+    /// Native device removal and enumeration using SetupAPI P/Invoke —
+    /// manages WAN Miniports, WiFi Direct, and KDNET adapters.
     /// </summary>
     public static class WanMiniportRemover
     {
@@ -141,7 +134,6 @@ namespace AutoCommand.Helpers
                             }
                             else
                             {
-                                // Enable / Disable using DIF_PROPERTYCHANGE
                                 var propParams = new SP_PROPCHANGE_PARAMS
                                 {
                                     ClassInstallHeader = new SP_CLASSINSTALL_HEADER
@@ -222,4 +214,3 @@ namespace AutoCommand.Helpers
         }
     }
 }
-

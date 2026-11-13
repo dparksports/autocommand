@@ -5,14 +5,15 @@ using System.Linq;
 using System.Text;
 using System.Threading.Tasks;
 using System.Xml.Linq;
-using ShieldsUp.Core.Models;
+using AutoCommand.Models;
 
-namespace ShieldsUp.Core.Services
+namespace AutoCommand.Forensics.Core
 {
     /// <summary>
     /// Native Task Scheduler management via COM (taskschd.dll).
-    /// Replaces all schtasks.exe calls and PowerShell Enable/Disable-ScheduledTask.
-    /// Uses dynamic COM — no COM reference DLL needed.
+    /// Replaces schtasks.exe calls and PowerShell Enable/Disable-ScheduledTask.
+    /// Hosted in Contain.Core so both Forensics.Core and ShieldsUp.Core share
+    /// a single implementation.
     /// </summary>
     public class TaskSchedulerService
     {
@@ -64,13 +65,12 @@ namespace ShieldsUp.Core.Services
                         string fullPath = (string)task.Path;
                         string name = task.Name;
                         string folderPath = "\\";
-                        
+
                         int lastSlash = fullPath.LastIndexOf('\\');
                         if (lastSlash > 0)
                         {
                             folderPath = fullPath.Substring(0, lastSlash);
-                            // Simplify Microsoft\Windows paths
-                            // trailing slash: \Microsoft\WindowsCE is a DIFFERENT
+                            // Trailing slash: \Microsoft\WindowsCE is a DIFFERENT
                             // folder and must not be treated as the Windows folder
                             if (folderPath.StartsWith(@"\Microsoft\Windows\", StringComparison.OrdinalIgnoreCase))
                             {
@@ -84,7 +84,6 @@ namespace ShieldsUp.Core.Services
                             folderPath = "\\";
                         }
 
-                        // Get action info
                         string actionStr = "";
                         try
                         {
@@ -98,7 +97,6 @@ namespace ShieldsUp.Core.Services
                         }
                         catch { }
 
-                        // Get user info
                         string user = "";
                         try
                         {
@@ -129,7 +127,6 @@ namespace ShieldsUp.Core.Services
                     catch { }
                 }
 
-                // Recurse subfolders
                 dynamic subFolders = folder.GetFolders(0);
                 foreach (dynamic sub in subFolders)
                 {
@@ -142,9 +139,6 @@ namespace ShieldsUp.Core.Services
             }
         }
 
-        /// <summary>
-        /// Enable or disable a task.
-        /// </summary>
         public Task SetTaskEnabledAsync(string taskPath, bool enabled)
         {
             return Task.Run(() =>
@@ -164,9 +158,6 @@ namespace ShieldsUp.Core.Services
             });
         }
 
-        /// <summary>
-        /// Run a task.
-        /// </summary>
         public Task RunTaskAsync(string taskPath)
         {
             return Task.Run(() =>
@@ -186,9 +177,6 @@ namespace ShieldsUp.Core.Services
             });
         }
 
-        /// <summary>
-        /// Stop a running task.
-        /// </summary>
         public Task StopTaskAsync(string taskPath)
         {
             return Task.Run(() =>
@@ -208,9 +196,6 @@ namespace ShieldsUp.Core.Services
             });
         }
 
-        /// <summary>
-        /// Delete a task.
-        /// </summary>
         public Task DeleteTaskAsync(string taskPath)
         {
             return Task.Run(() =>
@@ -218,7 +203,6 @@ namespace ShieldsUp.Core.Services
                 try
                 {
                     dynamic ts = GetService();
-                    // Get the parent folder
                     int lastSlash = taskPath.LastIndexOf('\\');
                     string folderPath = lastSlash > 0 ? taskPath.Substring(0, lastSlash) : "\\";
                     string taskName = taskPath.Substring(lastSlash + 1);
@@ -234,9 +218,6 @@ namespace ShieldsUp.Core.Services
             });
         }
 
-        /// <summary>
-        /// Check if a specific task is enabled (for privacy toggle).
-        /// </summary>
         public bool IsTaskEnabled(string taskPath)
         {
             try
@@ -254,9 +235,7 @@ namespace ShieldsUp.Core.Services
 
         /// <summary>
         /// Task state as display text ("Disabled", "Ready", "Running", ...),
-        /// or null when the task is not registered. IsTaskEnabled deliberately
-        /// folds a missing task into false; door code needs the distinction
-        /// between "disabled" and "not present on this build".
+        /// or null when the task is not registered.
         /// </summary>
         public string GetTaskStateText(string taskPath)
         {
@@ -280,10 +259,6 @@ namespace ShieldsUp.Core.Services
             }
         }
 
-        /// <summary>
-        /// Compact human-readable summary of a task (run times, principal,
-        /// author, actions, triggers) for the Process Monitor attribution popup.
-        /// </summary>
         public Task<(string Summary, string Error)> GetTaskSummaryAsync(string taskPath)
         {
             return Task.Run<(string, string)>(() =>
@@ -356,4 +331,3 @@ namespace ShieldsUp.Core.Services
         }
     }
 }
-

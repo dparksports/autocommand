@@ -100,8 +100,8 @@ public static class QuickScanService
                         Description = "Disables every grouped firewall rule, then re-enables only the whitelists (mDNS, Core Networking).",
                         Apply = async progress =>
                         {
-                            var result = await FirewallProfileService.Instance.ApplyProfile(
-                                FirewallProfileService.ProfileType.ShieldUp, progress);
+                            var result = await AutoCommand.Contain.Core.FirewallProfileService.Instance.ApplyProfile(
+                                AutoCommand.Contain.Core.FirewallProfileService.ProfileType.ShieldsUpMdns, progress);
                             return (true, $"Applied — {result.TotalChanged} rule(s) changed, {result.TotalFailed} failed");
                         },
                         Verify = async () =>

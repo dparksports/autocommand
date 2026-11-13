@@ -6,16 +6,8 @@ using System.Security.Principal;
 namespace AutoCommand.Helpers
 {
     /// <summary>
-    /// Owns the shared %ProgramData%\AutoCommand root. The elevated app reads
-    /// security-relevant desired state from files here (firewall baseline and
-    /// config, bloatware list), so the root must not be writable by standard
-    /// users: a freshly created ProgramData folder inherits an
-    /// "Authenticated Users: Modify" ACE, which would let any non-elevated
-    /// process rewrite the baseline the 60-second drift enforcer then
-    /// enforces on its behalf. Mirrors the allow-list ledger's hardening, but
-    /// with inheritable rules so files created later inside the root are
-    /// covered too. One-shot and best-effort — failures never block callers;
-    /// the app runs elevated and keeps write access either way.
+    /// Owns the shared %ProgramData%\AutoCommand root, created and ACL-hardened
+    /// (Administrators + SYSTEM FullControl, Users ReadAndExecute) on first access.
     /// </summary>
     public static class ProgramDataGuard
     {
@@ -47,10 +39,6 @@ namespace AutoCommand.Helpers
                 var info = new DirectoryInfo(_root);
                 var security = info.GetAccessControl();
 
-                // Drop the inherited Users-write ACE. The replacement rules
-                // are inheritable, so the hardening covers files that already
-                // exist under the root (their inherited ACEs mirror the new
-                // parent set) as well as future ones — not just the folder.
                 security.SetAccessRuleProtection(true, false);
                 var sidAdmins = new SecurityIdentifier(WellKnownSidType.BuiltinAdministratorsSid, null);
                 var sidSystem = new SecurityIdentifier(WellKnownSidType.LocalSystemSid, null);
