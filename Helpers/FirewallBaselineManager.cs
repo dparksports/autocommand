@@ -75,6 +75,63 @@ namespace AutoCommand.Helpers
         }
 
         /// <summary>
+        /// Applies post-toggle rule states captured during a single-pass firewall
+        /// toggle directly into the cached baseline with ZERO extra COM scans.
+        /// Updates in-memory state immediately so SecurityEnforcer sees it at once,
+        /// and persists firewall_baseline.json off the UI thread.
+        /// </summary>
+        public static Task ApplyToggleSnapshotAsync(AutoCommand.Engines.Firewall.TargetToggleSnapshot snap)
+        {
+            if (snap == null || snap.RuleStates == null || snap.RuleStates.Count == 0)
+                return Task.CompletedTask;
+            if (GetCachedBaseline() == null) return Task.CompletedTask;
+
+            return Task.Run(() => ApplyBlockRuleStatesCore(snap.RuleStates, snap.IsFullSnapshot));
+        }
+
+        private static void ApplyBlockRuleStatesCore(
+            IEnumerable<(string Name, bool Enabled)> liveStates,
+            bool isFullSnapshot)
+        {
+            var b = GetCachedBaseline();
+            if (b == null) return;
+            lock (_gate)
+            {
+                bool dirty = false;
+                HashSet<string> liveNames = isFullSnapshot
+                    ? new HashSet<string>(StringComparer.Ordinal)
+                    : null;
+
+                foreach (var (name, enabled) in liveStates)
+                {
+                    if (string.IsNullOrEmpty(name) || !IsOwnBlockRuleName(name)) continue;
+                    liveNames?.Add(name);
+                    if (!b.Rules.TryGetValue(name, out bool prev) || prev != enabled)
+                    {
+                        b.Rules[name] = enabled;
+                        dirty = true;
+                    }
+                }
+
+                if (isFullSnapshot)
+                {
+                    // Prune deleted/retired AutoCommand block rules so permanent
+                    // unblocks, legacy consolidation and dedup keep baseline clean.
+                    var staleOwn = b.Rules.Keys
+                        .Where(k => IsOwnBlockRuleName(k) && !liveNames.Contains(k))
+                        .ToList();
+                    foreach (string gone in staleOwn)
+                    {
+                        b.Rules.Remove(gone);
+                        dirty = true;
+                    }
+                }
+
+                if (dirty) SaveBaseline(b);
+            }
+        }
+
+        /// <summary>
         /// Adopts the current live Enabled state of all AutoCommand block rules into
         /// the baseline (no-op when no baseline exists). Prevents SecurityEnforcer's
         /// 60s drift check from reverting intentional block pauses or restores made
@@ -85,8 +142,7 @@ namespace AutoCommand.Helpers
             if (GetCachedBaseline() == null) return Task.CompletedTask;
             return Task.Run(() =>
             {
-                var b = GetCachedBaseline();
-                if (b == null) return;
+                if (GetCachedBaseline() == null) return;
                 try
                 {
                     var liveStates = new List<(string Name, bool Enabled)>();
@@ -101,33 +157,7 @@ namespace AutoCommand.Helpers
                         }
                         catch { }
                     }
-                    lock (_gate)
-                    {
-                        bool dirty = false;
-                        var liveNames = new HashSet<string>(StringComparer.Ordinal);
-                        foreach (var (name, enabled) in liveStates)
-                        {
-                            liveNames.Add(name);
-                            if (!b.Rules.TryGetValue(name, out bool prev) || prev != enabled)
-                            {
-                                b.Rules[name] = enabled;
-                                dirty = true;
-                            }
-                        }
-
-                        // Prune deleted/retired AutoCommand block rules so permanent
-                        // unblocks, legacy consolidation and dedup keep baseline clean.
-                        var staleOwn = b.Rules.Keys
-                            .Where(k => IsOwnBlockRuleName(k) && !liveNames.Contains(k))
-                            .ToList();
-                        foreach (string gone in staleOwn)
-                        {
-                            b.Rules.Remove(gone);
-                            dirty = true;
-                        }
-
-                        if (dirty) SaveBaseline(b);
-                    }
+                    ApplyBlockRuleStatesCore(liveStates, isFullSnapshot: true);
                 }
                 catch (Exception ex)
                 {

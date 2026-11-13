@@ -65,6 +65,23 @@ type FleetToggleResult() =
     member val SkippedRisky: int = 0 with get, set
     member val FirstError: string = null with get, set
 
+/// <summary>
+/// Single-pass toggle outcome: rule match/flip counts plus the live inventory
+/// and per-rule Enabled states captured in the same COM walk (or just the
+/// probed rules when an O(1) direct-lookup fast path handled the toggle).
+/// Eliminates the 3 redundant post-toggle firewall enumerations.
+/// </summary>
+[<AllowNullLiteral>]
+type TargetToggleSnapshot() =
+    member val Matched: int = 0 with get, set
+    member val Changed: int = 0 with get, set
+    member val SkippedRisky: int = 0 with get, set
+    member val FirstError: string = null with get, set
+    member val UsedFastPath: bool = false with get, set
+    member val IsFullSnapshot: bool = false with get, set
+    member val Inventory: ResizeArray<BlockedTarget> = null with get, set
+    member val RuleStates: ResizeArray<struct (string * bool)> = ResizeArray<struct (string * bool)>() with get
+
 /// <summary>Recent DROP hit from pfirewall.log, aggregated per destination.</summary>
 type FirewallLogHit() =
     member val Count: int = 0 with get, set
@@ -309,9 +326,8 @@ type FirewallService(naming: FirewallNaming) =
                             result.Matched <- result.Matched + 1
 
                             try
-                                r.Enabled <- enabled
-
                                 if wasEnabled <> enabled then
+                                    r.Enabled <- enabled
                                     result.Changed <- result.Changed + 1
                             with ex ->
                                 result.Failed <- result.Failed + 1
@@ -618,9 +634,8 @@ type FirewallService(naming: FirewallNaming) =
                         result.Matched <- result.Matched + 1
 
                         try
-                            r.Enabled <- false
-
                             if wasEnabled then
+                                r.Enabled <- false
                                 result.Changed <- result.Changed + 1
                                 disabledCount <- disabledCount + 1
                         with ex ->
@@ -1434,9 +1449,207 @@ type FirewallService(naming: FirewallNaming) =
     /// name carried an app name; call sites switch to
     /// SetAllBlocksEnabledAsync.
     /// </summary>
-    member _.SetAllBlocksEnabledAsync(enabled: bool, skipRisky: bool) : Task<FleetToggleResult> =
+    static member private AccumulateInventoryRule
+        (
+            naming: FirewallNaming,
+            byKey: Dictionary<string, BlockedTarget>,
+            identitiesByTarget: Dictionary<string, ResizeArray<string>>,
+            pathExistsCache: Dictionary<string, bool>,
+            r: INetFwRule,
+            name: string,
+            enabled: bool
+        ) =
+        try
+            let desc =
+                match r.Description with
+                | null -> ""
+                | d -> d
+
+            let app =
+                match r.ApplicationName with
+                | null -> ""
+                | a -> a
+
+            let mutable t = Unchecked.defaultof<BlockedTarget>
+            let ruleIsIp = isIpRule naming name r
+
+            if ruleIsIp then
+                let ip = FirewallService.ParseIpTarget(naming, name)
+                let key = "ip:" + ip
+
+                if not (byKey.TryGetValue(key, &t)) then
+                    t <-
+                        BlockedTarget(
+                            Kind = "ip",
+                            Key = key,
+                            Ip = ip,
+                            Target = ip,
+                            Class = IpClassification.classify ip
+                        )
+
+                    byKey.[key] <- t
+            else
+                let path = if not (String.IsNullOrEmpty app) then app else name
+                let key = "app:" + path.ToLowerInvariant()
+
+                if not (byKey.TryGetValue(key, &t)) then
+                    t <-
+                        BlockedTarget(
+                            Kind = "app",
+                            Key = key,
+                            AppPath = path,
+                            Target = Path.GetFileName(path),
+                            Class =
+                                (if FirewallService.IsWindowsComponent path then
+                                     "Windows component ⚠"
+                                 else
+                                     "Application")
+                        )
+
+                    byKey.[key] <- t
+
+                if app.Length > 0 then
+                    let mutable exists = false
+                    if not (pathExistsCache.TryGetValue(app, &exists)) then
+                        exists <- File.Exists(app)
+                        pathExistsCache.[app] <- exists
+
+                    if not exists then
+                        t.StaleRules <- t.StaleRules + 1
+
+                        if String.IsNullOrEmpty t.CoverageNote then
+                            t.CoverageNote <-
+                                "program path no longer exists on disk — rule is inert "
+                                + "(app updated or moved); AppBlockCoverageService re-points or retires it"
+
+            let identity = if ruleIsIp then name else name + "|" + app
+
+            let mutable seen = Unchecked.defaultof<ResizeArray<string>>
+            if not (identitiesByTarget.TryGetValue(t.Key, &seen)) then
+                seen <- ResizeArray<string>()
+                identitiesByTarget.[t.Key] <- seen
+            seen.Add(identity)
+
+            t.Rules <- t.Rules + 1
+            if enabled then t.EnabledRules <- t.EnabledRules + 1
+            if String.IsNullOrEmpty t.Description then t.Description <- desc
+            if not t.Created.HasValue then t.Created <- FirewallService.ParseBlockedTime desc
+        with _ -> ()
+
+    static member private FinalizeInventory
+        (
+            byKey: Dictionary<string, BlockedTarget>,
+            identitiesByTarget: Dictionary<string, ResizeArray<string>>
+        ) : ResizeArray<BlockedTarget> =
+        for KeyValue(key, seen) in identitiesByTarget do
+            let mutable t = Unchecked.defaultof<BlockedTarget>
+            if byKey.TryGetValue(key, &t) then
+                t.DuplicateRules <- FirewallService.CountRedundantDuplicates seen
+
+        byKey
+            .Values.OrderByDescending(fun (t: BlockedTarget) -> t.Class)
+            .ThenBy(fun t -> t.Target)
+            .ToList()
+
+    /// <summary>
+    /// O(1) direct-lookup fast path for single-target toggles when the caller
+    /// knows the target's exact rule count and that it has zero duplicates.
+    /// Probes only deterministic v2 rule names via <c>INetFwRules.Item(name)</c>
+    /// (zero linear COM enumerations). Returns <c>null</c> without mutating any
+    /// rule if the exact expected rules are not all resolved so callers can
+    /// seamlessly fall back to the single-pass full scan.
+    /// </summary>
+    static member TryToggleSingleTargetInCollection
+        (
+            naming: FirewallNaming,
+            rules: INetFwRules,
+            targetKind: string,
+            targetKey: string,
+            expectedRules: int,
+            enabled: bool
+        ) : TargetToggleSnapshot =
+        let key = if isNull targetKey then "" else targetKey.Trim()
+
+        if isNull rules || key.Length = 0 || expectedRules <= 0 then
+            null
+        else
+            let resolved = ResizeArray<string * INetFwRule>()
+            let isIp = String.Equals(targetKind, "ip", StringComparison.OrdinalIgnoreCase)
+
+            if isIp then
+                if expectedRules = 2 then
+                    for suffix in [ "TCP Out"; "UDP Out" ] do
+                        let rName = $"{naming.OwnIpPrefix}{key} ({suffix})"
+                        let r = FirewallService.FindRuleInCollection(rules, rName)
+                        if not (isNull r) && (try int r.Action = 0 with _ -> false) then
+                            resolved.Add((rName, r))
+            else if expectedRules = 1 then
+                let exe = try Path.GetFileName(key) with _ -> ""
+                if exe.Length > 0 then
+                    let primary = $"{naming.OwnAppPrefix}{exe} (Out)"
+                    let suffixed = $"{primary} · {FirewallService.PathHash8(key)}"
+
+                    let matchesAppCandidate (rName: string) (r: INetFwRule) =
+                        not (isNull r)
+                        && (try
+                                int r.Action = 0
+                                && FirewallService.MatchesToggleTarget(
+                                    naming,
+                                    rName,
+                                    false,
+                                    (match r.ApplicationName with null -> "" | a -> a),
+                                    "proc",
+                                    key
+                                )
+                            with _ -> false)
+
+                    let pRule = FirewallService.FindRuleInCollection(rules, primary)
+                    if matchesAppCandidate primary pRule then
+                        resolved.Add((primary, pRule))
+                    else
+                        let sRule = FirewallService.FindRuleInCollection(rules, suffixed)
+                        if matchesAppCandidate suffixed sRule then
+                            resolved.Add((suffixed, sRule))
+
+            if resolved.Count <> expectedRules then
+                null
+            else
+                let snap = TargetToggleSnapshot(UsedFastPath = true, IsFullSnapshot = false)
+
+                for (rName, r) in resolved do
+                    snap.Matched <- snap.Matched + 1
+                    let mutable effectiveEnabled = enabled
+
+                    try
+                        let was = r.Enabled
+                        effectiveEnabled <- was
+
+                        if was <> enabled then
+                            r.Enabled <- enabled
+                            effectiveEnabled <- enabled
+                            snap.Changed <- snap.Changed + 1
+                    with ex ->
+                        if isNull snap.FirstError then
+                            snap.FirstError <- $"{rName}: {ex.Message}"
+
+                    snap.RuleStates.Add(struct (rName, effectiveEnabled))
+
+                snap
+
+    member this.SetAllBlocksEnabledSnapshotAsync
+        (enabled: bool, skipRisky: bool, captureInventory: bool, progress: IProgress<struct (int * int)>)
+        : Task<TargetToggleSnapshot> =
         Task.Run(fun () ->
-            let result = FleetToggleResult()
+            let snap = TargetToggleSnapshot(IsFullSnapshot = true)
+            let byKey =
+                if captureInventory then Dictionary<string, BlockedTarget>(StringComparer.OrdinalIgnoreCase)
+                else null
+            let identitiesByTarget =
+                if captureInventory then Dictionary<string, ResizeArray<string>>(StringComparer.OrdinalIgnoreCase)
+                else null
+            let pathExistsCache =
+                if captureInventory then Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
+                else null
 
             try
                 let fwPolicy = getPolicy ()
@@ -1445,43 +1658,89 @@ type FirewallService(naming: FirewallNaming) =
                     let (ours, name) = FirewallService.IsOurBlock(naming, r)
 
                     if ours then
-                        if skipRisky && enabled && FirewallService.IsRiskyRule(naming, name, r) then
-                            result.SkippedRisky <- result.SkippedRisky + 1
-                        else
-                            result.Matched <- result.Matched + 1
+                        let mutable effectiveEnabled = false
 
-                            try
-                                let was = r.Enabled
-                                r.Enabled <- enabled
+                        try
+                            let was = r.Enabled
+                            effectiveEnabled <- was
 
-                                if was <> enabled then
-                                    result.Changed <- result.Changed + 1
-                            with ex ->
-                                if isNull result.FirstError then result.FirstError <- ex.Message
+                            if skipRisky && enabled && FirewallService.IsRiskyRule(naming, name, r) then
+                                snap.SkippedRisky <- snap.SkippedRisky + 1
+                            else
+                                snap.Matched <- snap.Matched + 1
+
+                                try
+                                    if was <> enabled then
+                                        r.Enabled <- enabled
+                                        effectiveEnabled <- enabled
+                                        snap.Changed <- snap.Changed + 1
+
+                                        if not (isNull progress) && (snap.Changed % 16 = 0) then
+                                            progress.Report(struct (snap.Changed, snap.Matched))
+                                with ex ->
+                                    if isNull snap.FirstError then snap.FirstError <- ex.Message
+                        with ex ->
+                            if isNull snap.FirstError then snap.FirstError <- ex.Message
+
+                        if not (String.IsNullOrEmpty name) then
+                            snap.RuleStates.Add(struct (name, effectiveEnabled))
+
+                        if captureInventory then
+                            FirewallService.AccumulateInventoryRule(
+                                naming, byKey, identitiesByTarget, pathExistsCache, r, name, effectiveEnabled
+                            )
+
+                if captureInventory then
+                    snap.Inventory <- FirewallService.FinalizeInventory(byKey, identitiesByTarget)
+
+                if not (isNull progress) then
+                    progress.Report(struct (snap.Changed, snap.Matched))
             with ex ->
-                result.FirstError <- ex.Message
+                snap.IsFullSnapshot <- false
+                if isNull snap.FirstError then snap.FirstError <- ex.Message
 
-            result
+            snap
         )
+
+    member this.SetAllBlocksEnabledAsync(enabled: bool, skipRisky: bool) : Task<FleetToggleResult> =
+        task {
+            let! snap = this.SetAllBlocksEnabledSnapshotAsync(enabled, skipRisky, false, null)
+            return
+                FleetToggleResult(
+                    Matched = snap.Matched,
+                    Changed = snap.Changed,
+                    SkippedRisky = snap.SkippedRisky,
+                    FirstError = snap.FirstError
+                )
+        }
 
     /// <summary>F# port: overload for the C# default skipRisky = false.</summary>
     member this.SetAllBlocksEnabledAsync(enabled: bool) : Task<FleetToggleResult> =
         this.SetAllBlocksEnabledAsync(enabled, false)
 
     /// <summary>
-    /// Per-target (and per-group, via a list) enable/disable — the toggle
-    /// behind the Blocks tab, returning (matched, changed, firstError) so UI
-    /// surfaces can distinguish zero-match / COM failures from a clean apply.
-    /// Matching uses ParseIpTarget + NormalizeAppPath so every rule surfaced
-    /// by GetBlockedInventoryAsync can be disabled and re-enabled symmetrically.
+    /// Single-pass per-target/bulk toggle that optionally builds the post-toggle
+    /// inventory and captures all own-block rule states in the same COM walk,
+    /// eliminating redundant post-toggle firewall enumerations.
     /// </summary>
-    member _.SetTargetsEnabledWithErrorAsync
-        (targets: IEnumerable<struct (string * string)>, enabled: bool)
-        : Task<struct (int * int * string)> =
+    member _.SetTargetsEnabledSnapshotAsync
+        (
+            targets: IEnumerable<struct (string * string)>,
+            enabled: bool,
+            captureInventory: bool,
+            progress: IProgress<struct (int * int)>
+        ) : Task<TargetToggleSnapshot> =
         Task.Run(fun () ->
-            let mutable matched = 0
-            let mutable changed = 0
-            let mutable firstError: string = null
+            let snap = TargetToggleSnapshot()
+            let byKey =
+                if captureInventory then Dictionary<string, BlockedTarget>(StringComparer.OrdinalIgnoreCase)
+                else null
+            let identitiesByTarget =
+                if captureInventory then Dictionary<string, ResizeArray<string>>(StringComparer.OrdinalIgnoreCase)
+                else null
+            let pathExistsCache =
+                if captureInventory then Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
+                else null
 
             try
                 let list =
@@ -1521,6 +1780,7 @@ type FirewallService(naming: FirewallNaming) =
                         )
 
                     let fwPolicy = getPolicy ()
+                    snap.IsFullSnapshot <- true
 
                     for r in Com.enumRules fwPolicy.Rules do
                         let (ours, name) = FirewallService.IsOurBlock(naming, r)
@@ -1547,28 +1807,102 @@ type FirewallService(naming: FirewallNaming) =
                                             || appNormTargets.Contains(FirewallService.NormalizeAppPath(effective)))
                             with _ -> ()
 
+                            let mutable effectiveEnabled = false
+                            let mutable was = false
+                            try
+                                was <- r.Enabled
+                                effectiveEnabled <- was
+                            with _ -> ()
+
                             if hit then
-                                matched <- matched + 1
+                                snap.Matched <- snap.Matched + 1
 
                                 try
-                                    let was = r.Enabled
-                                    r.Enabled <- enabled
-
                                     if was <> enabled then
-                                        changed <- changed + 1
+                                        r.Enabled <- enabled
+                                        effectiveEnabled <- enabled
+                                        snap.Changed <- snap.Changed + 1
+
+                                        if not (isNull progress) && (snap.Changed % 16 = 0) then
+                                            progress.Report(struct (snap.Changed, snap.Matched))
                                 with ex ->
                                     Debug.WriteLine($"FirewallService.SetTargetsEnabled rule '{name}' failed: {ex.Message}")
 
-                                    if isNull firstError then
-                                        firstError <- $"{name}: {ex.Message}"
+                                    if isNull snap.FirstError then
+                                        snap.FirstError <- $"{name}: {ex.Message}"
+
+                            if not (String.IsNullOrEmpty name) then
+                                snap.RuleStates.Add(struct (name, effectiveEnabled))
+
+                            if captureInventory then
+                                FirewallService.AccumulateInventoryRule(
+                                    naming, byKey, identitiesByTarget, pathExistsCache, r, name, effectiveEnabled
+                                )
+
+                    if captureInventory then
+                        snap.Inventory <- FirewallService.FinalizeInventory(byKey, identitiesByTarget)
+
+                    if not (isNull progress) then
+                        progress.Report(struct (snap.Changed, snap.Matched))
             with ex ->
+                snap.IsFullSnapshot <- false
                 Debug.WriteLine($"FirewallService.SetTargetsEnabled policy failed: {ex.Message}")
 
-                if isNull firstError then
-                    firstError <- ex.Message
+                if isNull snap.FirstError then
+                    snap.FirstError <- ex.Message
 
-            struct (matched, changed, firstError)
+            snap
         )
+
+    /// <summary>
+    /// Single-target toggle with O(1) direct Item(name) fast path when eligible,
+    /// falling back automatically to the single-pass snapshot walk for legacy or
+    /// multi-rule/duplicate targets.
+    /// </summary>
+    member this.ToggleSingleTargetSnapshotAsync
+        (
+            targetKind: string,
+            targetKey: string,
+            expectedRules: int,
+            allowFastPath: bool,
+            enabled: bool
+        ) : Task<TargetToggleSnapshot> =
+        Task.Run(fun () ->
+            let mutable fast: TargetToggleSnapshot = null
+
+            if allowFastPath && expectedRules > 0 then
+                try
+                    let fwPolicy = getPolicy ()
+                    fast <-
+                        FirewallService.TryToggleSingleTargetInCollection(
+                            naming, fwPolicy.Rules, targetKind, targetKey, expectedRules, enabled
+                        )
+                with _ ->
+                    fast <- null
+
+            if not (isNull fast) then
+                fast
+            else
+                this
+                    .SetTargetsEnabledSnapshotAsync([| struct (targetKind, targetKey) |], enabled, true, null)
+                    .GetAwaiter()
+                    .GetResult()
+        )
+
+    /// <summary>
+    /// Per-target (and per-group, via a list) enable/disable — the toggle
+    /// behind the Blocks tab, returning (matched, changed, firstError) so UI
+    /// surfaces can distinguish zero-match / COM failures from a clean apply.
+    /// Matching uses ParseIpTarget + NormalizeAppPath so every rule surfaced
+    /// by GetBlockedInventoryAsync can be disabled and re-enabled symmetrically.
+    /// </summary>
+    member this.SetTargetsEnabledWithErrorAsync
+        (targets: IEnumerable<struct (string * string)>, enabled: bool)
+        : Task<struct (int * int * string)> =
+        task {
+            let! snap = this.SetTargetsEnabledSnapshotAsync(targets, enabled, false, null)
+            return struct (snap.Matched, snap.Changed, snap.FirstError)
+        }
 
     /// <summary>
     /// Per-target (and per-group, via a list) enable/disable — returns
@@ -1586,8 +1920,8 @@ type FirewallService(naming: FirewallNaming) =
     member _.GetBlockedInventoryAsync() : Task<ResizeArray<BlockedTarget>> =
         Task.Run(fun () ->
             let byKey = Dictionary<string, BlockedTarget>(StringComparer.OrdinalIgnoreCase)
-            // per-target rule identities (with repeats preserved!) for duplicate accounting (below)
             let identitiesByTarget = Dictionary<string, ResizeArray<string>>(StringComparer.OrdinalIgnoreCase)
+            let pathExistsCache = Dictionary<string, bool>(StringComparer.OrdinalIgnoreCase)
 
             try
                 let fwPolicy = getPolicy ()
@@ -1596,101 +1930,14 @@ type FirewallService(naming: FirewallNaming) =
                     let (ours, name) = FirewallService.IsOurBlock(naming, r)
 
                     if ours then
-                        try
-                            let desc =
-                                match r.Description with
-                                | null -> ""
-                                | d -> d
-
-                            let enabled = r.Enabled
-
-                            let app =
-                                match r.ApplicationName with
-                                | null -> ""
-                                | a -> a
-
-                            let mutable t = Unchecked.defaultof<BlockedTarget>
-
-                            if isIpRule naming name r then
-                                let ip = FirewallService.ParseIpTarget(naming, name)
-                                let key = "ip:" + ip
-
-                                if not (byKey.TryGetValue(key, &t)) then
-                                    t <-
-                                        BlockedTarget(
-                                            Kind = "ip",
-                                            Key = key,
-                                            Ip = ip,
-                                            Target = ip,
-                                            Class = IpClassification.classify ip
-                                        )
-
-                                    byKey.[key] <- t
-                            else
-                                let path = if not (String.IsNullOrEmpty app) then app else name
-                                let key = "app:" + path.ToLowerInvariant()
-
-                                if not (byKey.TryGetValue(key, &t)) then
-                                    t <-
-                                        BlockedTarget(
-                                            Kind = "app",
-                                            Key = key,
-                                            AppPath = path,
-                                            Target = Path.GetFileName(path),
-                                            Class =
-                                                (if FirewallService.IsWindowsComponent path then
-                                                     "Windows component ⚠"
-                                                 else
-                                                     "Application")
-                                        )
-
-                                    byKey.[key] <- t
-
-                                // A rule whose image is gone (update removed the
-                                // version folder) can never match a connect —
-                                // surface it instead of letting it masquerade
-                                // as active protection.
-                                if app.Length > 0 && not (File.Exists(app)) then
-                                    t.StaleRules <- t.StaleRules + 1
-
-                                    if String.IsNullOrEmpty t.CoverageNote then
-                                        t.CoverageNote <-
-                                            "program path no longer exists on disk — rule is inert "
-                                            + "(app updated or moved); AppBlockCoverageService re-points or retires it"
-
-                            // duplicate accounting: one identity per rule —
-                            // IP rules by full name (embeds ip/proto/direction),
-                            // app rules by name + image path (the same name
-                            // across paths is the coverage family, not a dup)
-                            let identity =
-                                if isIpRule naming name r then name
-                                else name + "|" + app
-
-                            let mutable seen = Unchecked.defaultof<ResizeArray<string>>
-                            if not (identitiesByTarget.TryGetValue(t.Key, &seen)) then
-                                seen <- ResizeArray<string>()
-                                identitiesByTarget.[t.Key] <- seen
-                            seen.Add(identity)
-
-                            t.Rules <- t.Rules + 1
-
-                            if enabled then t.EnabledRules <- t.EnabledRules + 1
-
-                            if String.IsNullOrEmpty t.Description then t.Description <- desc
-
-                            if not t.Created.HasValue then t.Created <- FirewallService.ParseBlockedTime desc
-                        with _ -> ()
+                        let mutable enabled = false
+                        try enabled <- r.Enabled with _ -> ()
+                        FirewallService.AccumulateInventoryRule(
+                            naming, byKey, identitiesByTarget, pathExistsCache, r, name, enabled
+                        )
             with _ -> ()
 
-            for KeyValue(key, seen) in identitiesByTarget do
-                let mutable t = Unchecked.defaultof<BlockedTarget>
-                if byKey.TryGetValue(key, &t) then
-                    t.DuplicateRules <- FirewallService.CountRedundantDuplicates seen
-
-            byKey
-                .Values.OrderByDescending(fun (t: BlockedTarget) -> t.Class)
-                .ThenBy(fun t -> t.Target)
-                .ToList()
+            FirewallService.FinalizeInventory(byKey, identitiesByTarget)
         )
 
     /// <summary>

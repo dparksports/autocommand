@@ -656,12 +656,86 @@ Check("guard: empty subject allowed (nothing to mistake)",
           $"aggs={aggs.Count}");
 }
 
+// ── 14. O(1) single-target fast-path toggle, no-op write skip & Win32 owner ─
+{
+    var naming = AutoCommand.Engines.Firewall.Naming.autocommand();
+    var ipTcp = new FakeFwRule { Name = "AC-BLOCK-IP 203.0.113.7 (TCP Out)", Enabled = false, Action = AutoCommand.Engines.Firewall.FwAction.Block };
+    var ipUdp = new FakeFwRule { Name = "AC-BLOCK-IP 203.0.113.7 (UDP Out)", Enabled = false, Action = AutoCommand.Engines.Firewall.FwAction.Block };
+    var appPath = @"C:\Vendor\Agent\Helper.exe";
+    var appPrimary = new FakeFwRule
+    {
+        Name = "AC-BLOCK-APP Helper.exe (Out)",
+        ApplicationName = appPath,
+        Enabled = false,
+        Action = AutoCommand.Engines.Firewall.FwAction.Block
+    };
+    var otherAppPath = @"D:\Alt\Agent\Helper.exe";
+    var appSuffixed = new FakeFwRule
+    {
+        Name = FirewallService.SuffixedAppRuleName("Helper.exe", otherAppPath),
+        ApplicationName = otherAppPath,
+        Enabled = false,
+        Action = AutoCommand.Engines.Firewall.FwAction.Block
+    };
+
+    var coll = new FakeFwRules(new[] { ipTcp, ipUdp, appPrimary, appSuffixed }, mode: "direct");
+
+    // 2-rule v2 IP target toggles via O(1) Item(name) with zero enumerations
+    var ipSnap = AutoCommand.Engines.Firewall.FirewallService.TryToggleSingleTargetInCollection(
+        naming, coll, "ip", "203.0.113.7", 2, true);
+    Check("fast-toggle: v2 2-rule IP enables in O(1) with zero enumerations",
+          ipSnap != null && ipSnap.UsedFastPath && !ipSnap.IsFullSnapshot &&
+          ipSnap.Matched == 2 && ipSnap.Changed == 2 && coll.Enumerations == 0 &&
+          ipTcp.Enabled && ipUdp.Enabled && ipSnap.RuleStates.Count == 2,
+          $"enums={coll.Enumerations}, changed={ipSnap?.Changed}");
+
+    // Re-applying same state skips redundant BFE Enabled property writes
+    ipTcp.EnabledSetterCount = 0;
+    ipUdp.EnabledSetterCount = 0;
+    var noopSnap = AutoCommand.Engines.Firewall.FirewallService.TryToggleSingleTargetInCollection(
+        naming, coll, "ip", "203.0.113.7", 2, true);
+    Check("fast-toggle: already-enabled rules skip redundant COM Enabled writes",
+          noopSnap != null && noopSnap.Matched == 2 && noopSnap.Changed == 0 &&
+          ipTcp.EnabledSetterCount == 0 && ipUdp.EnabledSetterCount == 0 && coll.Enumerations == 0,
+          $"writes={ipTcp.EnabledSetterCount + ipUdp.EnabledSetterCount}");
+
+    // Suffixed app rule resolves when primary belongs to a sibling path
+    var appSnap = AutoCommand.Engines.Firewall.FirewallService.TryToggleSingleTargetInCollection(
+        naming, coll, "proc", otherAppPath, 1, true);
+    Check("fast-toggle: suffixed sibling app rule toggles without touching primary path",
+          appSnap != null && appSnap.UsedFastPath && appSnap.Changed == 1 &&
+          appSuffixed.Enabled && !appPrimary.Enabled && coll.Enumerations == 0,
+          $"enums={coll.Enumerations}");
+
+    // Incomplete rule match returns null with zero mutations so caller falls back safely
+    var partialTcp = new FakeFwRule { Name = "AC-BLOCK-IP 198.51.100.9 (TCP Out)", Enabled = false, Action = AutoCommand.Engines.Firewall.FwAction.Block };
+    partialTcp.EnabledSetterCount = 0;
+    var partialColl = new FakeFwRules(new[] { partialTcp }, mode: "direct");
+    var missSnap = AutoCommand.Engines.Firewall.FirewallService.TryToggleSingleTargetInCollection(
+        naming, partialColl, "ip", "198.51.100.9", 2, true);
+    Check("fast-toggle: partial rule set returns null without mutating matched half",
+          missSnap == null && !partialTcp.Enabled && partialTcp.EnabledSetterCount == 0);
+
+    // Win32 PROCESS_QUERY_LIMITED_INFORMATION socket owner lookup (<10 ms, zero WMI)
+    var sw = System.Diagnostics.Stopwatch.StartNew();
+    var (procName, startedUtc) = BlockContainmentReader.QueryProcessOwner(Environment.ProcessId);
+    sw.Stop();
+    Check("win32-owner: QueryProcessOwner resolves current PID name & UTC start time without WMI",
+          !string.IsNullOrEmpty(procName) && procName != "?" &&
+          procName.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) &&
+          startedUtc.HasValue && startedUtc.Value <= DateTime.UtcNow.AddMinutes(1) &&
+          startedUtc.Value > DateTime.UtcNow.AddDays(-7),
+          $"name={procName}, started={startedUtc}, ms={sw.ElapsedMilliseconds}");
+}
+
 Console.WriteLine();
 Console.WriteLine(failures == 0 ? "ALL CONTAIN SELF-TESTS PASSED" : $"{failures} CHECK(S) FAILED");
 return failures == 0 ? 0 : 1;
 
 internal sealed class FakeFwRule : AutoCommand.Engines.Firewall.INetFwRule
 {
+    private bool _enabled = true;
+    public int EnabledSetterCount { get; set; }
     public string Name { get; set; } = "";
     public string Description { get; set; } = "";
     public string ApplicationName { get; set; } = "";
@@ -673,7 +747,11 @@ internal sealed class FakeFwRule : AutoCommand.Engines.Firewall.INetFwRule
     public string RemoteAddresses { get; set; } = "";
     public string IcmpTypesAndCodes { get; set; } = "";
     public string InterfaceTypes { get; set; } = "All";
-    public bool Enabled { get; set; } = true;
+    public bool Enabled
+    {
+        get => _enabled;
+        set { _enabled = value; EnabledSetterCount++; }
+    }
     public string Grouping { get; set; } = "";
     public int Profiles { get; set; }
     public bool EdgeTraversal { get; set; }

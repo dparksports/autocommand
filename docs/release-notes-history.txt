@@ -17,6 +17,22 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.12.1 (2026-11-12)
+================================================================================
+
+# v2026.11.12.1 — Instant re-enable & toggle pipeline, single-pass firewall snapshots & Win32 containment lookup
+
+## Instant re-enable & single-pass firewall toggling
+
+Re-enabling or pausing blocked IP addresses and executables — whether toggling one row, restoring a filtered selection, or running fleet-wide `Re-enable all` / `Restore except Microsoft/Windows` / `Restore Internet` — now responds immediately on the UI thread instead of waiting across 4–6 sequential Windows Firewall COM table scans and a WMI process-table query.
+
+- **`<16 ms` Optimistic UI & Two-Phase Progressive Render**: `BlockRowVm` now implements `INotifyPropertyChanged`, flipping row badges, category bars, filter chips, and command-bar counts immediately before the COM transaction starts while streaming live `(Changed, Matched)` rule progress. `BlocksView` renders reconciled rows immediately (Phase 1) and resolves uncached Sysmon archive attempts plus containment verdicts asynchronously in place (Phase 2) without resetting scroll or selection.
+- **O(1) Single-Row Toggle Fast Path (`INetFwRules.Item`)**: Toggling a clean v2 IP (`2` rules) or app (`1` rule) block probes deterministic rule names directly (`TryToggleSingleTargetInCollection` / `ToggleSingleTargetSnapshotAsync`) with **zero** linear COM enumerations, falling back safely with zero mutations if any expected rule is missing.
+- **Single-Pass Toggle + Inventory + Baseline Snapshot (`4–6 COM Scans → 1`)**: `SetTargetsEnabledSnapshotAsync` and `SetAllBlocksEnabledSnapshotAsync` apply rule changes, build the post-toggle `BlockedTarget` inventory, and capture per-rule `Enabled` states in a single COM walk. `FirewallBaselineManager.ApplyToggleSnapshotAsync` updates `firewall_baseline.json` with zero COM scans, and `BlocksView`, `BlockedRulesWindow`, `MainWindow`, and `BlockContainmentReader` reuse the captured inventory directly.
+- **No-Op BFE Write Skipping & Automatic Legacy Consolidation**: All toggle paths now guard `if was <> enabled then r.Enabled <- enabled` to skip redundant BFE policy transactions on already-matching rules, and `BlocksView` automatically consolidates legacy 4-rule IP / 2-rule app blocks to v2 rules once per session in the background.
+- **`<1 ms` Win32 Socket-Owner Lookup & Cached Flow Reads**: Replaced the `300–600 ms` `SELECT ProcessId, Name, CreationDate FROM Win32_Process` WMI query in `BlockContainmentReader` with direct Win32 `OpenProcess(PROCESS_QUERY_LIMITED_INFORMATION)` + `QueryFullProcessImageNameW` + `GetProcessTimes` (`QueryProcessOwner`) for only the distinct socket-owning PIDs, plus file-stamp caching on `TransmissionsArchiveService.Read`.
+
+================================================================================
 v2026.11.12 (2026-11-12)
 ================================================================================
 

@@ -103,10 +103,10 @@ namespace AutoCommand.Views
             };
         }
 
-        private async Task ReloadAsync()
+        private async Task ReloadAsync(System.Collections.Generic.List<BlockedTarget> preloadedInventory = null)
         {
-            StatusText.Text = "Scanning firewall…";
-            var inv = await FirewallService.Instance.GetBlockedInventoryAsync();
+            StatusText.Text = preloadedInventory != null ? "Refreshing view…" : "Scanning firewall…";
+            var inv = preloadedInventory ?? await FirewallService.Instance.GetBlockedInventoryAsync();
             var hits = await Task.Run(() => CollectHitsLastHour());
 
             _rows.Clear();
@@ -364,10 +364,10 @@ namespace AutoCommand.Views
             await SyncSiblingViewsAsync();
         }
 
-        private static async Task SyncSiblingViewsAsync()
+        private static async Task SyncSiblingViewsAsync(System.Collections.Generic.List<BlockedTarget> preloadedInventory = null)
         {
             if (BlocksView.Current != null)
-                await BlocksView.Current.RefreshIfLoadedAsync();
+                await BlocksView.Current.RefreshIfLoadedAsync(preloadedInventory);
             if (SvchostMonitorView.Current is { IsVisible: true } mon)
                 await mon.RefreshBlockStateIfLoadedAsync();
         }
@@ -393,13 +393,16 @@ namespace AutoCommand.Views
         {
             if (MessageBox.Show("Re-enable ALL AutoCommand block rules? (Undoes 'Restore Internet'.)",
                     "Re-enable", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
-            var res = await FirewallService.Instance.SetAllBlocksEnabledAsync(true);
+            StatusText.Text = "Re-enabling AutoCommand block rules…";
+            var progress = new Progress<(int Changed, int Matched)>(p =>
+                StatusText.Text = $"Re-enabling AutoCommand blocks — {p.Changed} rule(s) updated ({p.Matched} matched)…");
+            var res = await FirewallService.Instance.SetAllBlocksEnabledSnapshotAsync(true, false, true, progress);
             BlocksStore.LogFleet("fleet-enabled",
                 $"{res.Changed}/{res.Matched} rule(s) re-enabled", "manage-all");
-            await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
+            await Helpers.FirewallBaselineManager.ApplyToggleSnapshotAsync(res);
             StatusText.Text = $"Re-enabled AutoCommand blocks ({res.Changed} rule(s) changed).";
-            await ReloadAsync();
-            await SyncSiblingViewsAsync();
+            await ReloadAsync(res.Inventory);
+            await SyncSiblingViewsAsync(res.Inventory);
         }
 
         private async void RestoreExceptRiskyBtn_Click(object sender, RoutedEventArgs e)
@@ -418,14 +421,17 @@ namespace AutoCommand.Views
             if (MessageBox.Show(preview.ToString(), "Restore except Microsoft/Windows ⚠",
                     MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
 
-            var res = await FirewallService.Instance.SetAllBlocksEnabledAsync(true, skipRisky: true);
+            StatusText.Text = "Restoring non-risky AutoCommand block rules…";
+            var progress = new Progress<(int Changed, int Matched)>(p =>
+                StatusText.Text = $"Restoring blocks — {p.Changed} rule(s) updated ({p.Matched} matched)…");
+            var res = await FirewallService.Instance.SetAllBlocksEnabledSnapshotAsync(true, true, true, progress);
             BlocksStore.LogFleet("fleet-enabled",
                 $"{res.Changed} rule(s) restored, {res.SkippedRisky} risky rule(s) kept disabled",
                 "restore-except-risky");
-            await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
+            await Helpers.FirewallBaselineManager.ApplyToggleSnapshotAsync(res);
             StatusText.Text = $"Restored {res.Changed} rule(s); kept {res.SkippedRisky} risky rule(s) disabled.";
-            await ReloadAsync();
-            await SyncSiblingViewsAsync();
+            await ReloadAsync(res.Inventory);
+            await SyncSiblingViewsAsync(res.Inventory);
         }
 
         // RFC-4180 minimal: quote a field holding a comma, quote or newline,

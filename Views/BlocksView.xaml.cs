@@ -17,14 +17,61 @@ namespace AutoCommand.Views
 {
     // ── view-models ───────────────────────────────────────────────────────
 
-    public sealed class BlockRowVm
+    public sealed class BlockRowVm : System.ComponentModel.INotifyPropertyChanged
     {
+        public event System.ComponentModel.PropertyChangedEventHandler PropertyChanged;
+        private void Notify(string name) =>
+            PropertyChanged?.Invoke(this, new System.ComponentModel.PropertyChangedEventArgs(name));
+
+        private bool _rulesEnabled;
+        private int _enabledCount;
+        private string _pausedShort;
+        private string _pausedInfoToolTip;
+        private bool _isSelected;
+        private bool _canSelect;
+        private string _lastTraffic = "…";
+        private string _lastTrafficToolTip = "Resolving from live monitor and Sysmon archive…";
+        private Brush _lastTrafficBrush;
+        private string _containmentVerdict = "…";
+        private string _containment = "…";
+        private string _containmentToolTip = "Computing the containment join…";
+        private Brush _containmentBrush;
+
         public BlockRecord Record { get; set; }
         public bool HasRules { get; set; }
-        public bool RulesEnabled { get; set; }  // any enabled rule → on
+        public bool RulesEnabled // any enabled rule → on
+        {
+            get => _rulesEnabled;
+            set
+            {
+                if (_rulesEnabled == value) return;
+                _rulesEnabled = value;
+                Notify(nameof(RulesEnabled));
+                Notify(nameof(HasDisabledRules));
+                Notify(nameof(StatusGlyph));
+                Notify(nameof(StatusToolTip));
+                Notify(nameof(SelectionToolTip));
+                Notify(nameof(RowActionLabel));
+            }
+        }
         public bool RulesStale { get; set; }  // rule(s) point at a path that no longer exists on disk
         public int RulesCount { get; set; }  // rules the firewall holds for this target
-        public int EnabledCount { get; set; }  // how many of them are enabled (partial when 0 < n < RulesCount)
+        public int DuplicateRules { get; set; } // exact duplicate rules on disk (0 => eligible for O(1) fast path)
+        public int EnabledCount // how many of them are enabled (partial when 0 < n < RulesCount)
+        {
+            get => _enabledCount;
+            set
+            {
+                if (_enabledCount == value) return;
+                _enabledCount = value;
+                Notify(nameof(EnabledCount));
+                Notify(nameof(HasDisabledRules));
+                Notify(nameof(StatusGlyph));
+                Notify(nameof(StatusToolTip));
+                Notify(nameof(SelectionToolTip));
+                Notify(nameof(RowActionLabel));
+            }
+        }
         public bool HasDisabledRules => HasRules && EnabledCount < RulesCount;
         public string StatusGlyph => !HasRules ? "⚠" : RulesStale ? "🕳" : !RulesEnabled ? "⏸"
             : EnabledCount < RulesCount ? "◐" : "⛔";
@@ -41,16 +88,32 @@ namespace AutoCommand.Views
 
         /// <summary>Why blocking is off, at a glance: "3d · Blocks tab".
         /// Null when no pause event/history is known.</summary>
-        public string PausedShort { get; set; }
-        public string PausedInfoToolTip { get; set; }
+        public string PausedShort
+        {
+            get => _pausedShort;
+            set { if (_pausedShort != value) { _pausedShort = value; Notify(nameof(PausedShort)); Notify(nameof(StatusToolTip)); } }
+        }
+        public string PausedInfoToolTip
+        {
+            get => _pausedInfoToolTip;
+            set { if (_pausedInfoToolTip != value) { _pausedInfoToolTip = value; Notify(nameof(PausedInfoToolTip)); } }
+        }
 
         public string Target => Record.IsIp ? Record.Key
             : System.IO.Path.GetFileName(Record.Key);
         public string TargetToolTip  => Record.Key;
 
         // ── restore basket (blocking-OFF or partial rows) ──
-        public bool IsSelected { get; set; }
-        public bool CanSelect { get; set; }  // rows with disabled rules — nothing to restore otherwise
+        public bool IsSelected
+        {
+            get => _isSelected;
+            set { if (_isSelected != value) { _isSelected = value; Notify(nameof(IsSelected)); } }
+        }
+        public bool CanSelect // rows with disabled rules — nothing to restore otherwise
+        {
+            get => _canSelect;
+            set { if (_canSelect != value) { _canSelect = value; Notify(nameof(CanSelect)); } }
+        }
         public string SelectionKey  => Record.Kind + ":" + Record.Key;
         public string SelectionToolTip => RulesEnabled && HasDisabledRules
             ? "Add to the restore basket — some rules are OFF for this target"
@@ -94,9 +157,21 @@ namespace AutoCommand.Views
             $"({DateTime.UtcNow - Record.CreatedUtc:dd\\d\\ hh\\h\\ mm\\m} ago) · origin: {Record.Origin}\n" +
             $"identity: {(Record.Attrib == "none" ? "unresolved" : Record.Attrib)}";
 
-        public string LastTraffic { get; set; } = "…";
-        public string LastTrafficToolTip { get; set; } = "Resolving from live monitor and Sysmon archive…";
-        public Brush LastTrafficBrush { get; set; }
+        public string LastTraffic
+        {
+            get => _lastTraffic;
+            set { if (_lastTraffic != value) { _lastTraffic = value; Notify(nameof(LastTraffic)); } }
+        }
+        public string LastTrafficToolTip
+        {
+            get => _lastTrafficToolTip;
+            set { if (_lastTrafficToolTip != value) { _lastTrafficToolTip = value; Notify(nameof(LastTrafficToolTip)); } }
+        }
+        public Brush LastTrafficBrush
+        {
+            get => _lastTrafficBrush;
+            set { if (!ReferenceEquals(_lastTrafficBrush, value)) { _lastTrafficBrush = value; Notify(nameof(LastTrafficBrush)); } }
+        }
         /// <summary>Newest attempt time (live or archived) — the Restore
         /// guide's ranking signal; null when no traffic was ever found.</summary>
         public DateTime? LastTrafficUtc { get; set; }
@@ -104,10 +179,26 @@ namespace AutoCommand.Views
         /// <summary>Containment proof — the raw verdict the category summary
         /// counts ("leak" | "stale-flow" | "contained" | "quiet" | "paused"
         /// | "—" when there is nothing to contain).</summary>
-        public string ContainmentVerdict { get; set; } = "…";
-        public string Containment { get; set; } = "…";
-        public string ContainmentToolTip { get; set; } = "Computing the containment join…";
-        public Brush ContainmentBrush { get; set; }
+        public string ContainmentVerdict
+        {
+            get => _containmentVerdict;
+            set { if (_containmentVerdict != value) { _containmentVerdict = value; Notify(nameof(ContainmentVerdict)); } }
+        }
+        public string Containment
+        {
+            get => _containment;
+            set { if (_containment != value) { _containment = value; Notify(nameof(Containment)); } }
+        }
+        public string ContainmentToolTip
+        {
+            get => _containmentToolTip;
+            set { if (_containmentToolTip != value) { _containmentToolTip = value; Notify(nameof(ContainmentToolTip)); } }
+        }
+        public Brush ContainmentBrush
+        {
+            get => _containmentBrush;
+            set { if (!ReferenceEquals(_containmentBrush, value)) { _containmentBrush = value; Notify(nameof(ContainmentBrush)); } }
+        }
 
         public string RowActionLabel => HasDisabledRules || !RulesEnabled ? "Restore blocking" : "Stop blocking";
     }
@@ -178,6 +269,8 @@ namespace AutoCommand.Views
 
         private bool _loading;
         private System.Threading.Tasks.TaskCompletionSource<bool> _queuedReloadTcs;
+        private List<AutoCommand.Engines.Firewall.BlockedTarget> _pendingPreloadedInventory;
+        private int _reloadGeneration;
         public static BlocksView Current { get; private set; }
         // written from inside Task.Run (the archive pass below) while the UI
         // thread reads after awaits — a plain Dictionary corrupts under that;
@@ -190,9 +283,9 @@ namespace AutoCommand.Views
         private ServiceSymptom _restoreSymptom;
         private List<BlockRowVm> _restoreMatches = new();
 
-        // One automatic attribution repair per session — nobody should have
-        // to know the button exists to see service names.
+        // One automatic attribution repair & one legacy-rule consolidation per session.
         private bool _autoRepairStarted;
+        private bool _autoConsolidateStarted;
 
         // State ribbon / master-detail / basket
         private BlockFilter _filter = BlockFilter.All;
@@ -239,11 +332,16 @@ namespace AutoCommand.Views
             Loaded += (s, e) => _ = ReloadAsync();
         }
 
-        public System.Threading.Tasks.Task RefreshIfLoadedAsync() =>
-            IsLoaded ? ReloadAsync() : System.Threading.Tasks.Task.CompletedTask;
+        public System.Threading.Tasks.Task RefreshIfLoadedAsync(
+            List<AutoCommand.Engines.Firewall.BlockedTarget> preloadedInventory = null) =>
+            IsLoaded ? ReloadAsync(preloadedInventory) : System.Threading.Tasks.Task.CompletedTask;
 
-        private async System.Threading.Tasks.Task ReloadAsync()
+        private async System.Threading.Tasks.Task ReloadAsync(
+            List<AutoCommand.Engines.Firewall.BlockedTarget> preloadedInventory = null)
         {
+            if (preloadedInventory != null)
+                _pendingPreloadedInventory = preloadedInventory;
+
             if (_loading)
             {
                 _queuedReloadTcs ??= new System.Threading.Tasks.TaskCompletionSource<bool>(
@@ -259,9 +357,11 @@ namespace AutoCommand.Views
                 {
                     var currentBatch = _queuedReloadTcs;
                     _queuedReloadTcs = null;
+                    var preloaded = _pendingPreloadedInventory;
+                    _pendingPreloadedInventory = null;
                     try
                     {
-                        await ReloadCoreAsync();
+                        await ReloadCoreAsync(preloaded);
                         currentBatch?.TrySetResult(true);
                     }
                     catch (Exception ex)
@@ -277,290 +377,408 @@ namespace AutoCommand.Views
             finally { _loading = false; }
         }
 
-        private async System.Threading.Tasks.Task ReloadCoreAsync()
+        private async System.Threading.Tasks.Task ReloadCoreAsync(
+            List<AutoCommand.Engines.Firewall.BlockedTarget> preloadedInventory = null)
         {
-            {
+            int reloadGen = ++_reloadGeneration;
+            if (preloadedInventory == null)
                 StatusText.Text = "loading…";
-                BlocksStore.Load();
+            BlocksStore.Load();
 
-                // Firewall truth (background): which targets have rules, and
-                // are they enabled. The store carries identity/history; the
-                // firewall carries effect.
-                var inventory = await FirewallService.Instance.GetBlockedInventoryAsync();
-                var byKey = new Dictionary<string, AutoCommand.Engines.Firewall.BlockedTarget>(
-                    StringComparer.OrdinalIgnoreCase);
-                foreach (var item in inventory)
+            // Phase 1 — Firewall truth + store reconcile + immediate UI render.
+            // When a toggle/fleet call already captured the post-toggle inventory,
+            // we reuse it directly with zero COM scans.
+            var inventory = preloadedInventory ?? await FirewallService.Instance.GetBlockedInventoryAsync();
+            var byKey = new Dictionary<string, AutoCommand.Engines.Firewall.BlockedTarget>(
+                StringComparer.OrdinalIgnoreCase);
+            foreach (var item in inventory)
+            {
+                byKey[item.Key] = item;
+                if (item.Kind == "app" && !string.IsNullOrEmpty(item.AppPath))
                 {
-                    byKey[item.Key] = item;
-                    if (item.Kind == "app" && !string.IsNullOrEmpty(item.AppPath))
-                    {
-                        string norm = AutoCommand.Engines.Firewall.FirewallService.NormalizeAppPath(item.AppPath);
-                        if (norm.Length > 0)
-                            byKey.TryAdd("app:" + norm.ToLowerInvariant(), item);
-                    }
-                }
-
-                // Records the firewall knows about but the store doesn't
-                // (rules from an older version, or pre-v3 blocks) become
-                // store records so the tab is complete.
-                var records = BlocksStore.Records.ToList();
-                var known = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
-                foreach (var r in records)
-                {
-                    known.Add((r.IsIp ? "ip:" : "app:") + (r.Key ?? "").Trim().ToLowerInvariant());
-                    if (!r.IsIp && !string.IsNullOrEmpty(r.Key))
-                    {
-                        string norm = AutoCommand.Engines.Firewall.FirewallService.NormalizeAppPath(r.Key);
-                        if (norm.Length > 0)
-                            known.Add("app:" + norm.ToLowerInvariant());
-                    }
-                }
-                foreach (var t in inventory)
-                {
-                    if (known.Contains(t.Key)) continue;
-                    if (t.Kind == "app" && !string.IsNullOrEmpty(t.AppPath))
-                    {
-                        string norm = AutoCommand.Engines.Firewall.FirewallService.NormalizeAppPath(t.AppPath);
-                        if (norm.Length > 0 && known.Contains("app:" + norm.ToLowerInvariant())) continue;
-                    }
-                    var r = new BlockRecord
-                    {
-                        Kind = t.Kind == "ip" ? "ip" : "proc",
-                        Key = t.Kind == "ip" ? t.Ip : t.AppPath,
-                        ProcessName = System.IO.Path.GetFileName(t.AppPath ?? ""),
-                        CreatedUtc = t.Created ?? DateTime.UtcNow,
-                        StatusUtc = t.Created ?? DateTime.UtcNow,
-                        ClassAtBlock = t.Kind == "ip" ? IpClassifier.Classify(t.Ip) : BlocksStore.ClassForPath(t.AppPath ?? ""),
-                        Origin = "reconcile",
-                        Attrib = "none",
-                    };
-                    // The rules carry their own provenance — the service the
-                    // monitor resolved at block time is embedded in the
-                    // description, so reconcile recovers identity without
-                    // the archive.
-                    if (BlocksStore.TryParseServiceFromDescription(t.Description, out string sk, out string dn))
-                    {
-                        r.ServiceKey = sk;
-                        r.SvcDisplayName = dn;
-                        r.Attrib = "rule-desc";
-                    }
-                    else if (r.Kind == "proc" && !string.IsNullOrEmpty(r.Key))
-                    {
-                        r.ServiceKey = System.IO.Path.GetFileNameWithoutExtension(r.Key).ToLowerInvariant();
-                        r.SvcDisplayName = ServiceCatalog.DisplayNameFor(r.ServiceKey, null);
-                        r.Attrib = "catalog";
-                    }
-                    if (!string.IsNullOrEmpty(r.Key)) BlocksStore.AddOrUpdate(r, "reconcile");
-                }
-                if (records.Count == 0 || BlocksStore.Records.Count != records.Count) records = BlocksStore.Records.ToList();
-
-                // Pause provenance: the newest "paused" event per target from
-                // the audit log's tail — the "⏸ 3d · Blocks tab" answer to
-                // "why is blocking off?".
-                var pauseHist = await System.Threading.Tasks.Task.Run(LoadPauseHistory);
-
-                var vms = new List<BlockRowVm>();
-                foreach (var r in records)
-                {
-                    string invKey = (r.IsIp ? "ip:" : "app:") + (r.Key ?? "").Trim().ToLowerInvariant();
-                    if (!byKey.TryGetValue(invKey, out var t) && !r.IsIp && !string.IsNullOrEmpty(r.Key))
-                    {
-                        string norm = AutoCommand.Engines.Firewall.FirewallService.NormalizeAppPath(r.Key);
-                        if (norm.Length > 0)
-                            byKey.TryGetValue("app:" + norm.ToLowerInvariant(), out t);
-                    }
-                    int rules = t?.Rules ?? 0;
-                    int enabled = t?.EnabledRules ?? 0;
-                    var vm = new BlockRowVm
-                    {
-                        Record = r,
-                        HasRules = rules > 0,
-                        RulesEnabled = enabled > 0,
-                        RulesCount = rules,
-                        EnabledCount = enabled,
-                        RulesStale = (t?.StaleRules ?? 0) > 0,
-                        ClassBrush = BrushForClass(r),
-                        LastTrafficBrush = (Brush)FindResource("MutedTextBrush"),
-                    };
-                    vm.CanSelect = vm.HasDisabledRules;
-                    var gate = AutoCommand.Agent.Core.BlockGateService.Instance.Find(r.Kind, r.Key);
-                    if (gate != null)
-                    {
-                        vm.PausedShort = $"gate {gate.RemainingMinutes:0}m · {gate.Client}";
-                        vm.PausedInfoToolTip =
-                            $"Block gate opened {gate.OpenedUtc.ToLocalTime():HH:mm} by {gate.Client}" +
-                            (string.IsNullOrEmpty(gate.Reason) ? "" : $" — {gate.Reason}") +
-$"\nBlocking returns ON automatically at {gate.ExpiresUtc.ToLocalTime():HH:mm}.";
-                    }
-                    if (vm.CanSelect)
-                    {
-                        string hk = r.Kind + ":" + r.Key;
-                        if (pauseHist.TryGetValue(hk, out var h))
-                        {
-                            vm.PausedShort = $"{ShortAge(DateTime.UtcNow - h.utc)} · {FriendlyOrigin(h.origin)}";
-                            vm.PausedInfoToolTip =
-                                $"Blocking turned off at {h.utc.ToLocalTime():yyyy-MM-dd HH:mm:ss local} via {FriendlyOrigin(h.origin)}\n" +
-                                "Restore in one step: the '⏸ blocking OFF' chip lenses the list to exactly these, then 'Turn blocking back ON'.";
-                        }
-                        else if (r.Status == "off")
-                        {
-                            vm.PausedShort = $"{ShortAge(DateTime.UtcNow - r.StatusUtc)}";
-                            vm.PausedInfoToolTip = $"Blocking turned off at {r.StatusUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss local}";
-                        }
-                    }
-                    vms.Add(vm);
-                }
-
-                // "last transmitted packets": freshest live row first, else the
-                // newest archived connection attempt (Sysmon logs attempts
-                // even when the firewall drops them — the block still shows).
-                // One streaming archive pass for all rows, not a scan per row.
-                await System.Threading.Tasks.Task.Run(() =>
-                {
-                    var unseenIps = vms.Where(v => v.Record.IsIp &&
-                            !_trafficCache.ContainsKey(v.Record.Kind + v.Record.Key))
-                        .Select(v => v.Record.Key).ToList();
-                    var ipIndex = SysmonArchiveService.NewestConnectionPerIp(unseenIps);
-                    var unseenImages = vms.Where(v => !v.Record.IsIp &&
-                            !_trafficCache.ContainsKey(v.Record.Kind + v.Record.Key))
-                        .Select(v => v.Record.Key).ToList();
-                    var imageIndex = SysmonArchiveService.NewestConnectionPerImage(unseenImages);
-
-                    foreach (var vm in vms)
-                    {
-                        try
-                        {
-                            var live = vm.Record.IsIp
-                                ? SvchostMonitorView.Current?.LiveRowForIp(vm.Record.Key)
-                                : SvchostMonitorView.Current?.LiveRowForPath(vm.Record.Key);
-                            if (live != null)
-                            {
-                                vm.LastTraffic = $"live · {live.LastSeenDisplay}";
-                                vm.LastTrafficToolTip = $"Currently tracked by the Process Monitor.\n" +
-                                    $"rx {live.RxBytesDisplay} · tx {live.TxBytesDisplay} · last packet {live.LastSeenDisplay}";
-                                vm.LastTrafficUtc = live.LastSeen;
-                                continue;
-                            }
-
-                            if (_trafficCache.TryGetValue(vm.Record.Kind + vm.Record.Key, out var hit))
-                            {
-                                ApplyArchiveTraffic(vm, hit);
-                                continue;
-                            }
-                            var net = vm.Record.IsIp
-                                ? (ipIndex.TryGetValue(vm.Record.Key, out var e1) ? e1 : null)
-                                : (imageIndex.TryGetValue(vm.Record.Key, out var e2) ? e2 : null);
-                            hit = net != null ? (net.TsUtc, "Sysmon archive") : null;
-                            _trafficCache[vm.Record.Kind + vm.Record.Key] = hit;
-                            ApplyArchiveTraffic(vm, hit);
-                        }
-                        catch { vm.LastTraffic = "—"; }
-                    }
-                });
-
-                // Containment proof — the same join the AI bridge's
-                // verify_block_containment runs (shared gatherer): attempts ×
-                // live sockets × archive bytes since the block was created.
-                // A row says what the block is actually DOING, LastTraffic
-                // above says what the process is still TRYING.
-                int leaks = 0;
-                try
-                {
-                    var snap = await System.Threading.Tasks.Task.Run(() => BlockContainmentReader.Take(60));
-                    foreach (var vm in vms)
-                    {
-                        if (!vm.HasRules)
-                        {
-                            SetContainment(vm, "—", "—", "MutedTextBrush",
-                                "No firewall rules exist for this target — nothing to contain.");
-                            continue;
-                        }
-                        if (!vm.RulesEnabled)
-                        {
-                            SetContainment(vm, "paused",
-                                vm.PausedShort != null ? "⏸ " + vm.PausedShort : "off",
-                                "MutedTextBrush",
-                                (vm.PausedInfoToolTip != null ? vm.PausedInfoToolTip + "\n\n" : "") +
-                                "Blocking is OFF — traffic flows by design, so containment is moot.");
-                            continue;
-                        }
-                        var worst = BlockContainmentVerifier.WorstForTarget(
-                            snap.Instances, vm.Record.Kind, vm.Record.Key);
-                        if (worst == null)
-                        {
-                            SetContainment(vm, "quiet", "quiet", "MutedTextBrush",
-                                "No blocked-connect attempts in the last hour — nothing is even trying " +
-                                "this target. The block may be dead weight (CDN edges rotate).");
-                            continue;
-                        }
-
-                        string approx = worst.T0Approximate ? "\n(block time approximate — legacy rule without provenance)" : "";
-                        string reused = worst.PidReused
-                            ? $"\nA live socket under pid {worst.Pid} belonged to a newer process (pid reuse) — not attributed here." : "";
-                        if (worst.Verdict == BlockContainmentVerifier.Leak)
-                        {
-                            leaks++;
-                            string ev = worst.SocketEvidence.Count > 0
-                                ? $"{worst.SocketEvidence.Count} live socket(s) to blocked target(s): {string.Join(", ", worst.SocketEvidence.Take(3))}"
-                                : $"{worst.FlowsSinceT0} archived flow(s), {worst.BytesSinceT0:N0} bytes since the block was created";
-                            SetContainment(vm, "leak", "🔴 LEAK", "AccentRedBrush",
-                                $"{worst.Process} (pid {worst.Pid}): {ev}.\n" +
-                                "Something established AFTER the block was created — the rule is not holding. " +
-                                $"Escalate: transport-level hard block, or remove/restart the process.{approx}{reused}");
-                        }
-                        else if (worst.Verdict == BlockContainmentVerifier.StaleFlow)
-                        {
-                            SetContainment(vm, "stale-flow", "🟠 stale flow", "AccentAmberBrush",
-                                $"{worst.Process} (pid {worst.Pid}) predates the block; socket(s): " +
-                                $"{string.Join(", ", worst.SocketEvidence.Take(3))}.\n" +
-                                "Firewall rules never sever flows that were already established — this socket " +
-                                $"may still be alive. Sever it (restart the process) to be sure.{worst.Note}{approx}{reused}");
-                        }
-                        else
-                        {
-                            SetContainment(vm, "contained", "contained", "AccentGreenBrush",
-                                $"{worst.Process} (pid {worst.Pid}): {worst.Attempts} attempt(s) in the last hour, " +
-                                "all dropped at the kernel. No live socket to a blocked target, no archived " +
-                                $"bytes since the block was created.{approx}{reused}");
-                        }
-                    }
-                }
-                catch
-                {
-                    foreach (var vm in vms)
-                        SetContainment(vm, "—", "—", "MutedTextBrush",
-                            "Containment join unavailable this refresh (feed, WMI or archive unreadable).");
-                }
-
-                Render(vms);
-                StatusText.Text = $"synced {DateTime.Now:HH:mm:ss}" +
-                    (leaks > 0 ? $" · ⚠ {leaks} target(s) LEAKING — see containment column" : "") +
-                    (BlocksStore.Unrecognized.Count > 0
-                        ? $" · {BlocksStore.Unrecognized.Count} unrecognized line(s) preserved in blocks.txt" : "");
-
-                // Auto-repair: nobody should have to know the button exists.
-                // Once per session, when rows are still unattributed, run the
-                // Sysmon/SCM pass in the background and re-render.
-                int unresolved = vms.Count(v => BlocksStore.ServiceGroupKey(v.Record) == "svchost:unresolved");
-                if (unresolved > 0 && !_autoRepairStarted)
-                {
-                    _autoRepairStarted = true;
-                    StatusText.Text = $"attributing {unresolved} block(s) from the Sysmon archive…";
-                    _ = System.Threading.Tasks.Task.Run(async () =>
-                    {
-                        try
-                        {
-                            var progress = new Progress<string>(m =>
-                                Dispatcher.Invoke(() => StatusText.Text = m));
-                            await BlockAttributionService.RepairAllAsync(progress);
-                        }
-                        finally
-                        {
-                            await Dispatcher.InvokeAsync(() => ReloadAsync()).Task.Unwrap();
-                        }
-                    });
+                    string norm = AutoCommand.Engines.Firewall.FirewallService.NormalizeAppPath(item.AppPath);
+                    if (norm.Length > 0)
+                        byKey.TryAdd("app:" + norm.ToLowerInvariant(), item);
                 }
             }
+
+            // Records the firewall knows about but the store doesn't
+            // (rules from an older version, or pre-v3 blocks) become
+            // store records so the tab is complete.
+            var records = BlocksStore.Records.ToList();
+            var known = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            foreach (var r in records)
+            {
+                known.Add((r.IsIp ? "ip:" : "app:") + (r.Key ?? "").Trim().ToLowerInvariant());
+                if (!r.IsIp && !string.IsNullOrEmpty(r.Key))
+                {
+                    string norm = AutoCommand.Engines.Firewall.FirewallService.NormalizeAppPath(r.Key);
+                    if (norm.Length > 0)
+                        known.Add("app:" + norm.ToLowerInvariant());
+                }
+            }
+            foreach (var t in inventory)
+            {
+                if (known.Contains(t.Key)) continue;
+                if (t.Kind == "app" && !string.IsNullOrEmpty(t.AppPath))
+                {
+                    string norm = AutoCommand.Engines.Firewall.FirewallService.NormalizeAppPath(t.AppPath);
+                    if (norm.Length > 0 && known.Contains("app:" + norm.ToLowerInvariant())) continue;
+                }
+                var r = new BlockRecord
+                {
+                    Kind = t.Kind == "ip" ? "ip" : "proc",
+                    Key = t.Kind == "ip" ? t.Ip : t.AppPath,
+                    ProcessName = System.IO.Path.GetFileName(t.AppPath ?? ""),
+                    CreatedUtc = t.Created ?? DateTime.UtcNow,
+                    StatusUtc = t.Created ?? DateTime.UtcNow,
+                    ClassAtBlock = t.Kind == "ip" ? IpClassifier.Classify(t.Ip) : BlocksStore.ClassForPath(t.AppPath ?? ""),
+                    Origin = "reconcile",
+                    Attrib = "none",
+                };
+                if (BlocksStore.TryParseServiceFromDescription(t.Description, out string sk, out string dn))
+                {
+                    r.ServiceKey = sk;
+                    r.SvcDisplayName = dn;
+                    r.Attrib = "rule-desc";
+                }
+                else if (r.Kind == "proc" && !string.IsNullOrEmpty(r.Key))
+                {
+                    r.ServiceKey = System.IO.Path.GetFileNameWithoutExtension(r.Key).ToLowerInvariant();
+                    r.SvcDisplayName = ServiceCatalog.DisplayNameFor(r.ServiceKey, null);
+                    r.Attrib = "catalog";
+                }
+                if (!string.IsNullOrEmpty(r.Key)) BlocksStore.AddOrUpdate(r, "reconcile");
+            }
+            if (records.Count == 0 || BlocksStore.Records.Count != records.Count) records = BlocksStore.Records.ToList();
+
+            var pauseHist = await System.Threading.Tasks.Task.Run(LoadPauseHistory);
+            var mutedBrush = (Brush)FindResource("MutedTextBrush");
+            bool needsArchiveLookup = false;
+            bool needsContainmentJoin = false;
+
+            var vms = new List<BlockRowVm>(records.Count);
+            foreach (var r in records)
+            {
+                string invKey = (r.IsIp ? "ip:" : "app:") + (r.Key ?? "").Trim().ToLowerInvariant();
+                if (!byKey.TryGetValue(invKey, out var t) && !r.IsIp && !string.IsNullOrEmpty(r.Key))
+                {
+                    string norm = AutoCommand.Engines.Firewall.FirewallService.NormalizeAppPath(r.Key);
+                    if (norm.Length > 0)
+                        byKey.TryGetValue("app:" + norm.ToLowerInvariant(), out t);
+                }
+                int rules = t?.Rules ?? 0;
+                int enabled = t?.EnabledRules ?? 0;
+                var vm = new BlockRowVm
+                {
+                    Record = r,
+                    HasRules = rules > 0,
+                    RulesEnabled = enabled > 0,
+                    RulesCount = rules,
+                    DuplicateRules = t?.DuplicateRules ?? 0,
+                    EnabledCount = enabled,
+                    RulesStale = (t?.StaleRules ?? 0) > 0,
+                    ClassBrush = BrushForClass(r),
+                    LastTrafficBrush = mutedBrush,
+                    ContainmentBrush = mutedBrush,
+                };
+                vm.CanSelect = vm.HasDisabledRules;
+                var gate = AutoCommand.Agent.Core.BlockGateService.Instance.Find(r.Kind, r.Key);
+                if (gate != null)
+                {
+                    vm.PausedShort = $"gate {gate.RemainingMinutes:0}m · {gate.Client}";
+                    vm.PausedInfoToolTip =
+                        $"Block gate opened {gate.OpenedUtc.ToLocalTime():HH:mm} by {gate.Client}" +
+                        (string.IsNullOrEmpty(gate.Reason) ? "" : $" — {gate.Reason}") +
+                        $"\nBlocking returns ON automatically at {gate.ExpiresUtc.ToLocalTime():HH:mm}.";
+                }
+                if (vm.CanSelect)
+                {
+                    string hk = r.Kind + ":" + r.Key;
+                    if (pauseHist.TryGetValue(hk, out var h))
+                    {
+                        vm.PausedShort = $"{ShortAge(DateTime.UtcNow - h.utc)} · {FriendlyOrigin(h.origin)}";
+                        vm.PausedInfoToolTip =
+                            $"Blocking turned off at {h.utc.ToLocalTime():yyyy-MM-dd HH:mm:ss local} via {FriendlyOrigin(h.origin)}\n" +
+                            "Restore in one step: the '⏸ blocking OFF' chip lenses the list to exactly these, then 'Turn blocking back ON'.";
+                    }
+                    else if (r.Status == "off")
+                    {
+                        vm.PausedShort = $"{ShortAge(DateTime.UtcNow - r.StatusUtc)}";
+                        vm.PausedInfoToolTip = $"Blocking turned off at {r.StatusUtc.ToLocalTime():yyyy-MM-dd HH:mm:ss local}";
+                    }
+                }
+
+                // Populate live or already-cached traffic synchronously so rows
+                // don't flicker on refreshes.
+                var live = r.IsIp
+                    ? SvchostMonitorView.Current?.LiveRowForIp(r.Key)
+                    : SvchostMonitorView.Current?.LiveRowForPath(r.Key);
+                if (live != null)
+                {
+                    vm.LastTraffic = $"live · {live.LastSeenDisplay}";
+                    vm.LastTrafficToolTip = $"Currently tracked by the Process Monitor.\n" +
+                        $"rx {live.RxBytesDisplay} · tx {live.TxBytesDisplay} · last packet {live.LastSeenDisplay}";
+                    vm.LastTrafficUtc = live.LastSeen;
+                }
+                else if (_trafficCache.TryGetValue(r.Kind + r.Key, out var cachedHit))
+                {
+                    ApplyArchiveTraffic(vm, cachedHit);
+                }
+                else
+                {
+                    needsArchiveLookup = true;
+                }
+
+                // Deterministic containment states render immediately in Phase 1.
+                if (!vm.HasRules)
+                {
+                    SetContainment(vm, "—", "—", "MutedTextBrush",
+                        "No firewall rules exist for this target — nothing to contain.");
+                }
+                else if (!vm.RulesEnabled)
+                {
+                    SetContainment(vm, "paused",
+                        vm.PausedShort != null ? "⏸ " + vm.PausedShort : "off",
+                        "MutedTextBrush",
+                        (vm.PausedInfoToolTip != null ? vm.PausedInfoToolTip + "\n\n" : "") +
+                        "Blocking is OFF — traffic flows by design, so containment is moot.");
+                }
+                else
+                {
+                    needsContainmentJoin = true;
+                }
+
+                vms.Add(vm);
+            }
+
+            Render(vms);
+
+            string unrecSuffix = BlocksStore.Unrecognized.Count > 0
+                ? $" · {BlocksStore.Unrecognized.Count} unrecognized line(s) preserved in blocks.txt" : "";
+            if (!needsArchiveLookup && !needsContainmentJoin)
+            {
+                StatusText.Text = $"synced {DateTime.Now:HH:mm:ss}{unrecSuffix}";
+            }
+            else
+            {
+                StatusText.Text = $"synced {DateTime.Now:HH:mm:ss} · verifying containment…";
+                _ = EnrichRowsAsync(vms, inventory, reloadGen);
+            }
+
+            // Auto-consolidate legacy 4-rule IP / 2-rule app blocks once per
+            // session in the background so future toggles halve their BFE writes
+            // and become eligible for the O(1) direct-lookup fast path.
+            if (!_autoConsolidateStarted && inventory.Any(t => t.Kind == "ip" && t.Rules > 2))
+            {
+                _autoConsolidateStarted = true;
+                _ = System.Threading.Tasks.Task.Run(async () =>
+                {
+                    try
+                    {
+                        var (targets, removedIn, migratedOut) =
+                            await FirewallService.Instance.ConsolidateLegacyIpBlocksAsync();
+                        if (migratedOut > 0 || removedIn > 0)
+                        {
+                            BlocksStore.LogFleet("consolidated",
+                                $"{targets} target(s): {removedIn} inbound deleted, {migratedOut} migrated to v2 naming",
+                                "auto-consolidate");
+                            await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
+                            await Dispatcher.InvokeAsync(() => ReloadAsync()).Task.Unwrap();
+                        }
+                    }
+                    catch { }
+                });
+            }
+
+            // Auto-repair: once per session, when rows are still unattributed,
+            // run the Sysmon/SCM pass in the background and re-render.
+            int unresolved = vms.Count(v => BlocksStore.ServiceGroupKey(v.Record) == "svchost:unresolved");
+            if (unresolved > 0 && !_autoRepairStarted)
+            {
+                _autoRepairStarted = true;
+                StatusText.Text = $"attributing {unresolved} block(s) from the Sysmon archive…";
+                _ = System.Threading.Tasks.Task.Run(async () =>
+                {
+                    try
+                    {
+                        var progress = new Progress<string>(m =>
+                            Dispatcher.Invoke(() => StatusText.Text = m));
+                        await BlockAttributionService.RepairAllAsync(progress);
+                    }
+                    finally
+                    {
+                        await Dispatcher.InvokeAsync(() => ReloadAsync()).Task.Unwrap();
+                    }
+                });
+            }
+        }
+
+        /// <summary>
+        /// Phase 2 — Resolves uncached Sysmon archive traffic and runs the
+        /// containment join off the UI thread, reusing Phase 1's inventory so
+        /// zero extra firewall COM enumerations occur, then updates rows in-place
+        /// via INotifyPropertyChanged without resetting scroll or selection.
+        /// </summary>
+        private async System.Threading.Tasks.Task EnrichRowsAsync(
+            List<BlockRowVm> vms,
+            List<AutoCommand.Engines.Firewall.BlockedTarget> preloadedInventory,
+            int reloadGen)
+        {
+            Dictionary<string, (DateTime utc, string source)?> newlyResolvedTraffic = null;
+            BlockContainmentReader.Snapshot containmentSnap = null;
+            bool containmentFailed = false;
+
+            await System.Threading.Tasks.Task.Run(() =>
+            {
+                var unseenIps = vms.Where(v => v.Record.IsIp &&
+                        v.LastTraffic == "…" &&
+                        !_trafficCache.ContainsKey(v.Record.Kind + v.Record.Key))
+                    .Select(v => v.Record.Key).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+                var unseenImages = vms.Where(v => !v.Record.IsIp &&
+                        v.LastTraffic == "…" &&
+                        !_trafficCache.ContainsKey(v.Record.Kind + v.Record.Key))
+                    .Select(v => v.Record.Key).Distinct(StringComparer.OrdinalIgnoreCase).ToList();
+
+                if (unseenIps.Count > 0 || unseenImages.Count > 0)
+                {
+                    newlyResolvedTraffic = new Dictionary<string, (DateTime utc, string source)?>(StringComparer.OrdinalIgnoreCase);
+                    var ipIndex = unseenIps.Count > 0
+                        ? SysmonArchiveService.NewestConnectionPerIp(unseenIps)
+                        : new Dictionary<string, AutoCommand.Engines.Watch.ArchiveEvent>(StringComparer.OrdinalIgnoreCase);
+                    var imageIndex = unseenImages.Count > 0
+                        ? SysmonArchiveService.NewestConnectionPerImage(unseenImages)
+                        : new Dictionary<string, AutoCommand.Engines.Watch.ArchiveEvent>(StringComparer.OrdinalIgnoreCase);
+
+                    foreach (var vm in vms)
+                    {
+                        string cacheKey = vm.Record.Kind + vm.Record.Key;
+                        if (_trafficCache.ContainsKey(cacheKey)) continue;
+                        var net = vm.Record.IsIp
+                            ? (ipIndex.TryGetValue(vm.Record.Key, out var e1) ? e1 : null)
+                            : (imageIndex.TryGetValue(vm.Record.Key, out var e2) ? e2 : null);
+                        (DateTime utc, string source)? hit = net != null ? (net.TsUtc, "Sysmon archive") : null;
+                        _trafficCache[cacheKey] = hit;
+                        newlyResolvedTraffic[cacheKey] = hit;
+                    }
+                }
+
+                if (vms.Any(v => v.HasRules && v.RulesEnabled))
+                {
+                    try
+                    {
+                        containmentSnap = BlockContainmentReader.Take(60, preloadedInventory);
+                    }
+                    catch
+                    {
+                        containmentFailed = true;
+                    }
+                }
+            });
+
+            if (reloadGen != _reloadGeneration) return;
+
+            if (newlyResolvedTraffic != null)
+            {
+                foreach (var vm in vms)
+                {
+                    if (vm.LastTraffic != "…") continue;
+                    if (_trafficCache.TryGetValue(vm.Record.Kind + vm.Record.Key, out var hit))
+                        ApplyArchiveTraffic(vm, hit);
+                    else
+                        vm.LastTraffic = "—";
+                }
+            }
+
+            int leaks = 0;
+            if (containmentFailed)
+            {
+                foreach (var vm in vms.Where(v => v.HasRules && v.RulesEnabled))
+                    SetContainment(vm, "—", "—", "MutedTextBrush",
+                        "Containment join unavailable this refresh (feed or archive unreadable).");
+            }
+            else if (containmentSnap != null)
+            {
+                foreach (var vm in vms)
+                {
+                    if (!vm.HasRules || !vm.RulesEnabled) continue;
+                    var worst = BlockContainmentVerifier.WorstForTarget(
+                        containmentSnap.Instances, vm.Record.Kind, vm.Record.Key);
+                    if (worst == null)
+                    {
+                        SetContainment(vm, "quiet", "quiet", "MutedTextBrush",
+                            "No blocked-connect attempts in the last hour — nothing is even trying " +
+                            "this target. The block may be dead weight (CDN edges rotate).");
+                        continue;
+                    }
+
+                    string approx = worst.T0Approximate ? "\n(block time approximate — legacy rule without provenance)" : "";
+                    string reused = worst.PidReused
+                        ? $"\nA live socket under pid {worst.Pid} belonged to a newer process (pid reuse) — not attributed here." : "";
+                    if (worst.Verdict == BlockContainmentVerifier.Leak)
+                    {
+                        leaks++;
+                        string ev = worst.SocketEvidence.Count > 0
+                            ? $"{worst.SocketEvidence.Count} live socket(s) to blocked target(s): {string.Join(", ", worst.SocketEvidence.Take(3))}"
+                            : $"{worst.FlowsSinceT0} archived flow(s), {worst.BytesSinceT0:N0} bytes since the block was created";
+                        SetContainment(vm, "leak", "🔴 LEAK", "AccentRedBrush",
+                            $"{worst.Process} (pid {worst.Pid}): {ev}.\n" +
+                            "Something established AFTER the block was created — the rule is not holding. " +
+                            $"Escalate: transport-level hard block, or remove/restart the process.{approx}{reused}");
+                    }
+                    else if (worst.Verdict == BlockContainmentVerifier.StaleFlow)
+                    {
+                        SetContainment(vm, "stale-flow", "🟠 stale flow", "AccentAmberBrush",
+                            $"{worst.Process} (pid {worst.Pid}) predates the block; socket(s): " +
+                            $"{string.Join(", ", worst.SocketEvidence.Take(3))}.\n" +
+                            "Firewall rules never sever flows that were already established — this socket " +
+                            $"may still be alive. Sever it (restart the process) to be sure.{worst.Note}{approx}{reused}");
+                    }
+                    else
+                    {
+                        SetContainment(vm, "contained", "contained", "AccentGreenBrush",
+                            $"{worst.Process} (pid {worst.Pid}): {worst.Attempts} attempt(s) in the last hour, " +
+                            "all dropped at the kernel. No live socket to a blocked target, no archived " +
+                            $"bytes since the block was created.{approx}{reused}");
+                    }
+                }
+            }
+
+            // Refresh group summary strings & header leak counter without rebuilding
+            // DetailRows unless sorted by one of the async columns.
+            foreach (var g in _allGroups)
+            {
+                var classes = g.AllRows.GroupBy(v => v.Record.ClassAtBlock ?? "?")
+                    .OrderByDescending(x => x.Count())
+                    .Select(x => $"{x.Count()} {x.Key}");
+                int gLeak = g.AllRows.Count(v => v.ContainmentVerdict == BlockContainmentVerifier.Leak);
+                int gStale = g.AllRows.Count(v => v.ContainmentVerdict == BlockContainmentVerifier.StaleFlow);
+                int gContained = g.AllRows.Count(v => v.ContainmentVerdict == BlockContainmentVerifier.Contained);
+                g.Summary = $"{g.AllRows.Count} block{(g.AllRows.Count == 1 ? "" : "s")} · {string.Join(" · ", classes)}" +
+                    (gLeak > 0 ? $" · ⚠ {gLeak} LEAKING" :
+                     gStale > 0 ? $" · {gStale} stale flow" :
+                     gContained > 0 ? $" · {gContained} contained" : "");
+            }
+            if (_detailGroup == null)
+            {
+                int on = _allRows.Count(r => r.RulesEnabled);
+                int off = _allRows.Count(r => r.HasRules && !r.RulesEnabled);
+                DetailSummaryText.Text =
+                    $"{_allRows.Count} blocks · {_allGroups.Count} categories · {on} blocking ON · {off} blocking OFF" +
+                    (leaks > 0 ? $" · ⚠ {leaks} LEAKING" : "");
+            }
+            else
+            {
+                DetailSummaryText.Text = $"{_detailGroup.Summary} · {_detailGroup.StateText}";
+            }
+
+            if (_sortColumn is BlockSortColumn.LastTraffic or BlockSortColumn.Containment)
+                RenderDetail();
+
+            StatusText.Text = $"synced {DateTime.Now:HH:mm:ss}" +
+                (leaks > 0 ? $" · ⚠ {leaks} target(s) LEAKING — see containment column" : "") +
+                (BlocksStore.Unrecognized.Count > 0
+                    ? $" · {BlocksStore.Unrecognized.Count} unrecognized line(s) preserved in blocks.txt" : "");
         }
 
         /// <summary>Newest "paused" event per kind:key from the audit log's
@@ -1180,6 +1398,41 @@ $"\nBlocking returns ON automatically at {gate.ExpiresUtc.ToLocalTime():HH:mm}."
             return impact;
         }
 
+        /// <summary>
+        /// Optimistically flips row &amp; ribbon state on the UI thread (&lt;16 ms)
+        /// before the firewall COM transaction runs so buttons, badges, and row
+        /// glyphs respond instantaneously.
+        /// </summary>
+        private void ApplyOptimisticToggle(IReadOnlyList<BlockRowVm> rows, bool enable, string statusMessage)
+        {
+            if (rows == null || rows.Count == 0) return;
+            foreach (var vm in rows)
+            {
+                if (!vm.HasRules) continue;
+                vm.RulesEnabled = enable;
+                vm.EnabledCount = enable ? vm.RulesCount : 0;
+                vm.CanSelect = !enable;
+                if (enable)
+                {
+                    vm.IsSelected = false;
+                    _selectedKeys.Remove(vm.SelectionKey);
+                    vm.PausedShort = null;
+                    vm.PausedInfoToolTip = null;
+                    SetContainment(vm, "…", "…", "MutedTextBrush", "Verifying containment…");
+                }
+                else
+                {
+                    vm.PausedShort = "just now · Blocks tab";
+                    vm.PausedInfoToolTip = "Blocking turned off just now via Blocks tab.";
+                    SetContainment(vm, "paused", "⏸ just now · Blocks tab", "MutedTextBrush",
+                        "Blocking is OFF — traffic flows by design, so containment is moot.");
+                }
+            }
+            Render(_allRows);
+            if (!string.IsNullOrEmpty(statusMessage))
+                StatusText.Text = statusMessage;
+        }
+
         /// <summary>The one path every bulk blocking change takes: build the
         /// grouped preview, let the user scope it (all / except high-impact),
         /// apply, record one audit event, and offer undo on the toast.</summary>
@@ -1222,31 +1475,38 @@ $"\nBlocking returns ON automatically at {gate.ExpiresUtc.ToLocalTime():HH:mm}."
                 : scope;
             if (final.Count == 0) return;
 
-            // before-state snapshot powers the undo
+            // before-state snapshot powers the undo (capture BEFORE optimistic mutation)
             var snapshot = final.Select(v => (v.Record.Kind, v.Record.Key, enable ? !v.HasDisabledRules : v.RulesEnabled)).ToList();
             var targets = final.Select(v => (v.Record.Kind, v.Record.Key)).ToList();
+            int estRules = final.Sum(v => v.RulesCount);
 
-            var (matched, changed, firstError) = await FirewallService.Instance.SetTargetsEnabledWithErrorAsync(targets, enable);
-            if (matched == 0 || (changed == 0 && !string.IsNullOrEmpty(firstError)))
+            ApplyOptimisticToggle(final, enable,
+                $"{verb} — updating {estRules} firewall rule(s) across {final.Count} target(s)…");
+
+            var progress = new Progress<(int Changed, int Matched)>(p =>
+                StatusText.Text = $"{verb} — {p.Changed} firewall rule(s) updated ({p.Matched} matched)…");
+
+            var snap = await FirewallService.Instance.SetTargetsEnabledSnapshotAsync(targets, enable, true, progress);
+            if (snap.Matched == 0 || (snap.Changed == 0 && !string.IsNullOrEmpty(snap.FirstError)))
             {
-                string detail = !string.IsNullOrEmpty(firstError)
-                    ? $" — {firstError}"
+                string detail = !string.IsNullOrEmpty(snap.FirstError)
+                    ? $" — {snap.FirstError}"
                     : " — no matching firewall rules found on disk";
-                ShowBulkToast($"{verb} did not change any rules ({changed}/{matched}){detail}", null);
-                await ReloadAsync();
+                ShowBulkToast($"{verb} did not change any rules ({snap.Changed}/{snap.Matched}){detail}", null);
+                await ReloadAsync(snap.Inventory);
                 return;
             }
 
             BlocksStore.SetStatuses(targets, enable ? "on" : "off", "blocks-tab");
-            await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
+            await Helpers.FirewallBaselineManager.ApplyToggleSnapshotAsync(snap);
             NotifyMonitorIfVisible();
 
-            string errSuffix = !string.IsNullOrEmpty(firstError) ? $" · warning: {firstError}" : "";
+            string errSuffix = !string.IsNullOrEmpty(snap.FirstError) ? $" · warning: {snap.FirstError}" : "";
             ShowBulkToast((enable
-                ? $"Blocking restored — {final.Count} target(s) ON again ({changed}/{matched} rules) · {scopeLabel}"
-                : $"Blocking stopped — {final.Count} target(s) OFF, traffic flows ({changed}/{matched} rules) · {scopeLabel}") + errSuffix,
+                ? $"Blocking restored — {final.Count} target(s) ON again ({snap.Changed}/{snap.Matched} rules) · {scopeLabel}"
+                : $"Blocking stopped — {final.Count} target(s) OFF, traffic flows ({snap.Changed}/{snap.Matched} rules) · {scopeLabel}") + errSuffix,
                 snapshot);
-            await ReloadAsync();
+            await ReloadAsync(snap.Inventory);
         }
 
         private static void NotifyMonitorIfVisible()
@@ -1318,27 +1578,33 @@ $"\nBlocking returns ON automatically at {gate.ExpiresUtc.ToLocalTime():HH:mm}."
             var toOn = snap.Where(t => t.wasEnabled).Select(t => (t.kind, t.key)).ToList();
             var toOff = snap.Where(t => !t.wasEnabled).Select(t => (t.kind, t.key)).ToList();
             string undoErr = null;
+            AutoCommand.Engines.Firewall.TargetToggleSnapshot lastSnap = null;
             if (toOn.Count > 0)
             {
-                var (m, _, err) = await FirewallService.Instance.SetTargetsEnabledWithErrorAsync(toOn, true);
-                if (m > 0 && string.IsNullOrEmpty(err))
+                var res = await FirewallService.Instance.SetTargetsEnabledSnapshotAsync(toOn, true, toOff.Count == 0, null);
+                lastSnap = res;
+                if (res.Matched > 0 && string.IsNullOrEmpty(res.FirstError))
                     BlocksStore.SetStatuses(toOn, "on", "undo");
                 else
-                    undoErr ??= err ?? "no matching firewall rules found";
+                    undoErr ??= res.FirstError ?? "no matching firewall rules found";
             }
             if (toOff.Count > 0)
             {
-                var (m, _, err) = await FirewallService.Instance.SetTargetsEnabledWithErrorAsync(toOff, false);
-                if (m > 0 && string.IsNullOrEmpty(err))
+                var res = await FirewallService.Instance.SetTargetsEnabledSnapshotAsync(toOff, false, true, null);
+                lastSnap = res;
+                if (res.Matched > 0 && string.IsNullOrEmpty(res.FirstError))
                     BlocksStore.SetStatuses(toOff, "off", "undo");
                 else
-                    undoErr ??= err ?? "no matching firewall rules found";
+                    undoErr ??= res.FirstError ?? "no matching firewall rules found";
             }
-            await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
+            if (lastSnap != null)
+                await Helpers.FirewallBaselineManager.ApplyToggleSnapshotAsync(lastSnap);
+            else
+                await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
             NotifyMonitorIfVisible();
             if (!string.IsNullOrEmpty(undoErr))
                 ShowBulkToast($"Undo did not fully apply — {undoErr}", null);
-            await ReloadAsync();
+            await ReloadAsync(lastSnap?.Inventory);
         }
 
         // ── audit digest ────────────────────────────────────────────────────
@@ -1503,20 +1769,26 @@ $"\nBlocking returns ON automatically at {gate.ExpiresUtc.ToLocalTime():HH:mm}."
             var sym = _restoreSymptom;
 
             var list = _restoreMatches.Select(v => (v.Record.Kind, v.Record.Key)).ToList();
-            var (matched, changed, firstError) = await FirewallService.Instance.SetTargetsEnabledWithErrorAsync(list, false);
-            if (matched == 0 || (changed == 0 && !string.IsNullOrEmpty(firstError)))
+            var matchSet = new HashSet<string>(
+                list.Select(x => x.Kind + ":" + x.Key), StringComparer.OrdinalIgnoreCase);
+            var affectedRows = _allRows.Where(r => matchSet.Contains(r.SelectionKey)).ToList();
+            ApplyOptimisticToggle(affectedRows, false,
+                $"Stopping blocking for '{sym.Title}' ({list.Count} target(s))…");
+
+            var snap = await FirewallService.Instance.SetTargetsEnabledSnapshotAsync(list, false, true, null);
+            if (snap.Matched == 0 || (snap.Changed == 0 && !string.IsNullOrEmpty(snap.FirstError)))
             {
-                ShowBulkToast($"Stop blocking for '{sym.Title}' did not change any rules ({changed}/{matched})" +
-                    (!string.IsNullOrEmpty(firstError) ? $" — {firstError}" : ""), null);
-                await ReloadAsync();
+                ShowBulkToast($"Stop blocking for '{sym.Title}' did not change any rules ({snap.Changed}/{snap.Matched})" +
+                    (!string.IsNullOrEmpty(snap.FirstError) ? $" — {snap.FirstError}" : ""), null);
+                await ReloadAsync(snap.Inventory);
                 return;
             }
             BlocksStore.SetStatuses(list, "off", "restore-guide");
-            await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
+            await Helpers.FirewallBaselineManager.ApplyToggleSnapshotAsync(snap);
             NotifyMonitorIfVisible();
-            ShowBulkToast($"Blocking stopped for '{sym.Title}' — {list.Count} target(s) OFF, traffic flows ({changed}/{matched} rules)",
+            ShowBulkToast($"Blocking stopped for '{sym.Title}' — {list.Count} target(s) OFF, traffic flows ({snap.Changed}/{snap.Matched} rules)",
                 list.Select(v => (v.Kind, v.Key, true)).ToList());
-            await ReloadAsync();
+            await ReloadAsync(snap.Inventory);
         }
 
         // ── actions ────────────────────────────────────────────────────────
@@ -1525,21 +1797,43 @@ $"\nBlocking returns ON automatically at {gate.ExpiresUtc.ToLocalTime():HH:mm}."
         {
             if ((sender as FrameworkElement)?.Tag is not BlockRowVm vm) return;
             bool enable = vm.HasDisabledRules || !vm.RulesEnabled;
-            var (matched, changed, firstError) = await FirewallService.Instance.SetTargetsEnabledWithErrorAsync(
-                new[] { (vm.Record.Kind, vm.Record.Key) }, enable);
-            if (matched == 0 || (changed == 0 && !string.IsNullOrEmpty(firstError)))
+            int expectedRules = vm.RulesCount;
+            bool allowFastPath = vm.HasRules && vm.DuplicateRules == 0 &&
+                (vm.Record.IsIp ? expectedRules == 2 : expectedRules == 1);
+
+            ApplyOptimisticToggle(new[] { vm }, enable,
+                $"{(enable ? "Restoring" : "Stopping")} blocking for {vm.Target}…");
+
+            var snap = await FirewallService.Instance.ToggleSingleTargetSnapshotAsync(
+                vm.Record.Kind, vm.Record.Key, expectedRules, allowFastPath, enable);
+            if (snap.Matched == 0 || (snap.Changed == 0 && !string.IsNullOrEmpty(snap.FirstError)))
             {
-                ShowBulkToast($"{(enable ? "Restore blocking" : "Stop blocking")} for '{vm.Target}' did not change any rules ({changed}/{matched})" +
-                    (!string.IsNullOrEmpty(firstError) ? $" — {firstError}" : " — no matching firewall rules found"), null);
-                await ReloadAsync();
+                ShowBulkToast($"{(enable ? "Restore blocking" : "Stop blocking")} for '{vm.Target}' did not change any rules ({snap.Changed}/{snap.Matched})" +
+                    (!string.IsNullOrEmpty(snap.FirstError) ? $" — {snap.FirstError}" : " — no matching firewall rules found"), null);
+                await ReloadAsync(snap.Inventory);
                 return;
             }
             BlocksStore.SetStatus(vm.Record.Kind, vm.Record.Key, enable ? "on" : "off");
             BlocksStore.AppendEvent(enable ? "resumed" : "paused", vm.Record.Kind, vm.Record.Key,
-                $"{changed}/{matched} rules", "blocks-tab");
-            await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
+                $"{snap.Changed}/{snap.Matched} rules", "blocks-tab");
+            await Helpers.FirewallBaselineManager.ApplyToggleSnapshotAsync(snap);
             NotifyMonitorIfVisible();
-            await ReloadAsync();
+
+            if (snap.UsedFastPath && string.IsNullOrEmpty(snap.FirstError))
+            {
+                // Fast path toggled deterministic v2 rules directly with zero COM
+                // enumerations — keep the optimistic UI state in place instead of
+                // forcing a full firewall rescan.
+                StatusText.Text = $"synced {DateTime.Now:HH:mm:ss}" +
+                    (BlocksStore.Unrecognized.Count > 0
+                        ? $" · {BlocksStore.Unrecognized.Count} unrecognized line(s) preserved in blocks.txt" : "");
+                if (enable)
+                    _ = EnrichRowsAsync(_allRows, null, ++_reloadGeneration);
+            }
+            else
+            {
+                await ReloadAsync(snap.Inventory);
+            }
         }
 
         private async void RowRemove_Click(object sender, RoutedEventArgs e)

@@ -451,7 +451,7 @@ namespace AutoCommand
             try
             {
                 var result = await FirewallService.Instance
-                    .SetAllBlocksEnabledAsync(false);
+                    .SetAllBlocksEnabledSnapshotAsync(false, false, true, null);
 
                 // A stale DNS cache keeps sites dead even after the block is
                 // lifted — flush it automatically so recovery is one click.
@@ -491,8 +491,8 @@ namespace AutoCommand
                 // my blocks go off, and how far did it reach".
                 BlocksStore.LogFleet("fleet-disabled",
                     $"{result.Changed}/{result.Matched} rule(s) disabled", "panic-button");
-                await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
-                var blocksRefresh = BlocksTab != null ? BlocksTab.RefreshIfLoadedAsync() : Task.CompletedTask;
+                await Helpers.FirewallBaselineManager.ApplyToggleSnapshotAsync(result);
+                var blocksRefresh = BlocksTab != null ? BlocksTab.RefreshIfLoadedAsync(result.Inventory) : Task.CompletedTask;
                 var monitorRefresh = Views.SvchostMonitorView.Current != null
                     ? Views.SvchostMonitorView.Current.RefreshBlockStateIfLoadedAsync()
                     : Task.CompletedTask;
