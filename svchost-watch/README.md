@@ -86,19 +86,11 @@ if you need true service semantics later, wrap the collector in a Worker Service
 
 ## Files
 
-- `SvchostAnalyzer/` — the tool (capture + analyze)
-- `SvchostAnalyzer.Core/SvchostIdentity.cs` — the shared -k/-s parser +
+- `SvchostAnalyzer.Core/SvchostIdentity.cs` — the shared `-k`/`-s` parser +
   SCM corroboration check (one definition of svchost identity, used by the
-  CLI, the analyzer, and the AutoCommand Process Monitor / PID Inquiry)
-- `trace-synthetic.jsonl` — planted-threat test trace (bad parent, 30 s beacon
-  to TEST-NET, upload dominance, `-s` masquerade with no `-k`) — all 6
-  detectors must fire on it
-- `edge-test.jsonl` (+ `make-edge-trace.ps1` generator) — identity parser edge
-  cases: quoted image path, per-user `template_LUID` service names, `-s`
-  with no value, hidden command line — must yield exactly the 2 planted
-  flags (mismatch, no-`-k`) and no false positives
-- `trace-cs.jsonl`, `trace-live.jsonl` — real captures from this machine
-  (clean; the machine genuinely had zero svchost connections at capture time)
+  analyzer and the AutoCommand Process Monitor / PID Inquiry)
+- `SvchostAnalyzer.Core/CaptureEngine.cs` — in-process WMI + TCP table capture
+- `SvchostAnalyzer.Core/TraceAnalyzer.cs` — pattern detection over JSONL traces
 
 ## Verified behavior
 

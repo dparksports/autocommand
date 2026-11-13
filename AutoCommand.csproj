@@ -116,29 +116,13 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Precursor tree: SystemMonitor's classic source, folded in with its
-         full history (2026-11). Preserved as-is — never compiled into the
-         app; its own Main()s and foreign deps (Google.Apis etc.) belong to
-         the classic app, not this one (see systemmonitor\) -->
-    <Compile Remove="systemmonitor\**" />
-    <None Remove="systemmonitor\**" />
-    <Content Remove="systemmonitor\**" />
-    <Resource Remove="systemmonitor\**" />
-    <Page Remove="systemmonitor\**" />
-    <EmbeddedResource Remove="systemmonitor\**" />
-    <!-- Exclude scratch/test scripts — they define their own Main() -->
-    <Compile Remove="tests\ScratchTest\**" />
-    <Compile Remove="Sdk\**" />
-    <!-- Self-test harness: links the app's services itself and has its own
-         Main() (same reason as ScratchTest) -->
+    <!-- Self-test harnesses: link the app's services themselves and carry
+         their own Main() -->
     <Compile Remove="tests\PyTraceSelfTest\**" />
     <Compile Remove="tests\TaskAttributionSelfTest\**" />
     <Compile Remove="tests\OneSettingsCadenceSelfTest\**" />
     <!-- Intercept self-test: journal + CA mechanics offline (own Main()) -->
     <Compile Remove="tests\InterceptSelfTest\**" />
-    <!-- BITS tracer self-test: drives ParseMessage/Apply/stat/firewall
-         logic offline with synthetic events (see tests\BitsTraceSelfTest\) -->
-    <Compile Remove="tests\BitsTraceSelfTest\**" />
     <!-- Proxy install self-test: drives McpClientRegistration's install
          decision logic with synthetic dirs (see tests\ProxyInstallSelfTest\) -->
     <Compile Remove="tests\ProxyInstallSelfTest\**" />
@@ -154,22 +138,17 @@
     <Compile Remove="tests\WatchSelfTest\**" />
     <!-- Vendored engine: compiled through its own ProjectReference — without
          this exclusion the default glob would pull its .cs into the app
-         assembly too (duplicate types, and the CLI's top-level Program). -->
+         assembly too (duplicate types in the WPF _wpftmp pass). -->
     <Compile Remove="svchost-watch\**" />
     <!-- Agent proxy: built through its own ProjectReference — same glob
          reason as svchost-watch (its obj\** auto-generated sources would be
          double-compiled into the WPF temp project) -->
     <Compile Remove="AgentProxy\**" />
-    <!-- OneSettings cadence CLI — standalone console tool for the inbox
-         OneSettings RefreshCache task, built separately (dotnet build
-         OneSettingsCadence\OneSettingsCadence.csproj); own Main() -->
     <!-- Contain self-test: the blocking/safety path — built test-first,
          before the phase 3 extraction (REWRITE.md); own Main() -->
     <Compile Remove="tests\ContainSelfTest\**" />
+    <!-- Vendored OneSettingsCadence.Core: compiled through its own ProjectReference -->
     <Compile Remove="OneSettingsCadence\**" />
-    <!-- DnsFeedSelfTest: newest self-test folder (added after the last ii
-         app build); same glob reason as the others -->
-    <Compile Remove="tests\DnsFeedSelfTest\**" />
     <!-- F# engine sources live in their own fsproj graph -->
     <Compile Remove="Engines\**" />
     <!-- Extracted core engines (AutoCommand II phases, REWRITE.md): built

@@ -15,9 +15,7 @@ name: ci
 on:
   push:
     branches: [master]
-    paths-ignore: ['systemmonitor/**']
   pull_request:
-    paths-ignore: ['systemmonitor/**']
   workflow_dispatch:
 
 permissions:
@@ -81,6 +79,7 @@ jobs:
             'tests/WslSelfTest',
             'tests/StartupHealthSelfTest',
             'tests/AllowListSelfTest',
+            'tests/WatchSelfTest',
           )
           foreach ($s in $suites) {
             Write-Host "== $s =="

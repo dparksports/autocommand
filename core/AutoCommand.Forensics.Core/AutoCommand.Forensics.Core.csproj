@@ -31,14 +31,6 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- White-box access for the BITS harness: it drives the internal
-         parser/apply seam (ParseMessage/ParseRecord/Apply/EnrichmentEnabled)
-         that a source-copy build could see; InternalsVisibleTo keeps that
-         access without making test-only members public API. -->
-    <InternalsVisibleTo Include="BitsTraceSelfTest" />
-  </ItemGroup>
-
-  <ItemGroup>
     <!-- WMI + event channels: provenance reads Sysmon via both; the BITS
          watcher and spawn watcher follow live event channels. -->
     <PackageReference Include="System.Management" Version="10.0.13" />

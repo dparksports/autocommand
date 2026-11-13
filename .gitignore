@@ -1,9 +1,5 @@
 bin/
 obj/
-Sdk/bin/
-Sdk/obj/
-tests/ScratchTest/bin/
-tests/ScratchTest/obj/
 *.zip
 *.csv
 .vs/
