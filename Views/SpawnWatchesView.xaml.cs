@@ -19,7 +19,7 @@ namespace AutoCommand.Views
     /// time — this view only reads, so the 10 s refresh loop is safe to
     /// visibility-gate (accumulation continues while the tab is hidden).
     /// </summary>
-    public partial class SpawnWatchesView : UserControl, IAiAuditable
+    public partial class SpawnWatchesView : UserControl
     {
         private sealed class RuleRowVm
         {
@@ -70,19 +70,6 @@ namespace AutoCommand.Views
             // reading service-side snapshots only — pausing while hidden
             // never pauses collection (RefreshLoop's stated precondition)
             RefreshLoop.GateVisibility(this, () => _timer, () => _ = LoadAsync());
-        }
-
-        /// <summary>Structured tab state for AI auditability.</summary>
-        public string GetAuditContext()
-        {
-            var rules = SpawnWatchStore.Load();
-            var lines = new List<string> { $"SpawnWatches: {rules.Count} rule(s), {(string.IsNullOrEmpty(_selectedRule) ? "all" : $"'{_selectedRule}'")} selected" };
-            foreach (var w in rules)
-                lines.Add($"  - {w.Name} [{(w.Enabled ? "enabled" : "disabled")}] process={w.MatchProcess} parent={w.MatchParent} service={w.ServiceKey}");
-            foreach (var h in SpawnWatchService.ReadHits(_selectedRule, DateTime.UtcNow.AddHours(-HitWindowHours), 20))
-                lines.Add($"  hit {h.TsUtc.ToLocalTime():HH:mm:ss} [{h.Rule}] pid={h.Pid} {Leaf(h.Image)} ← {Leaf(h.Parent)}" +
-                          (string.IsNullOrEmpty(h.Service) ? "" : $" ({h.Service})"));
-            return string.Join(Environment.NewLine, lines);
         }
 
         // ── loading ───────────────────────────────────────────────────────

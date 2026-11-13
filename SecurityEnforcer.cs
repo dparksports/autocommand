@@ -391,35 +391,6 @@ namespace AutoCommand
 
         public event Action<List<string>> ConfigurationDriftDetected;
 
-        public void ForceApplyFirewallRules()
-        {
-            try
-            {
-                var overrides = Helpers.FirewallConfigManager.Instance.RuleOverrides;
-                if (overrides.Count == 0) return;
-
-                // Use COM API to apply overrides
-                Type fwPolicyType = Type.GetTypeFromProgID("HNetCfg.FwPolicy2");
-                dynamic fwPolicy = Activator.CreateInstance(fwPolicyType);
-                foreach (dynamic rule in fwPolicy.Rules)
-                {
-                    try
-                    {
-                        string name = (string)rule.Name;
-                        if (overrides.TryGetValue(name, out string expected))
-                        {
-                            rule.Enabled = expected == "True";
-                        }
-                    }
-                    catch { }
-                }
-            }
-            catch (Exception ex)
-            {
-                Debug.WriteLine($"Firewall Enforcer Error: {ex.Message}");
-            }
-        }
-
         private async Task MonitorFirewallDrift()
         {
             try

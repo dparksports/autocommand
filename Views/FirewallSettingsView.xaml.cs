@@ -16,7 +16,7 @@ using AutoCommand.Services;
 
 namespace AutoCommand.Views
 {
-    public partial class FirewallSettingsView : UserControl, IAiAuditable
+    public partial class FirewallSettingsView : UserControl
     {
         private List<FirewallRuleItem> _currentRules = new();
 
@@ -364,23 +364,6 @@ namespace AutoCommand.Views
                 RefreshBtn.IsEnabled = true;
                 ProfileCombo.IsEnabled = true;
             }
-        }
-
-        public string GetAuditContext()
-        {
-            if (_currentRules.Count == 0) return "No firewall rules loaded. Click Refresh first.";
-            var sb = new StringBuilder();
-            string dir = InboundRadio.IsChecked == true ? "Inbound" : "Outbound";
-            sb.AppendLine($"Firewall Rules ({dir}) — {_currentRules.Count} total:");
-            int shown = 0;
-            foreach (var rule in _currentRules.Where(r => r.Enabled).Take(80))
-            {
-                sb.AppendLine($"- [{(rule.Enabled ? "ENABLED" : "disabled")}] {rule.DisplayName} | Group: {rule.DisplayGroup} | Action: {rule.Action}");
-                shown++;
-            }
-            if (_currentRules.Count(r => !r.Enabled) > 0)
-                sb.AppendLine($"... plus {_currentRules.Count(r => !r.Enabled)} disabled rules omitted.");
-            return sb.ToString();
         }
     }
 }

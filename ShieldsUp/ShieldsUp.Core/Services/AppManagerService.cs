@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Security.Cryptography.X509Certificates;
 using System.Threading.Tasks;
 using Microsoft.Win32;
 using Windows.Management.Deployment;
@@ -387,11 +388,13 @@ namespace ShieldsUp.Core.Services
                 if (item == null) return true; // already gone
 
                 // Ask the running sync client to exit cleanly first (best effort — the
-                // uninstaller proceeds even if the client is hung or absent)
+                // uninstaller proceeds even if the client is hung or absent).
+                // The install root can live in user-writable %LOCALAPPDATA%, so
+                // the exe must be Microsoft-signed before this elevated app runs it.
                 try
                 {
                     string oneDriveExe = System.IO.Path.Combine(item.InstallLocation, "OneDrive.exe");
-                    if (System.IO.File.Exists(oneDriveExe))
+                    if (IsTrustedOneDriveBinary(oneDriveExe, "OneDrive.exe"))
                         await Task.Run(() => Helpers.ProcessRunner.Run(oneDriveExe, "/shutdown"))
                                  .WaitAsync(TimeSpan.FromSeconds(10));
                 }
@@ -424,12 +427,16 @@ namespace ShieldsUp.Core.Services
         /// <summary>
         /// Resolves the OneDrive uninstaller executable: the registered UninstallString
         /// first (it points at the versioned OneDriveSetup.exe), then a scan of the
-        /// install root's versioned subfolders.
+        /// install root's versioned subfolders. Every source here is user-writable
+        /// (HKCU registry values, %LOCALAPPDATA% install roots) while the resolution
+        /// result is executed by this elevated app, so only a Microsoft-signed
+        /// OneDriveSetup.exe is ever returned — anything else is treated as absent
+        /// and the winget fallback takes over.
         /// </summary>
         private static string LocateOneDriveUninstaller(string installRoot)
         {
             string path = ExtractExecutablePath(ReadOneDriveRegistryEntry().UninstallString);
-            if (path != null && System.IO.File.Exists(path)) return path;
+            if (IsTrustedOneDriveBinary(path, "OneDriveSetup.exe")) return path;
 
             try
             {
@@ -437,11 +444,42 @@ namespace ShieldsUp.Core.Services
                     .Select(dir => System.IO.Path.Combine(dir, "OneDriveSetup.exe"))
                     .Where(System.IO.File.Exists)
                     .OrderByDescending(p => System.IO.Path.GetDirectoryName(p), StringComparer.OrdinalIgnoreCase)
-                    .FirstOrDefault();
+                    .FirstOrDefault(p => IsTrustedOneDriveBinary(p, "OneDriveSetup.exe"));
             }
             catch
             {
                 return null;
+            }
+        }
+
+        /// <summary>
+        /// A OneDrive binary path is acceptable only when the file exists, has the
+        /// exact expected leaf name, and carries an Authenticode signature chaining
+        /// to a trusted root with Microsoft Corporation as signer.
+        /// </summary>
+        private static bool IsTrustedOneDriveBinary(string path, string leafName)
+        {
+            if (string.IsNullOrWhiteSpace(path) || !System.IO.File.Exists(path)) return false;
+            if (!string.Equals(System.IO.Path.GetFileName(path), leafName, StringComparison.OrdinalIgnoreCase)) return false;
+            return IsMicrosoftSigned(path);
+        }
+
+        private static bool IsMicrosoftSigned(string path)
+        {
+            try
+            {
+#pragma warning disable SYSLIB0057
+                using var signed = X509Certificate.CreateFromSignedFile(path);
+                using var cert = new X509Certificate2(signed);
+#pragma warning restore SYSLIB0057
+                using var chain = new X509Chain();
+                chain.ChainPolicy.RevocationMode = X509RevocationMode.NoCheck;
+                if (!chain.Build(cert)) return false;
+                return cert.Subject.Contains("Microsoft Corporation", StringComparison.OrdinalIgnoreCase);
+            }
+            catch
+            {
+                return false;
             }
         }
 

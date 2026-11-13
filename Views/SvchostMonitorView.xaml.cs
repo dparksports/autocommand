@@ -23,7 +23,7 @@ using AutoCommand.Services;
 
 namespace AutoCommand.Views
 {
-    public partial class SvchostMonitorView : UserControl, IAiAuditable
+    public partial class SvchostMonitorView : UserControl
     {
         private readonly ConcurrentDictionary<string, SvchostMonitorItem> _trackedIps = new();
         private readonly ObservableCollection<SvchostMonitorItem> _uiCollection = new();
@@ -2181,20 +2181,6 @@ namespace AutoCommand.Views
             {
                 Dispatcher.Invoke(() => MessageBox.Show($"Failed to save CSV: {ex.Message}"));
             }
-        }
-
-        public string GetAuditContext()
-        {
-            var items = _uiCollection.ToList();
-            if (items.Count == 0) return "Process Monitor is currently empty. No active connections tracked.";
-
-            var sb = new System.Text.StringBuilder();
-            sb.AppendLine("Currently Tracked Processes and Connections:");
-            foreach (var item in items)
-            {
-                sb.AppendLine($"- Process: {item.ProcessName}{(item.HasServiceIdentity ? $" [{item.IdentityLabel}]" : "")} (PID: {item.ProcessId}{(item.HasExited ? ", exited" : "")}) | Remote IP: {item.RemoteIp} ({item.Hostname}) | Packets: {item.TxPackets} sent, {item.RxPackets} received | Last Seen: {item.LastSeen:u}");
-            }
-            return sb.ToString();
         }
     }
 }

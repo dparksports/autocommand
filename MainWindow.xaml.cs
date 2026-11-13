@@ -282,33 +282,6 @@ namespace AutoCommand
         private string _currentThreatType;
         private string _currentThreatDetails;
 
-        /// <summary>
-        /// Lets tabs surface a finding on the app-level threat status bar
-        /// (amber text + Review button) through the same path the Security
-        /// Enforcer uses. Currently used by the BITS tab for UPLOAD-type
-        /// jobs (ATT&CK T1197 exfiltration vector).
-        /// </summary>
-        public void RaiseExternalThreat(string type, string details) => OnThreatDetected(type, details);
-
-        /// <summary>
-        /// Transmissions tab's encrypted-upload toasts: same Action Center
-        /// path as the enforcer's, but activating the toast selects the
-        /// Transmissions tab instead of just raising the window.
-        /// </summary>
-        public void ShowTransmissionsToast(string title, string message)
-        {
-            // The Transmissions tab was removed from the sidebar (the engine
-            // and its toasts remain) — activating the toast lands on the
-            // Process Monitor instead of selecting a tab that no longer exists.
-            _trayNotifier?.ShowSecurityAlert(title, message, durationMs: 10000, onActivated: () =>
-                Dispatcher.Invoke(() => MainTabControl.SelectedItem = ProcessMonitorNavItem));
-        }
-
-        // Advanced investigation tabs were removed with the tab strip slimmed
-        // down (their views, the Settings toggle and this machinery went with
-        // them; the engines and AI tools behind them are unchanged).
-
-
         private void OnThreatDetected(string type, string details)
         {
             Dispatcher.Invoke(() =>

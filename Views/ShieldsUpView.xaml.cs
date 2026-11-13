@@ -490,7 +490,7 @@ public partial class ShieldsUpView : UserControl
     {
         try
         {
-            var logon = await Task.Run(() => AutoCommand.Helpers.RegistryHelper.GetStartupItems());
+            var logon = await Task.Run(() => ShieldsUp.Core.Helpers.RegistryHelper.GetStartupItems());
             var tasks = await AutoCommand.Forensics.Core.TaskSchedulerService.Instance.LoadTasksAsync();
 
             StartupLogonPanel.Children.Clear();

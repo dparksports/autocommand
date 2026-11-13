@@ -27,8 +27,6 @@ public static class AppPaths
     public static string FirewallConfigPath => Path.Combine(DataRoot, "firewall_config.json");
     public static string TelemetryStatePath => Path.Combine(DataRoot, "telemetry_state.json");
     public static string NameResolutionStatePath => Path.Combine(DataRoot, "name-resolution-doors.json");
-    public static string UpdateFreezeStatePath => Path.Combine(DataRoot, "update_freeze.json");
-    public static string FreezeBackupsDir => Path.Combine(DataRoot, "freeze_backups");
     public static string EfiBaselinePath => Path.Combine(DataRoot, "efi_baseline.json");
 
     public static string CrashLogPath => Path.Combine(AppContext.BaseDirectory, "crash.log");
