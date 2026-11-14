@@ -226,10 +226,9 @@
     </ItemGroup>
   </Target>
 
-  <!-- The Svchost Trace capture engine no longer ships inside the app zip:
-       AutoCommand links SvchostAnalyzer.Core directly and runs captures
-       in-process. The standalone SvchostAnalyzer.exe (headless/boot-autostart
-       host) is a separate release asset built by release.ps1. -->
+  <!-- The standalone SvchostAnalyzer.exe release asset was retired with the
+       Traces tool surface — the app captures and analyzes in-process via
+       Engines.Watch. -->
 
 
   <ItemGroup>

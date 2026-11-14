@@ -43,8 +43,9 @@
   </ItemGroup>
 
   <ItemGroup>
-    <!-- Vendored identity engine behind the Contain core's svchost tools -->
-    <ProjectReference Include="..\..\svchost-watch\SvchostAnalyzer.Core\SvchostAnalyzer.Core.csproj" />
+    <!-- (the vendored svchost-watch identity engine reference was pruned with
+         the Traces tool surface; the F# SvchostIdentityService in Engines.Watch
+         is the in-process identity source) -->
     <!-- Vendored Shields Up core behind the shields-up bridge tools
          (door states, telemetry opt-outs, hardening checks) -->
     <ProjectReference Include="..\..\ShieldsUp\ShieldsUp.Core\ShieldsUp.Core.csproj" />

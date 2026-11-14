@@ -39,7 +39,6 @@
     <ProjectReference Include="..\AutoCommand.NetWatch.Core\AutoCommand.NetWatch.Core.csproj" />
     <!-- Vendored identity engine — SvchostIdentityService decodes instances
          and BlockAttributionService tags blocks with service identity -->
-    <ProjectReference Include="..\..\svchost-watch\SvchostAnalyzer.Core\SvchostAnalyzer.Core.csproj" />
     <!-- F# firewall engine (AutoCommand III): FirewallService.cs in this
          project is now a facade over Engines.Firewall, constructed with
          AutoCommand's AC-BLOCK naming policy -->
