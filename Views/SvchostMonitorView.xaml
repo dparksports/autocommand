@@ -150,6 +150,7 @@
                     <Separator/>
                     <MenuItem x:Name="BlockIpMenuItem" Header="⛔ Block Remote IP in Firewall" Click="BlockRemoteIP_Click"/>
                     <MenuItem x:Name="BlockProcessMenuItem" Header="⛔ Block Process in Firewall" Click="BlockProcess_Click"/>
+                    <MenuItem x:Name="BlockServiceMenuItem" Header="⛔ Block this service — every destination, future included" Click="BlockService_Click"/>
                     <MenuItem x:Name="KillProcessMenuItem" Header="💀 Kill process" Click="KillProcess_Click"/>
                     <MenuItem x:Name="TaskDetailsMenuItem" Header="📋 Scheduled task details" Click="TaskDetails_Click"/>
                     <MenuItem x:Name="DisableTaskMenuItem" Header="⏸ Disable this scheduled task" Click="DisableTask_Click"/>

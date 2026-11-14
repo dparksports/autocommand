@@ -11,6 +11,10 @@ namespace AutoCommand.Engines.Firewall
 type FirewallNaming =
     { OwnIpPrefix: string
       OwnAppPrefix: string
+      /// service-scoped blocks: one rule per svchost-hosted service, scoped
+      /// by INetFwRule.ServiceName — covers every destination the service
+      /// ever contacts, present or future
+      OwnSvcPrefix: string
       AdoptedPrefixes: string list
       LegacyIpPrefixes: string list
       LegacyAppPrefixes: string list
@@ -25,6 +29,7 @@ module Naming =
     let autocommand () =
         { OwnIpPrefix = "AC-BLOCK-IP "
           OwnAppPrefix = "AC-BLOCK-APP "
+          OwnSvcPrefix = "AC-BLOCK-SVC "
           AdoptedPrefixes = []
           LegacyIpPrefixes = [ "AutoCommand IP Block - " ]
           LegacyAppPrefixes = [ "AutoCommand Process Block - " ]
@@ -37,6 +42,7 @@ module Naming =
     let autoscope () =
         { OwnIpPrefix = "AS-BLOCK-IP "
           OwnAppPrefix = "AS-BLOCK-APP "
+          OwnSvcPrefix = "AS-BLOCK-SVC "
           AdoptedPrefixes = [ "AC-BLOCK-IP "; "AC-BLOCK-APP "; "AT-BLOCK-IP "; "AT-BLOCK-APP " ]
           LegacyIpPrefixes = [ "AutoScope IP Block - " ]
           LegacyAppPrefixes = [ "AutoScope Process Block - " ]

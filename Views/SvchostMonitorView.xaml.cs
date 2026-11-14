@@ -794,6 +794,15 @@ namespace AutoCommand.Views
                     : "⛔ Block Process in Firewall";
             }
 
+            // Service-scoped block: svchost rows with a known service identity
+            // only — the -s declared tenant, then the first SCM-resident
+            // service. Group-only rows (-k) have no single service to scope to.
+            string svcKey = ResolveRowServiceKey(sel);
+            BlockServiceMenuItem.IsEnabled = !string.IsNullOrEmpty(svcKey);
+            BlockServiceMenuItem.Header = !string.IsNullOrEmpty(svcKey)
+                ? $"⛔ Block service '{svcKey}' — every destination, future included"
+                : "⛔ Block this service (svchost rows with a known service only)";
+
             bool killable = sel != null && sel.ProcessId > 0;
             KillProcessMenuItem.IsEnabled = killable;
             KillProcessMenuItem.Header = killable && !string.IsNullOrEmpty(sel.ProcessName)
@@ -1241,6 +1250,64 @@ namespace AutoCommand.Views
                     ApplyBlockState(row);
                 HideToast();
                 MessageBox.Show($"Failed to block remote IP: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
+        /// <summary>The service a svchost row can be service-scoped-blocked
+        /// on: the -s declared single tenant, then the first SCM-resident
+        /// service. Group-only rows (-k) return null — no single service to
+        /// scope to.</summary>
+        private static string ResolveRowServiceKey(SvchostMonitorItem item)
+        {
+            if (item == null || !item.IsSvchost) return null;
+            if (!string.IsNullOrEmpty(item.DeclaredService))
+                return item.DeclaredService.ToLowerInvariant();
+            string csv = item.HostedServicesCsv;
+            if (!string.IsNullOrEmpty(csv))
+            {
+                string first = csv.Split(',')[0].Trim().ToLowerInvariant();
+                if (first.Length > 0) return first;
+            }
+            return null;
+        }
+
+        /// <summary>
+        /// Service-scoped block: one firewall rule with INetFwRule.ServiceName
+        /// set, so the service's traffic is dropped at the firewall for every
+        /// destination — the ones already seen and any future one — without
+        /// touching sibling services in the same svchost.exe host. Persists in
+        /// BFE, enforcing even while AutoCommand is closed.
+        /// </summary>
+        private async void BlockService_Click(object sender, RoutedEventArgs e)
+        {
+            if (SvchostGrid.SelectedItem is not SvchostMonitorItem item) return;
+            string svcKey = ResolveRowServiceKey(item);
+            if (string.IsNullOrEmpty(svcKey)) return;
+
+            if (MessageBox.Show(
+                    $"Block the Windows service '{svcKey}' at the firewall?\n\n" +
+                    "• One rule scoped by SERVICE — it blocks this service's traffic to EVERY\n" +
+                    "  destination, including IPs it has never contacted before, even while\n" +
+                    "  AutoCommand is not running.\n" +
+                    "• Sibling services inside the same svchost.exe host are untouched.\n" +
+                    "• No per-destination exceptions exist inside a service block — if you\n" +
+                    "  want exceptions, use per-IP blocks instead.\n" +
+                    "• Manage or remove it from the Firewall tab (AC-BLOCK-SVC rules).",
+                    "Block service", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+
+            string note = BuildProvenance(item, $"service {svcKey}", false);
+            ShowToast($"⛔ Blocking service {svcKey} — all destinations, future included…");
+            try
+            {
+                string ruleName = await FirewallService.Instance.AddServiceBlockAsync(svcKey, note);
+                _ = FirewallBaselineManager.AdoptRuleStatesAsync(new[] { (ruleName, true) });
+                BlocksStore.AppendEvent("service-blocked", "svc", svcKey, note, "monitor");
+                ShowToast($"⛔ Service {svcKey} blocked — every destination, present and future.");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to block service {svcKey}: {ex.Message}", "Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 

@@ -1276,6 +1276,7 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
             else
                 (startsWith naming.OwnIpPrefix name
                  || startsWith naming.OwnAppPrefix name
+                 || startsWith naming.OwnSvcPrefix name
                  || List.exists (fun p -> startsWith p name) naming.AdoptedPrefixes
                  || startsWithAny naming.LegacyIpPrefixes name
                  || startsWithAny naming.LegacyAppPrefixes name),
@@ -1350,6 +1351,56 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
         Task.Run(fun () ->
             let struct (created, updated, _) = this.AddIpBlockCore(ip, description)
             struct (created, updated))
+
+    // ── service-scoped blocks (svchost-hosted services) ────────────────
+
+    /// <summary>The rule name a service-scoped block gets: one outbound rule
+    /// scoped by INetFwRule.ServiceName covers every destination the service
+    /// ever contacts — no per-IP chase, no rule sprawl.</summary>
+    member _.ServiceBlockRuleName(serviceKey: string) : string =
+        $"{naming.OwnSvcPrefix}{serviceKey} (Out)"
+
+    member private this.AddServiceBlockCore(serviceKey: string, description: string) : string =
+        try
+            let fwPolicy = getPolicy ()
+            let rules = fwPolicy.Rules
+            let name = this.ServiceBlockRuleName(serviceKey)
+            let existing = this.FindOwnRule(rules, name)
+
+            if not (isNull existing) then
+                try existing.Description <- description with _ -> ()
+                if not existing.Enabled then existing.Enabled <- true
+                recordOwnRuleAdded name
+                name
+            else
+                let rule = makeRule ()
+                rule.Action <- FwAction.Block
+                rule.Direction <- FwRuleDirection.Out
+                rule.Enabled <- true
+                rule.InterfaceTypes <- "All"
+                rule.Name <- name
+                // The whole point: scoped by SERVICE, not by remote address —
+                // this rule blocks the service's traffic to destinations that
+                // do not exist yet, without touching sibling services in the
+                // same svchost.exe host.
+                rule.ServiceName <- serviceKey
+                rule.Description <- description
+                rules.Add(rule)
+                recordOwnRuleAdded name
+                name
+        with ex ->
+            raise (Exception($"Failed to add service block: {ex.Message}", ex))
+
+    /// <summary>
+    /// Block a svchost-hosted SERVICE (e.g. BITS): one idempotent outbound
+    /// rule with INetFwRule.ServiceName set, so every destination the
+    /// service ever contacts — the ones already seen and any future one —
+    /// is dropped by the firewall itself, even while AutoCommand is not
+    /// running. Returns the rule name for baseline adoption.
+    /// </summary>
+    member this.AddServiceBlockAsync(serviceKey: string, description: string) : Task<string> =
+        invalidateSnapshot ()
+        Task.Run(fun () -> this.AddServiceBlockCore(serviceKey, description))
 
     // ── app-block path coverage (autocommand-ii v2 scheme) ───────────
 
