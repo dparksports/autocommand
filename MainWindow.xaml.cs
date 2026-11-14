@@ -28,11 +28,17 @@ namespace AutoCommand
             FileVersionInfo.GetVersionInfo(Environment.ProcessPath).ProductVersion ?? "unknown";
 
         // ── hamburger: sidebar collapse ──────────────────────────────────
-        // The burger item at the top of the strip is a fake tab — its
-        // selection is intercepted here to toggle IsPaneCollapsed (labels
-        // and group headers hide; the strip narrows to its icons) and the
-        // previously selected tab is restored. NavPaneLabel/NavGroupLabel
-        // styles in MainWindow.xaml bind their Visibility to this property.
+        // The burger item at the top of the strip is a fake tab, but its
+        // press never reaches the TabControl: PreviewMouseLeftButtonDown
+        // toggles IsPaneCollapsed (labels and group headers hide; the
+        // strip narrows to its icons) and marks itself handled, so the
+        // item never becomes selected. An earlier build rode SelectionChanged
+        // and restored the previous tab inside the handler — a re-entrant
+        // set that could race WPF's own selection bookkeeping and leave the
+        // burger selected, where every further click raised no event at all
+        // and the toggle went dead until another tab was clicked.
+        // NavPaneLabel/NavGroupLabel styles in MainWindow.xaml bind their
+        // Visibility to this property.
 
         public static readonly DependencyProperty IsPaneCollapsedProperty =
             DependencyProperty.Register(nameof(IsPaneCollapsed), typeof(bool), typeof(MainWindow),
@@ -44,23 +50,10 @@ namespace AutoCommand
             set => SetValue(IsPaneCollapsedProperty, value);
         }
 
-        private object _lastContentItem;
-        private bool _reselecting;
-
-        private void MainTabControl_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        private void NavPaneToggleItem_PreviewMouseLeftButtonDown(object sender, System.Windows.Input.MouseButtonEventArgs e)
         {
-            if (_reselecting) return;
-            if (e.AddedItems.Count > 0 && e.AddedItems[0] == NavPaneToggleItem)
-            {
-                IsPaneCollapsed = !IsPaneCollapsed;
-                _reselecting = true;
-                MainTabControl.SelectedItem = _lastContentItem ?? ProcessMonitorNavItem;
-                _reselecting = false;
-            }
-            else if (e.AddedItems.Count > 0)
-            {
-                _lastContentItem = e.AddedItems[0];
-            }
+            e.Handled = true;
+            IsPaneCollapsed = !IsPaneCollapsed;
         }
 
         // ── the monitor tab's two panes: the list and the rain ───────────

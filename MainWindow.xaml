@@ -42,14 +42,15 @@
              (everything configurational). Group headers are non-selectable
              TabItems; entries are single-line so every one fits without
              scrolling. The burger item at the very top is a fake tab: its
-             selection is intercepted in code-behind to toggle the pane
-             collapse instead of navigating. SelectedIndex=2 skips the burger
-             and the WATCH header explicitly. -->
-        <TabControl x:Name="MainTabControl" Grid.Row="0" TabStripPlacement="Left" SelectedIndex="2"
-                    SelectionChanged="MainTabControl_SelectionChanged">
+             press is intercepted before selection (code-behind) to toggle
+             the pane collapse instead of navigating. SelectedIndex=2 skips
+             the burger and the WATCH header explicitly. -->
+        <TabControl x:Name="MainTabControl" Grid.Row="0" TabStripPlacement="Left" SelectedIndex="2">
 
             <!-- hamburger: collapses the sidebar to icons-only and back -->
-            <TabItem x:Name="NavPaneToggleItem" ToolTip="Show / hide menu labels">
+            <TabItem x:Name="NavPaneToggleItem" Focusable="False"
+                     PreviewMouseLeftButtonDown="NavPaneToggleItem_PreviewMouseLeftButtonDown"
+                     ToolTip="Show / hide menu labels">
                 <TabItem.Header>
                     <TextBlock Text="☰" FontSize="16" FontWeight="Bold" Margin="4,0,0,0"
                                Foreground="{DynamicResource TextSecondaryBrush}"/>

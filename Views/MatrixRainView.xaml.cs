@@ -165,6 +165,11 @@ namespace AutoCommand.Views
                 DiagText.Text = "rain: no conversations yet — waiting for the Process Monitor's rows (Sysmon events, or its baseline snapshot)";
                 return;
             }
+            if (_renderer.Idled)
+            {
+                DiagText.Text = "rain: idle — the wall falls only while traffic actually flows (right-click to configure)";
+                return;
+            }
             DiagText.Text =
                 $"{_feed.LastConversationCount} conversations · {_feed.LastPidCount} pids · " +
                 $"{_renderer.LiveColumns} columns · {_renderer.LastFps:0} fps" +
@@ -176,7 +181,7 @@ namespace AutoCommand.Views
         // ------------------------------------------------------------------
 
         private MenuItem _speedItem;
-        private MenuItem _labelsItem, _rxItem, _bloomItem, _ambientItem, _diagItem, _styleItem;
+        private MenuItem _labelsItem, _rxItem, _bloomItem, _ambientItem, _diagItem, _styleItem, _idleItem;
         private MenuItem _charsetMenu, _zLiftMenu;
 
         private void BuildMenu()
@@ -193,6 +198,8 @@ namespace AutoCommand.Views
 
             _labelsItem = Check("PID labels", () => Mutate(c => c.ShowLabels = !c.ShowLabels));
             _rxItem = Check("Rain on receives too", () => Mutate(c => c.RxMode = !c.RxMode));
+            _idleItem = Check("Still when idle (fall only on live traffic)", () =>
+                Mutate(c => c.IdleStill = !c.IdleStill));
             _bloomItem = Check("Bloom on the lead", () => Mutate(c => c.Bloom = !c.Bloom));
             _ambientItem = Check("Frozen backdrop", () => Mutate(c => c.Ambient = !c.Ambient));
             _diagItem = Check("Diagnostics strip", () => { _diagVisible = !_diagVisible; UpdateDiag(); });
@@ -202,6 +209,7 @@ namespace AutoCommand.Views
             menu.Items.Add(new Separator());
             menu.Items.Add(_labelsItem);
             menu.Items.Add(_rxItem);
+            menu.Items.Add(_idleItem);
             menu.Items.Add(_bloomItem);
             menu.Items.Add(_ambientItem);
             menu.Items.Add(_diagItem);
@@ -260,6 +268,7 @@ namespace AutoCommand.Views
             _speedItem.Header = $"Fall speed: {_cfg.FallRowsPerSecond:0.#} rows/s";
             _labelsItem.IsChecked = _cfg.ShowLabels;
             _rxItem.IsChecked = _cfg.RxMode;
+            _idleItem.IsChecked = _cfg.IdleStill;
             _bloomItem.IsChecked = _cfg.Bloom;
             _ambientItem.IsChecked = _cfg.Ambient;
             _diagItem.IsChecked = _diagVisible;

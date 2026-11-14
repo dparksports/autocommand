@@ -17,6 +17,52 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.13.2 (2026-11-13)
+================================================================================
+
+# v2026.11.13.2 — Traffic-gated Matrix rain & hamburger toggle fix
+
+## Matrix rain: streams fall only while traffic actually flows
+
+The rain beside the Process Monitor now animates only on live transmits. Drop
+letters were always traffic-banked (one packet = one letter credit); what kept
+moving on a quiet wire was the decorative cinema wall, the ambient backdrop,
+banked letter budget (up to ~24 s of falling after the last packet), and a 60 fps
+redraw loop repainting identical state.
+
+- **`IdleStill` gate (default on)**: when no transmit, receive or connection
+  attempt has arrived for two seconds, the frame loop stops simulating and
+  drawing — the canvas keeps its last painted frame (WPF retained mode), so an
+  idle pane costs one snapshot check per tick instead of a full redraw, nothing
+  ages, and the wall freezes exactly where it is, resuming on the next packet.
+  Receives count as live too: data is moving even when `RxMode` chooses not to
+  paint it.
+- **Still honest about state changes**: resize, config hot-apply and Start force
+  one repaint so the freeze always reflects current state; the diagnostics strip
+  says why the pane is still (`rain: idle — the wall falls only while traffic
+  actually flows`).
+- **Menu toggle**: `Still when idle (fall only on live traffic)` under the
+  right-click animation menu, persisted in `matrix_rain.json` (existing configs
+  default to on); unchecking restores the classic always-falling wall.
+
+## Hamburger toggle: fixed the intermittent dead state
+
+Toggling the sidebar collapse sometimes did nothing until another tab was
+clicked. The toggle rode `SelectionChanged`, which only fires when selection
+actually changes — and the handler restored the previous tab with a re-entrant
+`SelectedItem` set inside the event, which could race WPF's selection
+bookkeeping and leave the burger itself selected; every further click on it
+then raised no event at all.
+
+- **Press instead of selection**: the burger now toggles on
+  `PreviewMouseLeftButtonDown` with the event marked handled — the TabControl
+  never selects the item, so there is no restore, no re-entrancy, no stuck
+  state; every press toggles exactly once, including rapid clicks and clicks
+  while already collapsed. The whole restore/guard machinery is removed.
+- **Keyboard**: the burger is `Focusable="False"` so arrow-key navigation can
+  no longer land selection on it; selection simply stays on the current tab.
+
+================================================================================
 v2026.11.13.1 (2026-11-13)
 ================================================================================
 

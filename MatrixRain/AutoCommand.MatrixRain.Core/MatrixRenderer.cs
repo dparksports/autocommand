@@ -218,6 +218,7 @@ namespace AutoCommand.Matrix
             // the current fall speed.
             _wakeCharLength = Math.Clamp(cfg.WakeFadeSeconds * cfg.FallRowsPerSecond, 8, 80);
             _wakeCurveK = 8.0 / _wakeCharLength;
+            _forceDraw = true;
             RecomputeGrid();
         }
 
@@ -235,8 +236,22 @@ namespace AutoCommand.Matrix
 
             _w = w; _h = h;
             _rainClearPending = true;
+            _forceDraw = true;
             RecomputeGrid();
         }
+
+        /// <summary>True while the idle gate is holding the wall still
+        /// (IdleStill on, no live traffic) — the diag strip reads this.</summary>
+        public bool Idled { get; private set; }
+
+        // The wall animates only on live traffic: the moment any column
+        // saw a real packet delta or attempt (see ConsumeSnapshot). Two
+        // seconds of grace so steady-but-slow talkers don't flicker.
+        private DateTime _lastTrafficUtc = DateTime.UtcNow;
+        private const double IdleGraceSeconds = 2.0;
+        // One-shot repaint for events that change the picture without
+        // traffic: resize, config hot-apply, Start.
+        private bool _forceDraw = true;
 
         private void RecomputeGrid()
         {
@@ -287,6 +302,7 @@ namespace AutoCommand.Matrix
             if (_running) return;
             _running = true;
             _lastFrameSec = _clock.Elapsed.TotalSeconds;
+            _forceDraw = true;   // paint the wall once on attach; IdleStill freezes it if the wire is quiet
             _frameTimer.Start();
         }
 
@@ -362,6 +378,20 @@ namespace AutoCommand.Matrix
             _fpsEma = _fpsEma <= 0 ? 1.0 / dt : _fpsEma * 0.9 + (1.0 / dt) * 0.1;
 
             ConsumeSnapshot();
+
+            // Streams fall only on live transmits (IdleStill): with no
+            // packet movement for the grace window the wall freezes where
+            // it is — the canvas keeps its last frame (WPF retained
+            // mode), so an idle pane costs this cheap check per tick
+            // instead of a full redraw, and nothing ages while nothing
+            // happens. A forced draw (resize, config change, Start) paints
+            // one frame so the freeze always reflects current state.
+            bool idle = _cfg.IdleStill &&
+                        (DateTime.UtcNow - _lastTrafficUtc).TotalSeconds > IdleGraceSeconds;
+            Idled = idle && !_forceDraw;
+            if (idle && !_forceDraw) return;
+            _forceDraw = false;
+
             UpdateActiveColumns();
             if (Cinema) SyncDecoWall();
             Simulate(now, dt);
@@ -726,6 +756,12 @@ namespace AutoCommand.Matrix
                 if (dTx > 0 || p.Attempts > 0) col.LastActivityUtc = now;
                 col.LastTx = p.TxPackets;
                 col.LastRx = p.RxPackets;
+
+                // The idle gate watches the WIRE, not any one column: any
+                // packet movement or connection attempt anywhere keeps the
+                // wall alive (receives count too — data is moving, even
+                // when RxMode chooses not to paint it).
+                if (dTx > 0 || dRx > 0 || p.Attempts > 0) _lastTrafficUtc = now;
             }
 
             // Columns whose PID stayed absent — exited, or the row was handed

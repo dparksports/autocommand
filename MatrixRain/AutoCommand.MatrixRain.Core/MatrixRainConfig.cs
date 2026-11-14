@@ -116,6 +116,14 @@ namespace AutoCommand.Matrix
         /// Default 25 — the original 50 halved, per the house request.</summary>
         public double FallRowsPerSecond { get; set; } = 25;
 
+        /// <summary>Streams animate only while real traffic flows: when no
+        /// transmit, receive or connection attempt has arrived for two
+        /// seconds, the wall freezes exactly where it is (the frame loop
+        /// idles — an idle pane costs a snapshot check per tick, not a
+        /// redraw) and resumes on the next packet. Off = the classic
+        /// always-falling wall.</summary>
+        public bool IdleStill { get; set; } = true;
+
         public class RainColors
         {
             /// <summary>Lead glyph of a falling stream — near-white green.</summary>
