@@ -17,6 +17,38 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.14.1 (2026-11-14)
+================================================================================
+
+# v2026.11.14.1 — Zero-COM service-block state cache & picker placement
+
+## The service-block probe stops scanning the whole firewall
+
+`GetServiceBlockStateAsync` answered through `INetFwRules.Item(name)` — a full
+BFE policy-store scan (~2,000+ rules), running twice per interaction (once
+when the row menu opens, once on click): the several-second lag on service
+rows such as DiagTrack. It now answers from a **svc state cache**
+(service key → rules/enabled) written by the containment inventory walk (the
+60 s sync + on-demand passes already classify `AC-BLOCK-SVC` rules) and by
+every mutation through the service (create → (1,1), pause → (1,0), remove →
+entry deleted).
+
+- A cache miss falls to the seeded own-rule index: an absent rule returns
+  None with **zero COM calls**; only a present-but-unknown rule costs one
+  probe, which then feeds the cache — so it happens at most once per rule.
+- External edits (`wf.msc`) age in with the next inventory walk.
+- Stopwatch instrumentation (`[svc-block]` Debug lines) reports the route
+  (cache / index-miss / com-probe) and the milliseconds for the state probe
+  and the add-path's `FindOwnRule` hit/miss — so any future regression names
+  its stage.
+
+## Shell
+
+- The `🛡 Block a Windows service…` button moves next to `⟳ Retry unresolved
+  DNS` on the Process Monitor toolbar (it previously sat between the chips
+  and the blocked-list popup).
+
+================================================================================
 v2026.11.14 (2026-11-14)
 ================================================================================
 
