@@ -17,6 +17,48 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.14 (2026-11-14)
+================================================================================
+
+# v2026.11.14 — Service-scoped blocks fully supported: picker, consequences, badges, pause/restore
+
+## Blocking any svchost service, for every user path
+
+Service-scoped blocks (one `AC-BLOCK-SVC <service>` rule scoped by
+`INetFwRule.ServiceName` — every destination, present and future) gain the
+three support batches that make them a first-class workflow for BITS,
+CryptSvc, netprofm, DiagTrack and every other curated service.
+
+- **Consequence-aware confirms**: the block confirm carries the service
+  catalog's story with impact grades — CryptSvc warns "blocking breaks HTTPS
+  for system components", netprofm warns about the taskbar/Store fallout,
+  DiagTrack is noted as a legitimate target. High-impact services get an
+  explicit extra warning line.
+- **Menu toggle**: the row-menu item flips to `✅ Unblock service — traffic
+  resumes` when the block exists (state probe = one seeded-index lookup +
+  one COM Enabled read) and explains pauses instead of silently
+  re-blocking into nothing.
+- **Service picker, no live row needed**: a `🛡 Block a Windows service…`
+  button on the Process Monitor toolbar opens a picker listing the curated
+  catalog (display name, key, impact chip, consequence story) — block
+  `usosvc` before it ever connects. Both entry points share one
+  confirm-and-block flow.
+- **Row badges**: a svchost row whose service is service-scoped blocked shows
+  the ⛔ badge immediately — before any attempt fires — via the new svc
+  dimension on the row model (state stamped from the firewall inventory by
+  service identity, alongside the ip/process dimensions).
+- **Blocks-view pause/restore/undo**: service blocks carry ledger records
+  (kind `svc`), flow through the toggle walk by canonical rule name, join
+  the reached-state filter and `SetStatuses`, and reconcile without minting
+  garbage records. The inventory classifier recognizes `AC-BLOCK-SVC` names
+  FIRST — their name carries the service key where an ip target would expect
+  an address (the pre-fix fallback minted bogus ip targets).
+- **Canonical casing**: every caller casing lands on one rule — the key
+  normalizes to lowercase for the rule name and `ServiceName` (Windows
+  matching is case-insensitive), while the row keeps the exact SCM casing
+  for display.
+
+================================================================================
 v2026.11.13.4 (2026-11-13)
 ================================================================================
 
