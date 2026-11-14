@@ -64,14 +64,14 @@
                 <Border Grid.Column="3" Background="{DynamicResource BadgeAmberBg}" CornerRadius="10" Padding="10,3" Margin="0,0,12,0" VerticalAlignment="Center"
                         ToolTip="Rows whose transmitted volume reaches this threshold are pinned to the top of the grid and tinted red — the heavy talkers separate themselves from the noise. Change the number or unit anytime; remembered across launches.">
                     <StackPanel Orientation="Horizontal">
-                        <TextBlock x:Name="HighTxCountText" Text="High TX: 0 ≥ 1 KB"
+                        <TextBlock x:Name="HighTxCountText" Text="High TX: 0 ≥ 0 B"
                                    Foreground="{DynamicResource AccentAmberBrush}" FontSize="11" FontFamily="Consolas" VerticalAlignment="Center"/>
                         <TextBox x:Name="TxThresholdBox" Width="44" Margin="8,0,0,0" Padding="2" FontFamily="Consolas" FontSize="11"
                                  Background="{DynamicResource SurfaceBrush}" Foreground="{DynamicResource TextPrimaryBrush}"
                                  BorderBrush="{DynamicResource BorderBrush}" TextChanged="TxThreshold_Changed"/>
                         <ComboBox x:Name="TxUnitCombo" Width="58" Margin="4,0,0,0" FontSize="11" SelectionChanged="TxThreshold_Changed">
-                            <ComboBoxItem Content="B" Tag="1"/>
-                            <ComboBoxItem Content="KB" Tag="1024" IsSelected="True"/>
+                            <ComboBoxItem Content="B" Tag="1" IsSelected="True"/>
+                            <ComboBoxItem Content="KB" Tag="1024"/>
                             <ComboBoxItem Content="MB" Tag="1048576"/>
                         </ComboBox>
                     </StackPanel>
@@ -82,22 +82,10 @@
                                Foreground="{DynamicResource AccentBlueBrush}" FontSize="11" FontFamily="Consolas"/>
                 </Border>
                 <StackPanel Grid.Column="5" Orientation="Horizontal">
-                    <CheckBox x:Name="HideCloudCheck" Content="Hide Known/Cloud IPs" IsChecked="False" Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center" Margin="0,0,12,0" Checked="Filter_Changed" Unchecked="Filter_Changed"/>
-                    <!-- One-way transmitter lens, off by default: when on, the
-                         grid shows only rows that have sent packets and never
-                         received a reply. New rows must first sit through the
-                         grace period (30s) with zero Rx, so mid-handshake
-                         conversations don't flash as TX-only. -->
-                    <CheckBox x:Name="TxOnlyCheck" Content="TX-only (no reply)" IsChecked="False" Foreground="{DynamicResource TextPrimaryBrush}" VerticalAlignment="Center" Margin="0,0,12,0" Checked="TxOnlyFilter_Changed" Unchecked="TxOnlyFilter_Changed"
-                              ToolTip="Show only rows that have transmitted packets and never received any — the one-way transmitter pattern (blocked outbound, dead-end beacons). Rows qualify after 30s of life with zero Rx; the count appears here while the filter is off. Rx is counted by the raw-socket sniffer, so IPv6 replies can lag."/>
                     <!-- PID inquiry lives in the row context menu and the
-                         row double-click (OpenPidTrace) — the bar keeps only
-                         the filters and the ignore list. -->
-                    <TextBlock Text="Ignore Process:" VerticalAlignment="Center" Foreground="{DynamicResource TextSecondaryBrush}" Margin="16,0,8,0"
-                               ToolTip="Connections from ignored processes never appear in the list"/>
-                    <TextBox x:Name="IgnoreProcessBox" Width="130" Padding="4" Background="{DynamicResource SurfaceBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderBrush}"
-                             ToolTip="Process name to hide from the list, e.g. chrome or chrome.exe" KeyDown="IgnoreProcessBox_KeyDown"/>
-                    <Button x:Name="IgnoreProcessBtn" Content="Ignore" Click="IgnoreProcessBtn_Click" Margin="8,0,0,0" Padding="12,2" Style="{StaticResource PrimaryButton}"/>
+                         row double-click (OpenPidTrace); ignoring a process
+                         lives in the row context menu — the bar keeps only
+                         the blocked-list popup. -->
                     <Popup x:Name="BlockedListPopup" PlacementTarget="{Binding ElementName=BlockedListBtn}" Placement="Bottom" StaysOpen="False">
                         <Border Background="{DynamicResource SurfaceAltBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="10" MinWidth="340" Margin="0,4,0,0">
                             <StackPanel>

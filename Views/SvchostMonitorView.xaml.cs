@@ -70,7 +70,7 @@ namespace AutoCommand.Views
         private string _toastUndoKey;
 
         // High-transmitter threshold in bytes, persisted under %LOCALAPPDATA%\AutoCommand
-        private long _txThreshold = 1024;
+        private long _txThreshold = 0;
         private static readonly string _txThresholdPath = System.IO.Path.Combine(
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "AutoCommand", "tx_threshold.txt");
@@ -139,11 +139,6 @@ namespace AutoCommand.Views
                 liveShaping.LiveSortingProperties.Add(nameof(SvchostMonitorItem.IsHighTransmitter));
                 liveShaping.LiveSortingProperties.Add(nameof(SvchostMonitorItem.LastSeen));
                 liveShaping.IsLiveSorting = true;
-                // TX-only filter membership is live too: rows slide in when
-                // their grace period lapses with zero Rx, and drop out the
-                // moment a reply packet lands.
-                liveShaping.LiveFilteringProperties.Add(nameof(SvchostMonitorItem.IsTxOnly));
-                liveShaping.IsLiveFiltering = true;
             }
             if (CollectionViewSource.GetDefaultView(_uiCollection) is ListCollectionView view)
             {
@@ -168,7 +163,6 @@ namespace AutoCommand.Views
             _dnsService   = DnsResolutionService.Instance;
             _sysmonService = new SysmonWatcherService(_trackedIps, _dnsService);
             _sysmonService.MonitorAllProcesses = true;
-            _sysmonService.FilterKnownCloudIps = HideCloudCheck.IsChecked == true;
             _snifferService = new RawSocketSnifferService(_trackedIps);
 
             _sysmonService.OnError += ShowError;
@@ -246,7 +240,6 @@ namespace AutoCommand.Views
 
                 DnsCacheChip.Text = $"DNS cache: {_dnsService.CacheCount} entries";
                 UpdateHighTxChip();
-                UpdateTxOnlyCheckLabel();
             };
             _lastSeenRefreshTimer.Start();
 
@@ -402,47 +395,6 @@ namespace AutoCommand.Views
             MonitorStatusText.Text = "Sysmon is not installed. Network tracking will not work.";
         }
 
-        private void Filter_Changed(object sender, RoutedEventArgs e)
-        {
-            if (_sysmonService != null)
-                _sysmonService.FilterKnownCloudIps = HideCloudCheck.IsChecked == true;
-        }
-
-        // -----------------------------------------------------------------------
-        // TX-only view filter — off by default. When on, only one-way
-        // transmitters (sent packets, never a reply) are shown. This is a
-        // view lens only: unlike the cloud filter (ingestion-side), turning
-        // it off restores the full grid, and rows keep accruing counters
-        // either way.
-        // -----------------------------------------------------------------------
-
-        private void TxOnlyFilter_Changed(object sender, RoutedEventArgs e)
-        {
-            // Assigning Filter refreshes the view; with live filtering on
-            // IsTxOnly, membership keeps itself current afterwards.
-            CollectionViewSource.GetDefaultView(_uiCollection).Filter =
-                TxOnlyCheck.IsChecked == true ? TxOnlyPredicate : null;
-            UpdateTxOnlyCheckLabel();
-        }
-
-        private static bool TxOnlyPredicate(object o) =>
-            o is SvchostMonitorItem m && m.IsTxOnly;
-
-        /// <summary>
-        /// Keeps the TX-only count in the checkbox label so users can see how
-        /// many one-way transmitters are out there before switching the lens
-        /// on (same cadence as the High TX chip).
-        /// </summary>
-        private void UpdateTxOnlyCheckLabel()
-        {
-            int count = 0;
-            foreach (var item in _uiCollection)
-                if (item.IsTxOnly) count++;
-            TxOnlyCheck.Content = count == 0
-                ? "TX-only (no reply)"
-                : $"TX-only (no reply): {count}";
-        }
-
         // -----------------------------------------------------------------------
         // High-transmitter threshold (pinned + tinted rows at/above it)
         // -----------------------------------------------------------------------
@@ -470,7 +422,7 @@ namespace AutoCommand.Views
                     }
                 }
             }
-            catch { /* first run or unreadable file — keep the 1 KB default */ }
+            catch { /* first run or unreadable file — keep the 0 B default */ }
 
             SvchostMonitorItem.TxThresholdBytes = _txThreshold;
 
@@ -693,24 +645,16 @@ namespace AutoCommand.Views
                 _saveTimer.Start();
 
                 ToggleMonitorBtn.Content = "Stop Monitor";
-                MonitorStatusText.Text = "Monitor active: Sysmon event listening and Raw Socket sniffing enabled.";
+                // the strip stays quiet while monitoring runs — it exists for
+                // install, repair and error states
+                MonitorStatusText.Text = "";
                 _isMonitoring = true;
 
                 // Baseline: connections opened before Start never fire a
                 // Sysmon ID 3 (svchost's boot-time WNS channel and other
                 // long-lived sockets) — seed rows for everything established
-                // right now, then let live events take over. Off the UI
-                // thread: it does a PID/path lookup per connection.
-                _ = Task.Run(() =>
-                {
-                    int seeded = _sysmonService.SeedBaseline();
-                    Dispatcher.BeginInvoke(() =>
-                    {
-                        if (_isMonitoring)
-                            MonitorStatusText.Text =
-                                $"Monitor active: Sysmon events + raw socket sniffing · {seeded} existing connection(s) seeded";
-                    });
-                });
+                // right now, then let live events take over.
+                _ = Task.Run(() => _sysmonService.SeedBaseline());
             }
             else
             {
@@ -725,22 +669,9 @@ namespace AutoCommand.Views
         }
 
         // -----------------------------------------------------------------------
-        // Process ignore list
+        // Process ignore list (row context menu; the toolbar input was
+        // retired — the menu carries the same IgnoreProcess)
         // -----------------------------------------------------------------------
-
-        private void IgnoreProcessBox_KeyDown(object sender, KeyEventArgs e)
-        {
-            if (e.Key == Key.Enter) IgnoreProcessBtn_Click(sender, e);
-        }
-
-        private void IgnoreProcessBtn_Click(object sender, RoutedEventArgs e)
-        {
-            string procName = IgnoreProcessBox.Text.Trim();
-            if (string.IsNullOrEmpty(procName)) return;
-
-            IgnoreProcess(procName);
-            IgnoreProcessBox.Clear();
-        }
 
         private void IgnoreRowMenuItem_Click(object sender, RoutedEventArgs e)
         {
