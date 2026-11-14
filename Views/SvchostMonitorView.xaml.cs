@@ -715,29 +715,6 @@ namespace AutoCommand.Views
                 ? $"🔎 Trace PID {sel.ProcessId} — how was it spawned?"
                 : "🔎 Trace: how was this PID spawned?";
 
-            // Peer needs a real remote endpoint to scope the capture to.
-            bool peerable = sel != null &&
-                System.Net.IPAddress.TryParse(sel.RemoteIp, out _);
-            PeerMenuItem.IsEnabled = peerable;
-            PeerMenuItem.Header = peerable
-                ? $"🔬 Peer into this connection ({sel.RemoteIp})"
-                : "🔬 Peer into this connection";
-
-            // Program scope needs a live PID (Sysmon EID 3 does the rest).
-            bool programPeekable = sel != null && sel.ProcessId > 0;
-            ProgramPeekMenuItem.IsEnabled = programPeekable;
-            ProgramPeekMenuItem.Header = programPeekable
-                ? $"🔬 Peer into this program (PID {sel.ProcessId})"
-                : "🔬 Peer into this program";
-
-            // A service pin is the subject that survives restarts — anchored
-            // to the NAME, so it tracks whichever instance pops up next.
-            string pinnedService = sel == null ? null : FirstService(sel.HostedServicesCsv);
-            TrackServiceMenuItem.IsEnabled = !string.IsNullOrEmpty(pinnedService);
-            TrackServiceMenuItem.Header = !string.IsNullOrEmpty(pinnedService)
-                ? $"⭐ Track this service ({pinnedService}) — follows restarts"
-                : "⭐ Track this service (svchost rows only)";
-
             ResolveNowMenuItem.IsEnabled = sel != null &&
                 System.Net.IPAddress.TryParse(sel.RemoteIp, out _) && !sel.IsResolved;
             ResolveNowMenuItem.Visibility = ResolveNowMenuItem.IsEnabled
@@ -808,13 +785,6 @@ namespace AutoCommand.Views
             KillProcessMenuItem.Header = killable && !string.IsNullOrEmpty(sel.ProcessName)
                 ? $"💀 Kill process '{sel.ProcessName}' (PID {sel.ProcessId})"
                 : "💀 Kill process";
-
-            bool hasTask = sel != null && !string.IsNullOrEmpty(sel.TaskName);
-            TaskDetailsMenuItem.IsEnabled = hasTask;
-            TaskDetailsMenuItem.Header = hasTask
-                ? $"📋 Scheduled task '{sel.TaskName}'"
-                : "📋 Scheduled task details";
-            DisableTaskMenuItem.IsEnabled = hasTask;
         }
 
         private void IgnoredListBtn_Click(object sender, RoutedEventArgs e)
@@ -895,48 +865,9 @@ namespace AutoCommand.Views
                 OpenPidTrace(item.ProcessId, item);
         }
 
-        private void WslDiagnosisMenuItem_Click(object sender, RoutedEventArgs e)
-        {
-            var win = new WslDiagnosisWindow { Owner = Window.GetWindow(this) };
-            win.Show();
-        }
-
         // -----------------------------------------------------------------------
         // Traffic Peek — peer into what a connection carries
         // -----------------------------------------------------------------------
-
-        private void PeerMenuItem_Click(object sender, RoutedEventArgs e)
-        {
-            if (SvchostGrid.SelectedItem is not SvchostMonitorItem item ||
-                string.IsNullOrEmpty(item.RemoteIp))
-                return;
-
-            OpenIpPeekWindow(item.RemoteIp, item.ProcessName, item.ProcessId, item.HostedServicesCsv, item.Hostname);
-        }
-
-        private void ProgramPeekMenuItem_Click(object sender, RoutedEventArgs e)
-        {
-            if (SvchostGrid.SelectedItem is not SvchostMonitorItem item || item.ProcessId <= 0)
-                return;
-            OpenProgramPeekWindow(item.ProcessId, item.ImagePath ?? item.ProcessName, item.ProcessName, item.HostedServicesCsv, item.Hostname);
-        }
-
-        private void TrackServiceMenuItem_Click(object sender, RoutedEventArgs e)
-        {
-            if (SvchostGrid.SelectedItem is not SvchostMonitorItem item) return;
-            string service = FirstService(item.HostedServicesCsv);
-            if (string.IsNullOrEmpty(service)) return;
-            OpenServicePeekWindow(service, item.ProcessName, item.HostedServicesCsv, item.Hostname);
-        }
-
-        /// <summary>The first SCM-resident service name on a svchost row.</summary>
-        private static string FirstService(string hostedServicesCsv)
-        {
-            if (string.IsNullOrWhiteSpace(hostedServicesCsv)) return null;
-            foreach (var part in hostedServicesCsv.Split(','))
-                if (!string.IsNullOrWhiteSpace(part)) return part.Trim();
-            return null;
-        }
 
         // One peek window per subject: a second request focuses the existing
         // window instead of stacking two captures on the same subject. The
@@ -959,14 +890,6 @@ namespace AutoCommand.Views
             return win;
         }
 
-        private ConnectionPeekWindow OpenIpPeekWindow(
-            string remoteIp, string processName, int pid, string hostedServices, string hostname) =>
-            OpenOrFocus($"ip:{remoteIp}", () => new ConnectionPeekWindow(
-                remoteIp, processName, pid, hostedServices, hostname)
-            {
-                Owner = Window.GetWindow(this)
-            });
-
         /// <summary>
         /// Opens (or focuses) the program-scoped peek for a PID. Public so
         /// Launch-under-watch can point a fresh window at the instance it
@@ -977,20 +900,6 @@ namespace AutoCommand.Views
             string hostedServices = null, string hostname = null) =>
             OpenOrFocus($"pid:{pid}", () => new ConnectionPeekWindow(
                 pid, image, processName, hostedServices, hostname)
-            {
-                Owner = Window.GetWindow(this)
-            });
-
-        /// <summary>
-        /// Opens (or focuses) a service-scoped peek. The window follows the
-        /// service across restarts: the scope is the service NAME, so every
-        /// future svchost instance hosting it is tracked with no user action.
-        /// </summary>
-        public ConnectionPeekWindow OpenServicePeekWindow(
-            string service, string processName, string hostedServices = null, string hostname = null) =>
-            OpenOrFocus($"svc:{service}", () => new ConnectionPeekWindow(
-                AutoCommand.Engines.Watch.PeekScope.NewServiceScope(service), service, processName, 0,
-                hostedServices, hostname)
             {
                 Owner = Window.GetWindow(this)
             });
@@ -1687,55 +1596,6 @@ namespace AutoCommand.Views
             catch (Exception ex)
             {
                 MessageBox.Show($"Failed to kill process: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
-            }
-        }
-
-        private async void TaskDetails_Click(object sender, RoutedEventArgs e)
-        {
-            if (SvchostGrid.SelectedItem is not SvchostMonitorItem item || string.IsNullOrEmpty(item.TaskName)) return;
-
-            var (summary, error) = await TaskSchedulerService.Instance.GetTaskSummaryAsync(item.TaskName);
-
-            // What code the task actually executes (COM-handler DLL), when
-            // attribution has it — DLL tasks have no command line of their own
-            var launch = _taskAttribution.GetTaskForPid(item.ProcessId, item.ProcessStartedUtc);
-            if (launch?.HandlerClassId != null)
-            {
-                string handler = launch.HandlerDllExists == true
-                    ? $"Handler DLL: {launch.HandlerDll} (CLSID {launch.HandlerClassId})"
-                    : $"Handler CLSID {launch.HandlerClassId} is not registered — the task's DLL is gone (leftover of uninstalled software)";
-                summary = string.IsNullOrEmpty(summary) ? handler : $"{handler}\n\n{summary}";
-                error = null;
-            }
-
-            MessageBox.Show(
-                string.IsNullOrEmpty(error)
-                    ? summary
-                    : $"Could not read task '{item.TaskName}': {error}",
-                "Scheduled task", MessageBoxButton.OK,
-                string.IsNullOrEmpty(error) ? MessageBoxImage.Information : MessageBoxImage.Warning);
-        }
-
-        private async void DisableTask_Click(object sender, RoutedEventArgs e)
-        {
-            if (SvchostGrid.SelectedItem is not SvchostMonitorItem item || string.IsNullOrEmpty(item.TaskName)) return;
-
-            if (MessageBox.Show(
-                $"Disable scheduled task '{item.TaskName}'?\n\n" +
-                "The task will not run again until it is re-enabled (Tasks tab, or:\n" +
-                $"schtasks /Change /TN \"{item.TaskName}\" /ENABLE).\n\n" +
-                "The running instance keeps going — use 'Kill process' to end it now.",
-                "Confirm Disable Task", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
-
-            try
-            {
-                await TaskSchedulerService.Instance.SetTaskEnabledAsync(item.TaskName, false);
-                MessageBox.Show($"Scheduled task disabled:\n{item.TaskName}", "Task Disabled",
-                    MessageBoxButton.OK, MessageBoxImage.Information);
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Failed to disable task: {ex.Message}", "Error", MessageBoxButton.OK, MessageBoxImage.Error);
             }
         }
 
