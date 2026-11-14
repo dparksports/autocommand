@@ -1723,69 +1723,107 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
                 | a -> a
 
             let mutable t = Unchecked.defaultof<BlockedTarget>
-            let ruleIsIp = isIpRule naming name r
 
-            if ruleIsIp then
-                let ip = FirewallService.ParseIpTarget(naming, name)
-                let key = "ip:" + ip
+            // service-scoped blocks classify FIRST: their name carries the
+            // service key where an ip target would expect an address, and
+            // their traffic is attributed to the service, not the host exe
+            let svcKey =
+                if startsWith naming.OwnSvcPrefix name then
+                    Some(name.Substring(naming.OwnSvcPrefix.Length)
+                             .Replace(" (Out)", "").Trim().ToLowerInvariant())
+                else None
 
-                if not (byKey.TryGetValue(key, &t)) then
+            match svcKey with
+            | Some key ->
+                let k = "svc:" + key
+                if not (byKey.TryGetValue(k, &t)) then
                     t <-
                         BlockedTarget(
-                            Kind = "ip",
-                            Key = key,
-                            Ip = ip,
-                            Target = ip,
-                            Class = IpClassification.classify ip
+                            Kind = "svc",
+                            Key = k,
+                            Ip = key,
+                            Target = key,
+                            Class = "Windows service (service-scoped)"
                         )
 
-                    byKey.[key] <- t
-            else
-                let path = if not (String.IsNullOrEmpty app) then app else name
-                let key = "app:" + path.ToLowerInvariant()
+                    byKey.[k] <- t
 
-                if not (byKey.TryGetValue(key, &t)) then
-                    t <-
-                        BlockedTarget(
-                            Kind = "app",
-                            Key = key,
-                            AppPath = path,
-                            Target = Path.GetFileName(path),
-                            Class =
-                                (if FirewallService.IsWindowsComponent path then
-                                     "Windows component ⚠"
-                                 else
-                                     "Application")
-                        )
+                let identity = name
 
-                    byKey.[key] <- t
+                let mutable seen = Unchecked.defaultof<ResizeArray<string>>
+                if not (identitiesByTarget.TryGetValue(t.Key, &seen)) then
+                    seen <- ResizeArray<string>()
+                    identitiesByTarget.[t.Key] <- seen
+                seen.Add(identity)
 
-                if app.Length > 0 then
-                    let mutable exists = false
-                    if not (pathExistsCache.TryGetValue(app, &exists)) then
-                        exists <- File.Exists(app)
-                        pathExistsCache.[app] <- exists
+                t.Rules <- t.Rules + 1
+                if enabled then t.EnabledRules <- t.EnabledRules + 1
+                if String.IsNullOrEmpty t.Description then t.Description <- desc
+                if not t.Created.HasValue then t.Created <- FirewallService.ParseBlockedTime desc
+            | None ->
+                let ruleIsIp = isIpRule naming name r
 
-                    if not exists then
-                        t.StaleRules <- t.StaleRules + 1
+                if ruleIsIp then
+                    let ip = FirewallService.ParseIpTarget(naming, name)
+                    let key = "ip:" + ip
 
-                        if String.IsNullOrEmpty t.CoverageNote then
-                            t.CoverageNote <-
-                                "program path no longer exists on disk — rule is inert "
-                                + "(app updated or moved); AppBlockCoverageService re-points or retires it"
+                    if not (byKey.TryGetValue(key, &t)) then
+                        t <-
+                            BlockedTarget(
+                                Kind = "ip",
+                                Key = key,
+                                Ip = ip,
+                                Target = ip,
+                                Class = IpClassification.classify ip
+                            )
 
-            let identity = if ruleIsIp then name else name + "|" + app
+                        byKey.[key] <- t
+                else
+                    let path = if not (String.IsNullOrEmpty app) then app else name
+                    let key = "app:" + path.ToLowerInvariant()
 
-            let mutable seen = Unchecked.defaultof<ResizeArray<string>>
-            if not (identitiesByTarget.TryGetValue(t.Key, &seen)) then
-                seen <- ResizeArray<string>()
-                identitiesByTarget.[t.Key] <- seen
-            seen.Add(identity)
+                    if not (byKey.TryGetValue(key, &t)) then
+                        t <-
+                            BlockedTarget(
+                                Kind = "app",
+                                Key = key,
+                                AppPath = path,
+                                Target = Path.GetFileName(path),
+                                Class =
+                                    (if FirewallService.IsWindowsComponent path then
+                                         "Windows component ⚠"
+                                     else
+                                         "Application")
+                            )
 
-            t.Rules <- t.Rules + 1
-            if enabled then t.EnabledRules <- t.EnabledRules + 1
-            if String.IsNullOrEmpty t.Description then t.Description <- desc
-            if not t.Created.HasValue then t.Created <- FirewallService.ParseBlockedTime desc
+                        byKey.[key] <- t
+
+                    if app.Length > 0 then
+                        let mutable exists = false
+                        if not (pathExistsCache.TryGetValue(app, &exists)) then
+                            exists <- File.Exists(app)
+                            pathExistsCache.[app] <- exists
+
+                        if not exists then
+                            t.StaleRules <- t.StaleRules + 1
+
+                            if String.IsNullOrEmpty t.CoverageNote then
+                                t.CoverageNote <-
+                                    "program path no longer exists on disk — rule is inert "
+                                    + "(app updated or moved); AppBlockCoverageService re-points or retires it"
+
+                let identity = if ruleIsIp then name else name + "|" + app
+
+                let mutable seen = Unchecked.defaultof<ResizeArray<string>>
+                if not (identitiesByTarget.TryGetValue(t.Key, &seen)) then
+                    seen <- ResizeArray<string>()
+                    identitiesByTarget.[t.Key] <- seen
+                seen.Add(identity)
+
+                t.Rules <- t.Rules + 1
+                if enabled then t.EnabledRules <- t.EnabledRules + 1
+                if String.IsNullOrEmpty t.Description then t.Description <- desc
+                if not t.Created.HasValue then t.Created <- FirewallService.ParseBlockedTime desc
         with _ -> ()
 
     static member private FinalizeInventory
@@ -1990,7 +2028,7 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
     /// inventory and captures all own-block rule states in the same COM walk,
     /// eliminating redundant post-toggle firewall enumerations.
     /// </summary>
-    member _.SetTargetsEnabledSnapshotAsync
+    member this.SetTargetsEnabledSnapshotAsync
         (
             targets: IEnumerable<struct (string * string)>,
             enabled: bool,
@@ -2030,6 +2068,17 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
                             StringComparer.OrdinalIgnoreCase
                         )
 
+                    // service-scoped targets: their canonical rule names are
+                    // derived from the key, so the walk can match them by
+                    // name without any ip/app heuristics
+                    let svcNames =
+                        HashSet<string>(
+                            list
+                            |> Seq.filter (fun (kind, _) -> String.Equals(kind, "svc", StringComparison.OrdinalIgnoreCase))
+                            |> Seq.map (fun (kind, key) -> this.ServiceBlockRuleName key),
+                            StringComparer.OrdinalIgnoreCase
+                        )
+
                     let appRawTargets =
                         HashSet<string>(
                             list
@@ -2056,7 +2105,9 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
                             let mutable hit = false
 
                             try
-                                if isIpRule naming name r then
+                                if svcNames.Contains name then
+                                    hit <- svcNames.Count > 0
+                                elif isIpRule naming name r then
                                     if ipTargets.Count > 0 then
                                         let ip = FirewallService.ParseIpTarget(naming, name)
                                         hit <- ip.Length > 0 && ipTargets.Contains(ip)

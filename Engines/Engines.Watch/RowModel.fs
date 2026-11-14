@@ -140,8 +140,10 @@ type SvchostMonitorItem() as this =
     // the process exe.
     let mutable ipBlock = BlockRuleState.None
     let mutable appBlock = BlockRuleState.None
+    let mutable svcBlock = BlockRuleState.None
     let mutable ipBlockNote: string = null // rule Description (provenance), for tooltips
     let mutable appBlockNote: string = null
+    let mutable svcBlockNote: string = null
 
     // Row creation time (UTC) — the clock the TX-only grace period runs on.
     let firstSeenUtc = DateTime.UtcNow
@@ -609,11 +611,14 @@ type SvchostMonitorItem() as this =
     /// <summary>True when either dimension blocks this row's traffic.</summary>
     member _.IsTrafficBlocked: bool =
         ipBlock = BlockRuleState.Active || appBlock = BlockRuleState.Active
+        || svcBlock = BlockRuleState.Active
 
     /// <summary>True when block rules exist but are all disabled (fleet pause) — traffic flows.</summary>
     member _.HasPausedBlock: bool =
-        not (ipBlock = BlockRuleState.Active || appBlock = BlockRuleState.Active)
-        && (ipBlock = BlockRuleState.Paused || appBlock = BlockRuleState.Paused)
+        not (ipBlock = BlockRuleState.Active || appBlock = BlockRuleState.Active
+             || svcBlock = BlockRuleState.Active)
+        && (ipBlock = BlockRuleState.Paused || appBlock = BlockRuleState.Paused
+            || svcBlock = BlockRuleState.Paused)
 
     /// <summary>Status-column glyph: ⛔ blocked · ⏸ paused · empty = allowed.</summary>
     member this.StatusGlyph: string =
@@ -668,7 +673,34 @@ type SvchostMonitorItem() as this =
                 let app = this.ProcessBlockToolTip
                 if not (isNull app) then sb.AppendLine(app.TrimEnd()) |> ignore
 
+            if svcBlock <> BlockRuleState.None then
+                let head =
+                    if svcBlock = BlockRuleState.Active then
+                        "⛔ This SERVICE is service-scoped blocked — every destination, present and future"
+                    else
+                        "⏸ A service-scoped block for this service exists but is disabled (traffic flows) — re-enable from the Firewall tab (AC-BLOCK-SVC rules)"
+
+                sb.AppendLine(head.TrimEnd()) |> ignore
+                if not (String.IsNullOrEmpty svcBlockNote) then sb.AppendLine(svcBlockNote) |> ignore
+
             if sb.Length = 0 then null else sb.ToString()
+
+    /// <summary>Stamped by the view's blocked-state sync alongside the ip/app
+    /// dimensions: the row's svchost-hosted service has a service-scoped
+    /// block (every destination, present and future).</summary>
+    member this.SetSvcBlockState(svc: BlockRuleState, note: string) : unit =
+        if svcBlock <> svc || svcBlockNote <> note then
+            svcBlock <- svc
+            svcBlockNote <- note
+            this.OnPropertyChanged("SvcBlockState")
+            this.OnPropertyChanged("IsTrafficBlocked")
+            this.OnPropertyChanged("HasPausedBlock")
+            this.OnPropertyChanged("StatusGlyph")
+            this.OnPropertyChanged("StatusToolTip")
+
+    /// <summary>Block state of the row's svchost-hosted service (None when
+    /// the row has no single service or no service-scoped block).</summary>
+    member _.SvcBlockState: BlockRuleState = svcBlock
 
     /// <summary>Stamped by the view's blocked-state sync (see RefreshBlockStateFromFirewallAsync).</summary>
     member this.SetBlockState(ip: BlockRuleState, ipNote: string, app: BlockRuleState, appNote: string) : unit =

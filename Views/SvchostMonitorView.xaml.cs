@@ -54,6 +54,8 @@ namespace AutoCommand.Views
         // paused). Rebuilt from GetBlockedInventoryAsync after every
         // block/unblock, when the Blocked-rules window closes, and once a
         // minute to catch out-of-band changes (agent actions, wf.msc edits).
+        private readonly HashSet<string> _activeSvcs = new(StringComparer.OrdinalIgnoreCase);
+        private readonly HashSet<string> _pausedSvcs = new(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _activeIps = new(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _pausedIps = new(StringComparer.OrdinalIgnoreCase);
         private readonly HashSet<string> _activeApps = new(StringComparer.OrdinalIgnoreCase);
@@ -1023,6 +1025,29 @@ namespace AutoCommand.Views
             string serviceKey = "", display = "";
             string attrib = "none";
 
+            if (kind == "svc")
+            {
+                // service-scoped blocks carry their own identity: the key IS
+                // the service, no row required (the picker blocks services
+                // that have never connected)
+                serviceKey = (key ?? "").ToLowerInvariant();
+                if (ServiceCatalog.TryGet(serviceKey, out var c)) display = c.DisplayName;
+                return new BlockRecord
+                {
+                    Kind = kind,
+                    Key = serviceKey,
+                    ProcessName = "",
+                    CreatedUtc = DateTime.UtcNow,
+                    ServiceKey = serviceKey,
+                    SvcDisplayName = display,
+                    ClassAtBlock = "Windows service (service-scoped)",
+                    Origin = "monitor",
+                    Attrib = "user",
+                    Status = "on",
+                    StatusUtc = DateTime.UtcNow,
+                };
+            }
+
             if (item != null && item.IsSvchost)
             {
                 // Identity preference: the -s declared single tenant, then the
@@ -1223,6 +1248,7 @@ namespace AutoCommand.Views
             {
                 string ruleName = await FirewallService.Instance.AddServiceBlockAsync(svcKey, provenance);
                 _ = FirewallBaselineManager.AdoptRuleStatesAsync(new[] { (ruleName, true) });
+                RecordBlockedEntry(null, "svc", svcKey);
                 BlocksStore.AppendEvent("service-blocked", "svc", lower, provenance, "monitor");
                 ShowToast($"⛔ Service {svcKey} blocked — every destination, present and future.");
             }
@@ -1305,6 +1331,7 @@ namespace AutoCommand.Views
                 try
                 {
                     await FirewallService.Instance.RemoveServiceBlockAsync(svcKey);
+                    BlocksStore.Remove("svc", svcKey.ToLowerInvariant(), "monitor");
                     BlocksStore.AppendEvent("service-unblocked", "svc", svcKey.ToLowerInvariant(), "removed via row menu", "monitor");
                     ShowToast($"✅ Service {svcKey} unblocked — traffic resumes.");
                 }
@@ -1317,6 +1344,7 @@ namespace AutoCommand.Views
             }
 
             await BlockServiceByUserAsync(svcKey, BuildProvenance(item, $"service {svcKey}", false));
+            RecordBlockedEntry(item, "svc", svcKey);
         }
 
         private async void BlockProcess_Click(object sender, RoutedEventArgs e)
@@ -1994,12 +2022,23 @@ namespace AutoCommand.Views
         {
             _activeIps.Clear(); _pausedIps.Clear();
             _activeApps.Clear(); _pausedApps.Clear();
+            _activeSvcs.Clear(); _pausedSvcs.Clear();
             _blockNotes.Clear();
 
             if (inventory != null)
             {
                 foreach (var t in inventory)
                 {
+                    if (t.Kind == "svc")
+                    {
+                        // service-scoped blocks: the inventory's Ip carries
+                        // the service key
+                        if (string.IsNullOrEmpty(t.Ip)) continue;
+                        if (t.EnabledRules > 0) _activeSvcs.Add(t.Ip); else _pausedSvcs.Add(t.Ip);
+                        if (!string.IsNullOrEmpty(t.Description))
+                            _blockNotes.TryAdd("svc:" + t.Ip.ToLowerInvariant(), t.Description);
+                        continue;
+                    }
                     if (t.Kind == "ip")
                     {
                         if (string.IsNullOrEmpty(t.Ip)) continue;
@@ -2126,6 +2165,23 @@ namespace AutoCommand.Views
             }
 
             item.SetBlockState(ipState, ipNote, appState, appNote);
+
+            // Service dimension: this row's svchost-hosted service has a
+            // service-scoped block (every destination, present and future).
+            var svcState = BlockRuleState.None;
+            string svcNote = null;
+            if (_activeSvcs.Count > 0 || _pausedSvcs.Count > 0)
+            {
+                string svcKey = ResolveRowServiceKey(item);
+                if (!string.IsNullOrEmpty(svcKey))
+                {
+                    if (_activeSvcs.Contains(svcKey)) svcState = BlockRuleState.Active;
+                    else if (_pausedSvcs.Contains(svcKey)) svcState = BlockRuleState.Paused;
+                    if (svcState != BlockRuleState.None)
+                        _blockNotes.TryGetValue("svc:" + svcKey.ToLowerInvariant(), out svcNote);
+                }
+            }
+            item.SetSvcBlockState(svcState, svcNote);
         }
 
         /// <summary>Cheap live module path (Win32 QueryFullProcessImageNameW first, no WMI).</summary>

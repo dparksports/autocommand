@@ -410,6 +410,8 @@ namespace AutoCommand.Views
             foreach (var r in records)
             {
                 known.Add((r.IsIp ? "ip:" : "app:") + (r.Key ?? "").Trim().ToLowerInvariant());
+                if (r.Kind == "svc" && !string.IsNullOrEmpty(r.Key))
+                    known.Add("svc:" + r.Key.Trim().ToLowerInvariant());
                 if (!r.IsIp && !string.IsNullOrEmpty(r.Key))
                 {
                     string norm = AutoCommand.Engines.Firewall.FirewallService.NormalizeAppPath(r.Key);
@@ -427,12 +429,13 @@ namespace AutoCommand.Views
                 }
                 var r = new BlockRecord
                 {
-                    Kind = t.Kind == "ip" ? "ip" : "proc",
-                    Key = t.Kind == "ip" ? t.Ip : t.AppPath,
+                    Kind = t.Kind == "svc" ? "svc" : (t.Kind == "ip" ? "ip" : "proc"),
+                    Key = t.Kind == "svc" ? t.Ip : (t.Kind == "ip" ? t.Ip : t.AppPath),
                     ProcessName = System.IO.Path.GetFileName(t.AppPath ?? ""),
                     CreatedUtc = t.Created ?? DateTime.UtcNow,
                     StatusUtc = t.Created ?? DateTime.UtcNow,
-                    ClassAtBlock = t.Kind == "ip" ? IpClassifier.Classify(t.Ip) : BlocksStore.ClassForPath(t.AppPath ?? ""),
+                    ClassAtBlock = t.Kind == "svc" ? "Windows service (service-scoped)"
+                                 : t.Kind == "ip" ? IpClassifier.Classify(t.Ip) : BlocksStore.ClassForPath(t.AppPath ?? ""),
                     Origin = "reconcile",
                     Attrib = "none",
                 };
@@ -1538,6 +1541,23 @@ namespace AutoCommand.Views
             var verified = new List<(string Kind, string Key)>(list.Count);
             foreach (var (kind, key) in list)
             {
+                bool isSvc = string.Equals(kind, "svc", StringComparison.OrdinalIgnoreCase);
+                if (isSvc)
+                {
+                    // service-scoped targets join by their canonical inventory
+                    // key ("svc:<service>") — the toggle itself matched the
+                    // rule by name, so only the reached-state check applies
+                    string svcInvKey = "svc:" + (key ?? "").Trim().ToLowerInvariant();
+                    if (byKey.TryGetValue(svcInvKey, out var st))
+                    {
+                        bool svcReached = enable
+                            ? (st.Rules > 0 && st.EnabledRules == st.Rules)
+                            : (st.EnabledRules == 0);
+                        if (svcReached) verified.Add((kind, key));
+                    }
+                    continue;
+                }
+
                 bool isIp = string.Equals(kind, "ip", StringComparison.OrdinalIgnoreCase);
                 string invKey = (isIp ? "ip:" : "app:") + (key ?? "").Trim().ToLowerInvariant();
                 if (!byKey.TryGetValue(invKey, out var t) && !isIp && !string.IsNullOrEmpty(key))
