@@ -17,6 +17,64 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.13.4 (2026-11-13)
+================================================================================
+
+# v2026.11.13.4 — Witness-grade transmissions archive, tool-surface pruning & completing rain streams
+
+## The transmissions archive becomes the containment witness's dedicated feed
+
+The containment proof's third witness — *archived bytes to a blocked
+destination since the block was created* — was running on a starving feed:
+nothing had called `TransmissionsPipelineService.Start()` since the
+Transmissions tab retired in v2026.11.13, so the archive recorded nothing new.
+The pipeline is now **witness-grade** and started at app lifetime.
+
+- **Metadata only, no decryption**: every TLS-shaped flow is recorded with
+  endpoints, SNI read straight from the ClientHello (no keys needed), wire
+  byte counts, and Sysmon-attributed pid/image. No bodies, no plaintext at
+  rest — a privacy upgrade over the DPAPI-encrypted body blobs it replaces.
+  FlowPeek/ConnectionPeek still decrypt live through their own path
+  (`TlsDecryptor` + keylog + the intercept proxy stay).
+- **Every TLS-shaped flow earns a row**: the containment join needs history
+  for destinations the user blocks only *later*, so coverage must be broad.
+  Rows are small and day-pruned (30 days); pre-diet archives keep parsing and
+  their orphaned `bodies\` folders age out with the day files.
+- `BlockContainmentReader` / `BlockContainmentVerifier` are untouched — the
+  three-way join (attempts × live sockets × archived bytes) stays
+  full-strength.
+- ConnectionPeek's plaintext view survives through a session-ephemeral
+  in-memory body cache (96 MB FIFO, never persisted); its dead
+  `LoadFromArchive` fallback is gone.
+
+## Tool surface pruned (~3,900 lines, reference-audited)
+
+- **Traces**: `trace_analyze`, `run_trace`, `list_trace_projects`,
+  `get_trace_project` and their engine (`svchost-watch/SvchostAnalyzer.Core` —
+  CaptureEngine/TraceAnalyzer, vendored from the archived sibling repository —
+  plus `TraceProject`/`TraceProjectStore`). The in-process flow capture lives
+  in `Engines.Watch` and is unaffected.
+- **Phone Home**: `get_phonehome_cards`. `TraceMetricsService` itself stays —
+  `investigate_process`'s traffic half consumes its `Compute`/`Match`.
+- **Transmissions**: `get_transmissions` (the archive now serves the
+  containment reader directly).
+- Proxy stub list updated in lockstep; two dangling
+  `SvchostAnalyzer.Core` project references (Contain.Core, Agent.Core)
+  removed.
+
+## Matrix rain: streams complete their fall when traffic goes quiet
+
+The `IdleStill` gate froze the wall wherever it stood — streams hung mid-fall
+with banked letters unspent. In lieu of that pause: when no transmits arrive
+for the grace window, NEW drops stop spawning (the banked budget stays banked
+and plays on resume) while everything already falling — data drops on every
+column including exited processes' streams, and the cinema deco wall —
+completes its descent at full fall speed. Cinema trails finish their
+time-fade. Only when nothing is falling or fading anywhere does the frame
+loop idle and freeze on the quiet backdrop; traffic resuming re-arms the deco
+wall and un-banks the letters. Diagnostics strip message unchanged.
+
+================================================================================
 v2026.11.13.3 (2026-11-13)
 ================================================================================
 
