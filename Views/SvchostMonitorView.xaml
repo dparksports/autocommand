@@ -84,8 +84,15 @@
                 <StackPanel Grid.Column="5" Orientation="Horizontal">
                     <!-- PID inquiry lives in the row context menu and the
                          row double-click (OpenPidTrace); ignoring a process
-                         lives in the row context menu — the bar keeps only
-                         the blocked-list popup. -->
+                         lives in the row context menu; service blocks get
+                         the picker (no live row needed). -->
+                    <Button x:Name="BlockServiceBtn" Content="🛡 Block a Windows service…" Click="BlockServiceBtn_Click" Margin="0,0,12,0" Padding="10,2" FontSize="11"
+                            Background="{DynamicResource BadgeAmberBg}" Foreground="{DynamicResource AccentAmberBrush}" BorderThickness="0" Cursor="Hand" VerticalAlignment="Center"
+                            ToolTip="Service-scoped firewall block: one rule per svchost-hosted service that drops its traffic to EVERY destination — present and future — without touching sibling services in the same host. Pick from the curated list; no live connection needed.">
+                        <Button.Resources>
+                            <Style TargetType="Border"><Setter Property="CornerRadius" Value="10"/></Style>
+                        </Button.Resources>
+                    </Button>
                     <Popup x:Name="BlockedListPopup" PlacementTarget="{Binding ElementName=BlockedListBtn}" Placement="Bottom" StaysOpen="False">
                         <Border Background="{DynamicResource SurfaceAltBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="10" MinWidth="340" Margin="0,4,0,0">
                             <StackPanel>

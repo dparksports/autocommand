@@ -1165,6 +1165,74 @@ namespace AutoCommand.Views
             }
         }
 
+        /// <summary>Service picker (no live row needed): pick a curated
+        /// service, confirm, block. Same enforcement as the row-menu path.
+        /// </summary>
+        private void BlockServiceBtn_Click(object sender, RoutedEventArgs e)
+        {
+            var picker = new ServiceBlockWindow { Owner = Window.GetWindow(this) };
+            if (picker.ShowDialog() != true || string.IsNullOrEmpty(picker.SelectedServiceKey)) return;
+            string note = ServiceCatalog.TryGet(picker.SelectedServiceKey, out var info)
+                ? $"AutoCommand User Block — service '{info.DisplayName}' ({picker.SelectedServiceKey}) blocked via the service picker"
+                : $"AutoCommand User Block — service '{picker.SelectedServiceKey}' blocked via the service picker";
+            _ = BlockServiceByUserAsync(picker.SelectedServiceKey, note);
+        }
+
+        /// <summary>The shared service-block flow for both entry points
+        /// (row menu + picker): honest state check, consequence-aware
+        /// confirm, rule create, baseline adoption, audit.</summary>
+        private async Task BlockServiceByUserAsync(string svcKey, string provenance)
+        {
+            string lower = svcKey.ToLowerInvariant();
+            string display = ServiceCatalog.TryGet(lower, out var info) ? info.DisplayName : svcKey;
+            string story = info?.Description ?? "";
+            string impactLine = info == null ? ""
+                : info.Impact == ServiceImpact.High
+                    ? "\n\n⚠ HIGH IMPACT — blocking this service breaks core functionality."
+                    : info.Impact == ServiceImpact.Medium
+                        ? "\n\n⚠ Notable impact — read the consequence above before confirming."
+                        : "";
+
+            var state = (BlockRuleState)await FirewallService.Instance.GetServiceBlockStateAsync(svcKey);
+            if (state == BlockRuleState.Active)
+            {
+                ShowToast($"⛔ Service {svcKey} is already blocked — every destination, present and future.");
+                return;
+            }
+            if (state == BlockRuleState.Paused)
+            {
+                ShowToast($"⏸ A service block for {svcKey} exists but is paused. Re-enable it from the Firewall tab (AC-BLOCK-SVC rules).");
+                return;
+            }
+
+            if (MessageBox.Show(
+                    $"Block the Windows service '{display}' ({svcKey}) at the firewall?\n\n" +
+                    (story.Length > 0 ? story + "\n\n" : "") +
+                    "• One rule scoped by SERVICE — it blocks this service's traffic to EVERY\n" +
+                    "  destination, including IPs it has never contacted before, even while\n" +
+                    "  AutoCommand is not running.\n" +
+                    "• Sibling services inside the same svchost.exe host are untouched.\n" +
+                    "• No per-destination exceptions exist inside a service block — if you\n" +
+                    "  want exceptions, use per-IP blocks instead.\n" +
+                    "• Manage or remove it from the Firewall tab (AC-BLOCK-SVC rules)." +
+                    impactLine,
+                    "Block service", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+
+            ShowToast($"⛔ Blocking service {svcKey} — all destinations, future included…");
+            try
+            {
+                string ruleName = await FirewallService.Instance.AddServiceBlockAsync(svcKey, provenance);
+                _ = FirewallBaselineManager.AdoptRuleStatesAsync(new[] { (ruleName, true) });
+                BlocksStore.AppendEvent("service-blocked", "svc", lower, provenance, "monitor");
+                ShowToast($"⛔ Service {svcKey} blocked — every destination, present and future.");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"Failed to block service {svcKey}: {ex.Message}", "Error",
+                    MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+        }
+
         /// <summary>Async header sync for the service-block menu item: flips
         /// to Unblock when the rule exists (Active) or explains the pause.
         /// Harmless when the menu closed before the probe landed.</summary>
@@ -1248,43 +1316,7 @@ namespace AutoCommand.Views
                 return;
             }
 
-            string lower = svcKey.ToLowerInvariant();
-            string display = ServiceCatalog.TryGet(lower, out var info) ? info.DisplayName : svcKey;
-            string story = info?.Description ?? "";
-            string impactLine = info == null ? ""
-                : info.Impact == ServiceImpact.High
-                    ? "\n\n⚠ HIGH IMPACT — blocking this service breaks core functionality."
-                    : info.Impact == ServiceImpact.Medium
-                        ? "\n\n⚠ Notable impact — read the consequence above before confirming."
-                        : "";
-
-            if (MessageBox.Show(
-                    $"Block the Windows service '{display}' ({svcKey}) at the firewall?\n\n" +
-                    (story.Length > 0 ? story + "\n\n" : "") +
-                    "• One rule scoped by SERVICE — it blocks this service's traffic to EVERY\n" +
-                    "  destination, including IPs it has never contacted before, even while\n" +
-                    "  AutoCommand is not running.\n" +
-                    "• Sibling services inside the same svchost.exe host are untouched.\n" +
-                    "• No per-destination exceptions exist inside a service block — if you\n" +
-                    "  want exceptions, use per-IP blocks instead.\n" +
-                    "• Manage or remove it from the Firewall tab (AC-BLOCK-SVC rules)." +
-                    impactLine,
-                    "Block service", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
-
-            string note = BuildProvenance(item, $"service {svcKey}", false);
-            ShowToast($"⛔ Blocking service {svcKey} — all destinations, future included…");
-            try
-            {
-                string ruleName = await FirewallService.Instance.AddServiceBlockAsync(svcKey, note);
-                _ = FirewallBaselineManager.AdoptRuleStatesAsync(new[] { (ruleName, true) });
-                BlocksStore.AppendEvent("service-blocked", "svc", lower, note, "monitor");
-                ShowToast($"⛔ Service {svcKey} blocked — every destination, present and future.");
-            }
-            catch (Exception ex)
-            {
-                MessageBox.Show($"Failed to block service {svcKey}: {ex.Message}", "Error",
-                    MessageBoxButton.OK, MessageBoxImage.Error);
-            }
+            await BlockServiceByUserAsync(svcKey, BuildProvenance(item, $"service {svcKey}", false));
         }
 
         private async void BlockProcess_Click(object sender, RoutedEventArgs e)

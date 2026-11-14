@@ -1,0 +1,61 @@
+<Window x:Class="AutoCommand.Views.ServiceBlockWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Block a Windows service (service-scoped)"
+        Width="680" Height="520" MinWidth="560" MinHeight="420"
+        WindowStartupLocation="CenterOwner"
+        Background="{DynamicResource BackgroundBrush}"
+        FontFamily="Segoe UI">
+    <Grid Margin="16">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <TextBlock Grid.Row="0" TextWrapping="Wrap" Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,0,0,10">
+            One rule scoped by SERVICE: it blocks the service's traffic to <Bold>every destination —
+            including IPs it has never contacted before</Bold> — while sibling services in the same
+            svchost.exe host stay untouched. Persists in BFE and enforces even while AutoCommand is
+            closed. No per-destination exceptions exist inside a service block.
+        </TextBlock>
+
+        <ListBox Grid.Row="1" x:Name="ServiceList" SelectionMode="Single"
+                 Background="{DynamicResource SurfaceBrush}" Foreground="{DynamicResource TextPrimaryBrush}"
+                 BorderBrush="{DynamicResource BorderBrush}" HorizontalContentAlignment="Stretch">
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <StackPanel Margin="6,8">
+                        <StackPanel Orientation="Horizontal">
+                            <TextBlock Text="{Binding DisplayName}" FontSize="14" FontWeight="SemiBold"
+                                       Foreground="{DynamicResource TextPrimaryBrush}"/>
+                            <TextBlock Text="{Binding ServiceKey}" FontFamily="Consolas" FontSize="11"
+                                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="10,2,0,0"
+                                       VerticalAlignment="Center"/>
+                            <TextBlock Text="{Binding ImpactLabel}" FontSize="11" FontWeight="SemiBold"
+                                       Foreground="{Binding ImpactBrush}" Margin="12,2,0,0"
+                                       VerticalAlignment="Center"/>
+                        </StackPanel>
+                        <TextBlock Text="{Binding Description}" TextWrapping="Wrap" FontSize="12"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,4,8,0"/>
+                    </StackPanel>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <Grid Grid.Row="2" Margin="0,12,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBlock Grid.Column="0" TextWrapping="Wrap" VerticalAlignment="Center" Margin="0,0,12,0"
+                       Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11">
+                The confirm dialog after picking spells out the consequence and the scope.
+            </TextBlock>
+            <Button Grid.Column="1" Content="Cancel" IsCancel="True" Padding="14,4" Margin="0,0,8,0"/>
+            <Button Grid.Column="2" x:Name="BlockBtn" Content="⛔ Block service" Click="BlockBtn_Click"
+                    Padding="14,4" Style="{StaticResource PrimaryButton}" IsEnabled="False"/>
+        </Grid>
+    </Grid>
+</Window>
