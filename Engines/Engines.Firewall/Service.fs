@@ -159,6 +159,20 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
     // body makes the dedupe check authoritative.
     static let appAddGate = new System.Threading.SemaphoreSlim(1, 1)
 
+    // ── svc state cache (zero-COM probes) ─────────────────────────────
+    // INetFwRules.Item(name) is a full BFE store scan (~2,000+ rules) —
+    // seconds per probe. The cache is written by the containment inventory
+    // walk (every 60 s + on demand) and by this service's own mutations, so
+    // GetServiceBlockStateAsync answers from memory; a cache miss falls to
+    // the index (absent = None without COM) and only a present-but-unknown
+    // rule costs one probe, which then feeds the cache. External edits
+    // (wf.msc) age in with the next walk. Key: lowercase service key;
+    // value: (rules, enabledRules).
+    static let svcStateGate = obj()
+    static let svcStates = Dictionary<string, struct (int * int)>(StringComparer.OrdinalIgnoreCase)
+    static let svcCachePut (key: string) (rules: int) (enabledRules: int) =
+        lock svcStateGate (fun () -> svcStates[key] <- struct (rules, enabledRules))
+
     let getPolicy () : INetFwPolicy2 =
         if isNull policyFactory then Com.getPolicy2 ()
         else policyFactory.Invoke()
@@ -1369,12 +1383,17 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
             let fwPolicy = getPolicy ()
             let rules = fwPolicy.Rules
             let name = this.ServiceBlockRuleName(key)
+            let probeSw = Stopwatch.StartNew()
             let existing = this.FindOwnRule(rules, name)
+            probeSw.Stop()
+            let hitLabel = if isNull existing then "miss" else "hit"
+            Debug.WriteLine($"[svc-block] add probe '{name}': {probeSw.Elapsed.TotalMilliseconds} ms ({hitLabel})")
 
             if not (isNull existing) then
                 try existing.Description <- description with _ -> ()
                 if not existing.Enabled then existing.Enabled <- true
                 recordOwnRuleAdded name
+                svcCachePut key 1 1
                 name
             else
                 let rule = makeRule ()
@@ -1392,6 +1411,7 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
                 rule.Description <- description
                 rules.Add(rule)
                 recordOwnRuleAdded name
+                svcCachePut key 1 1
                 name
         with ex ->
             raise (Exception($"Failed to add service block: {ex.Message}", ex))
@@ -1407,26 +1427,49 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
         invalidateSnapshot ()
         Task.Run(fun () -> this.AddServiceBlockCore(serviceKey, description))
 
-    /// <summary>Block state of the service-scoped rule: None (no rule),
-    /// Active (enabled), Paused (exists but disabled). The seeded own-rule
-    /// index keeps misses at zero enumerations; hits probe one COM Enabled
-    /// read. The key is normalized to lowercase — rule names are canonical
-    /// regardless of the caller's casing.</summary>
+    /// <summary>Block state of the service-scoped rule: 0 = None (no rule),
+    /// 1 = Active (enabled), 2 = Paused (exists but disabled). Served from
+    /// the cache; the only COM path is a present-but-unknown rule, and that
+    /// probe feeds the cache so it happens once per rule.</summary>
     member this.GetServiceBlockStateAsync(serviceKey: string) : Task<int> =
         Task.Run(fun () ->
-            let name = this.ServiceBlockRuleName(serviceKey)
-            let indexMiss =
-                lock ownRulesGate (fun () ->
-                    ownRuleIndexSeeded && not (ownRuleNames.Contains name))
-            if indexMiss then 0
-            else
-                try
-                    let fwPolicy = getPolicy ()
-                    let existing = this.FindOwnRule(fwPolicy.Rules, name)
-                    if isNull existing then 0
-                    elif existing.Enabled then 1
-                    else 2
-                with _ -> 0)
+            let sw = Stopwatch.StartNew()
+            let key = (if isNull serviceKey then "" else serviceKey).ToLowerInvariant()
+            let mutable path = "cache"
+            let result =
+                let cached =
+                    lock svcStateGate (fun () ->
+                        match svcStates.TryGetValue key with
+                        | true, struct (rules, enabled) -> Some struct (rules, enabled)
+                        | _ -> None)
+                match cached with
+                | Some struct (rules, enabled) ->
+                    if rules > 0 && enabled > 0 then 1
+                    elif rules > 0 then 2
+                    else 0
+                | None ->
+                    let name = this.ServiceBlockRuleName key
+                    let indexMiss =
+                        lock ownRulesGate (fun () ->
+                            ownRuleIndexSeeded && not (ownRuleNames.Contains name))
+                    if indexMiss then
+                        path <- "index-miss"
+                        0
+                    else
+                        path <- "com-probe"
+                        try
+                            let fwPolicy = getPolicy ()
+                            let existing = this.FindOwnRule(fwPolicy.Rules, name)
+                            if isNull existing then
+                                0
+                            else
+                                let state = if existing.Enabled then 1 else 2
+                                svcCachePut key 1 (if existing.Enabled then 1 else 0)
+                                state
+                        with _ -> 0
+            sw.Stop()
+            Debug.WriteLine($"[svc-block] state '{key}' via {path} = {result} in {sw.Elapsed.TotalMilliseconds} ms")
+            result)
 
     /// <summary>Remove the service-scoped block rule entirely (the row
     /// menu's Unblock). Returns true when a rule was removed.</summary>
@@ -1436,12 +1479,14 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
             try
                 let fwPolicy = getPolicy ()
                 let rules = fwPolicy.Rules
-                let name = this.ServiceBlockRuleName(serviceKey)
+                let key = if isNull serviceKey then "" else serviceKey.ToLowerInvariant()
+                let name = this.ServiceBlockRuleName(key)
                 let existing = this.FindOwnRule(rules, name)
                 if isNull existing then false
                 else
                     rules.Remove(name) |> ignore
                     recordOwnRuleRemoved name
+                    lock svcStateGate (fun () -> svcStates.Remove(key) |> ignore)
                     true
             with ex ->
                 raise (Exception($"Failed to remove service block: {ex.Message}", ex)))
@@ -1454,11 +1499,13 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
         Task.Run(fun () ->
             try
                 let fwPolicy = getPolicy ()
-                let name = this.ServiceBlockRuleName(serviceKey)
+                let key = if isNull serviceKey then "" else serviceKey.ToLowerInvariant()
+                let name = this.ServiceBlockRuleName(key)
                 let existing = this.FindOwnRule(fwPolicy.Rules, name)
                 if isNull existing then false
                 else
                     let struct (_, verified, _) = writeAndVerifyEnabled existing name enabled
+                    if verified then svcCachePut key 1 (if enabled then 1 else 0)
                     verified
             with _ -> false)
 
@@ -1760,6 +1807,9 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
                 if enabled then t.EnabledRules <- t.EnabledRules + 1
                 if String.IsNullOrEmpty t.Description then t.Description <- desc
                 if not t.Created.HasValue then t.Created <- FirewallService.ParseBlockedTime desc
+
+                // feed the zero-COM svc state cache from the walk
+                svcCachePut key t.Rules t.EnabledRules
             | None ->
                 let ruleIsIp = isIpRule naming name r
 
