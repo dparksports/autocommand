@@ -116,12 +116,15 @@ namespace AutoCommand.Matrix
         /// Default 25 — the original 50 halved, per the house request.</summary>
         public double FallRowsPerSecond { get; set; } = 25;
 
-        /// <summary>Streams animate only while real traffic flows: when no
-        /// transmit, receive or connection attempt has arrived for two
-        /// seconds, the wall freezes exactly where it is (the frame loop
-        /// idles — an idle pane costs a snapshot check per tick, not a
-        /// redraw) and resumes on the next packet. Off = the classic
-        /// always-falling wall.</summary>
+        /// <summary>Streams complete their fall when traffic goes quiet: no
+        /// packet movement for two seconds stops NEW drops from spawning
+        /// (the banked budget stays banked), while everything already
+        /// falling — data streams and the cinema deco wall — finishes its
+        /// descent at full fall speed; once nothing is falling the frame
+        /// loop idles (an empty quiet pane costs a snapshot check per tick,
+        /// not a redraw) until the next packet, which re-arms the wall and
+        /// un-banks the letters. Off = the classic always-falling
+        /// wall.</summary>
         public bool IdleStill { get; set; } = true;
 
         public class RainColors

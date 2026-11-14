@@ -241,8 +241,39 @@ namespace AutoCommand.Matrix
         }
 
         /// <summary>True while the idle gate is holding the wall still
-        /// (IdleStill on, no live traffic) — the diag strip reads this.</summary>
+        /// (IdleStill on, quiet, and nothing left falling) — the diag strip
+        /// reads this.</summary>
         public bool Idled { get; private set; }
+
+        // The drain: traffic went quiet with streams still in the air — they
+        // complete their descent (no new spawns) before the wall idles.
+        private bool _draining;
+
+        /// <summary>Anything still falling or fading: data drops on any
+        /// column, a cinema deco stream mid-descent, or cinema trails still
+        /// aging toward invisibility.</summary>
+        private bool AnythingFalling()
+        {
+            foreach (var col in _columns.Values)
+            {
+                if (col.Drops.Count > 0) return true;
+                if (Cinema && col.CinemaTrail.Count > 0) return true;
+            }
+            if (Cinema)
+                for (int i = 0; i < _deco.Length; i++)
+                    if (_deco[i].WaitSec < 0) return true;
+            return false;
+        }
+
+        /// <summary>Re-arms the deco wall after a drain (traffic resumed):
+        /// dead streams get a short wait, then fall again.</summary>
+        private void ReviveDeco()
+        {
+            if (!Cinema) return;
+            for (int i = 0; i < _deco.Length; i++)
+                if (_deco[i].WaitSec >= double.MaxValue / 2)
+                    _deco[i].WaitSec = _rand.NextDouble() * 0.5;
+        }
 
         // The wall animates only on live traffic: the moment any column
         // saw a real packet delta or attempt (see ConsumeSnapshot). Two
@@ -287,7 +318,10 @@ namespace AutoCommand.Matrix
                     Speed = 9 + _rand.NextDouble() * 17,
                     Brightness = 0.85 + _rand.NextDouble() * 0.15,
                     Glyph = _rand.Next(glyphs),
-                    WaitSec = _rand.NextDouble() < 0.10 ? _rand.NextDouble() * 0.8 : -1
+                    // a stream born during the drain is born done — the wall
+                    // never restarts while traffic is quiet
+                    WaitSec = _draining ? double.MaxValue
+                            : _rand.NextDouble() < 0.10 ? _rand.NextDouble() * 0.8 : -1
                 };
             }
         }
@@ -379,22 +413,33 @@ namespace AutoCommand.Matrix
 
             ConsumeSnapshot();
 
-            // Streams fall only on live transmits (IdleStill): with no
-            // packet movement for the grace window the wall freezes where
-            // it is — the canvas keeps its last frame (WPF retained
-            // mode), so an idle pane costs this cheap check per tick
-            // instead of a full redraw, and nothing ages while nothing
-            // happens. A forced draw (resize, config change, Start) paints
-            // one frame so the freeze always reflects current state.
-            bool idle = _cfg.IdleStill &&
-                        (DateTime.UtcNow - _lastTrafficUtc).TotalSeconds > IdleGraceSeconds;
-            Idled = idle && !_forceDraw;
-            if (idle && !_forceDraw) return;
-            _forceDraw = false;
+            // Streams COMPLETE their fall when traffic goes quiet (IdleStill):
+            // no packet movement for the grace window stops NEW drops from
+            // spawning (the banked budget stays banked), while everything
+            // already falling — data streams and the cinema deco wall —
+            // finishes its descent at full fall speed. Only when nothing is
+            // falling anywhere does the frame loop go idle: the canvas keeps
+            // its last frame (WPF retained mode), so an empty quiet pane
+            // costs this cheap check per tick instead of a full redraw.
+            // Traffic resuming re-arms the deco wall and un-banks the
+            // letters. A forced draw (resize, config change, Start) paints
+            // one frame so the quiet state always reflects current state.
+            bool quiet = _cfg.IdleStill &&
+                         (DateTime.UtcNow - _lastTrafficUtc).TotalSeconds > IdleGraceSeconds;
+            bool falling = AnythingFalling();
+            if (quiet && falling) _draining = true;
+            else if (!quiet && _draining) ReviveDeco(); // traffic resumed mid-drain
+            if (!quiet) _draining = false;
+            else if (!falling) _draining = false;
+
+            bool idleNow = quiet && !_draining; // nothing falling anywhere
+            Idled = idleNow && !_forceDraw;
+            if (idleNow && !_forceDraw) return;
+            if (_forceDraw) _forceDraw = false;
 
             UpdateActiveColumns();
             if (Cinema) SyncDecoWall();
-            Simulate(now, dt);
+            Simulate(now, dt, _draining);
 
             var sw = Stopwatch.StartNew();
             using (var dc = _canvas.OpenRain())
@@ -418,7 +463,7 @@ namespace AutoCommand.Matrix
         // Simulation — the state the draw pass renders
         // ------------------------------------------------------------------
 
-        private void Simulate(double nowSec, double dt)
+        private void Simulate(double nowSec, double dt, bool draining)
         {
             // Re-rank only after REAL events (traffic, attempts,
             // arrivals, retirements) — an idle pane is a still pane;
@@ -479,13 +524,13 @@ namespace AutoCommand.Matrix
                 col.PrevSlot = newSlot;
                 col.Slot = newSlot;
 
-                StepColumn(col, dt, nowSec);
+                StepColumn(col, dt, nowSec, draining);
             }
 
-            if (Cinema) StepDeco(dt, nowSec);
+            if (Cinema) StepDeco(dt, nowSec, draining);
         }
 
-        private void StepColumn(RainColumn col, double dt, double nowSec)
+        private void StepColumn(RainColumn col, double dt, double nowSec, bool draining)
         {
             // No synthetic animation: blocked-but-silent columns simply ARE
             // (red label, frozen stream) — they animate again on real
@@ -498,7 +543,9 @@ namespace AutoCommand.Matrix
                 if (Math.Abs(col.XOffset) < 0.75) col.XOffset = 0;
             }
 
-            if (!col.Exited)
+            // The drain completes EXITED columns' streams too: a process that
+            // quit mid-fall still finishes its descent before the wall idles.
+            if (!col.Exited || draining)
             {
                 // Fall-speed ceiling, rows/sec, FRACTIONAL by accumulation:
                 // 25 rows/s at 60fps is 0.42 rows per frame — an integer
@@ -507,14 +554,14 @@ namespace AutoCommand.Matrix
                 col.FallCarryTx += dt * _cfg.FallRowsPerSecond;
                 int capTx = (int)col.FallCarryTx;
                 col.FallCarryTx -= capTx;
-                StepDrops(col, capTx, rx: false, nowSec);
+                StepDrops(col, capTx, rx: false, nowSec, draining);
 
                 if (_cfg.RxMode)
                 {
                     col.FallCarryRx += dt * _cfg.FallRowsPerSecond * 0.5;
                     int capRx = (int)col.FallCarryRx;
                     col.FallCarryRx -= capRx;
-                    StepDrops(col, capRx, rx: true, nowSec);
+                    StepDrops(col, capRx, rx: true, nowSec, draining);
                 }
             }
 
@@ -523,10 +570,56 @@ namespace AutoCommand.Matrix
                 col.CinemaTrail.RemoveAt(0);
         }
 
-        private void StepDrops(RainColumn col, int maxAdvance, bool rx, double nowSec)
+        private void StepDrops(RainColumn col, int maxAdvance, bool rx, double nowSec, bool draining)
         {
             double budget = Math.Min(rx ? col.RxBudget : col.Budget, 600);
             int glyphCount = _case.GlyphChars.Length;
+
+            if (draining)
+            {
+                // Complete the fall: every drop in this color finishes its
+                // descent at full fall speed — no new spawns, budget stays
+                // banked (the letters play when traffic resumes).
+                for (int i = col.Drops.Count - 1; i >= 0; i--)
+                {
+                    var drop = col.Drops[i];
+                    for (int step = 0; step < maxAdvance; step++)
+                    {
+                        if (drop.Row >= 0)
+                        {
+                            if (Cinema)
+                            {
+                                col.CinemaTrail.Add(new CinemaCell
+                                {
+                                    Row = drop.Row,
+                                    Glyph = drop.GlyphIndex,
+                                    StampSec = nowSec
+                                });
+                            }
+                            else
+                            {
+                                if (_cfg.Ambient && _ambientGrid != null)
+                                    _pendingEtches.Add((col.Slot, drop.Row, drop.GlyphIndex));
+                                col.Wake.Add(new WakeCell
+                                {
+                                    Row = drop.Row,
+                                    Glyph = drop.GlyphIndex,
+                                    Rx = rx
+                                });
+                            }
+                        }
+                        drop.Row++;
+                        if (drop.Row >= _gridRows)
+                        {
+                            col.Drops.RemoveAt(i);
+                            break;
+                        }
+                        drop.GlyphIndex = _rand.Next(glyphCount);
+                    }
+                }
+                return;
+            }
+
             int sameColor = 0;
             for (int i = col.Drops.Count - 1; i >= 0; i--)
                 if (col.Drops[i].Rx == rx) sameColor++;
@@ -602,7 +695,7 @@ namespace AutoCommand.Matrix
         /// after a breathing gap — green trails, white tips, occasional
         /// mid-trail glyph mutation, exactly the film's texture. Carries no
         /// data; the PID columns fall over it brighter and bloomed.</summary>
-        private void StepDeco(double dt, double nowSec)
+        private void StepDeco(double dt, double nowSec, bool draining)
         {
             int n = _case.GlyphChars.Length;
 
@@ -617,6 +710,8 @@ namespace AutoCommand.Matrix
 
                 if (s.WaitSec >= 0)
                 {
+                    // draining: resting streams never restart — they are done
+                    if (draining) s.WaitSec = double.MaxValue;
                     s.WaitSec -= dt;
                     if (s.WaitSec < 0)
                     {
@@ -635,7 +730,8 @@ namespace AutoCommand.Matrix
 
                 if (newRow >= _gridRows + 6)
                 {
-                    s.WaitSec = _rand.NextDouble() * 0.8;
+                    // draining: this stream completed its fall and stays done
+                    s.WaitSec = draining ? double.MaxValue : _rand.NextDouble() * 0.8;
                     continue;
                 }
 
