@@ -203,6 +203,28 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
                 if ownRuleIndexSeeded then
                     ownRuleNames.Remove(name) |> ignore)
 
+    // ── one-walk snapshot cache ─────────────────────────────────────────
+    // The Firewall tab used to re-enumerate the ENTIRE BFE policy store
+    // twice per interaction: LoadRulesAsync(direction) walked all rules and
+    // filtered client-side, then CountLegacyBlocksAsync walked them again —
+    // each rule costing ~10 individual COM round-trips, so a direction
+    // switch cost thousands. Both consumers now share one snapshot captured
+    // in a single walk (both directions + the legacy count); direction
+    // switching and the legacy probe are in-memory filters over it. Every
+    // mutation routed through this service invalidates it, and a short TTL
+    // lets external edits (wf.msc, the enforcer's drift fixes) surface
+    // without a manual refresh.
+    let snapshotGate = obj ()
+    let mutable snapshotRules: ResizeArray<RuleInfo> = null
+    let mutable snapshotLegacyCount = 0
+    let mutable snapshotCapturedUtc = DateTime.MinValue
+    let snapshotTtl = TimeSpan.FromSeconds 15.0
+
+    let invalidateSnapshot () =
+        lock snapshotGate (fun () ->
+            snapshotRules <- null
+            snapshotCapturedUtc <- DateTime.MinValue)
+
     static let writeAndVerifyEnabled (r: INetFwRule) (ruleLabel: string) (desired: bool) : struct (bool * bool * string) =
         r.Enabled <- desired
         let actual = r.Enabled
@@ -287,25 +309,52 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
 
     /// <summary>
     /// Load all firewall rules for a given direction using COM API.
-    /// direction: 1 = Inbound, 2 = Outbound
+    /// direction: 1 = Inbound, 2 = Outbound. Served from the one-walk
+    /// snapshot when fresh — a direction switch is an in-memory filter,
+    /// not a re-enumeration.
     /// </summary>
-    member _.LoadRulesAsync(direction: int) : Task<ResizeArray<RuleInfo>> =
+    member this.LoadRulesAsync(direction: int) : Task<ResizeArray<RuleInfo>> =
         Task.Run(fun () ->
+            let struct (all, _) = lock snapshotGate (fun () -> this.CaptureSnapshotLocked())
+            let wanted = if direction = 1 then "Inbound" else "Outbound"
+            ResizeArray(all.Where(fun r -> r.Direction = wanted)))
+
+    /// <summary>The Firewall tab's combined read: the direction's rules plus
+    /// the legacy-name block count, from ONE policy-store walk.</summary>
+    member this.LoadRulesTabDataAsync(direction: int) : Task<struct (ResizeArray<RuleInfo> * int)> =
+        Task.Run(fun () ->
+            let struct (all, legacy) = lock snapshotGate (fun () -> this.CaptureSnapshotLocked())
+            let wanted = if direction = 1 then "Inbound" else "Outbound"
+            struct (ResizeArray(all.Where(fun r -> r.Direction = wanted)), legacy))
+
+    /// <summary>Drop the snapshot so the next read re-walks the store — the
+    /// refresh button's "show me the truth now".</summary>
+    member _.InvalidateRulesSnapshot() : unit = invalidateSnapshot ()
+
+    /// <summary>Capture or return the cached snapshot. Caller must hold
+    /// snapshotGate. One walk fills BOTH directions plus the legacy count —
+    /// each rule's Direction is read on the way past, so the per-direction
+    /// filter is purely client-side.</summary>
+    member private _.CaptureSnapshotLocked() : struct (ResizeArray<RuleInfo> * int) =
+        if snapshotRules <> null && DateTime.UtcNow - snapshotCapturedUtc < snapshotTtl then
+            struct (ResizeArray snapshotRules, snapshotLegacyCount)
+        else
             let results = ResizeArray<RuleInfo>()
+            let mutable legacy = 0
 
             try
                 let fwPolicy = getPolicy ()
 
                 for r in Com.enumRules fwPolicy.Rules do
                     try
+                        let name =
+                            match r.Name with
+                            | null -> ""
+                            | n -> n
+
                         let ruleDir = int r.Direction
 
-                        if ruleDir = direction then
-                            let name =
-                                match r.Name with
-                                | null -> ""
-                                | n -> n
-
+                        if ruleDir = 1 || ruleDir = 2 then
                             let grouping =
                                 match FirewallService.ResolveGroupName r.Grouping with
                                 | null -> ""
@@ -316,7 +365,7 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
                                     Name = name,
                                     DisplayName = name,
                                     DisplayGroup = (if String.IsNullOrEmpty grouping then "(Ungrouped)" else grouping),
-                                    Direction = (if direction = 1 then "Inbound" else "Outbound"),
+                                    Direction = (if ruleDir = 1 then "Inbound" else "Outbound"),
                                     Enabled = r.Enabled,
                                     Action = (if int r.Action = 1 then "Allow" else "Block"),
                                     Profile = FirewallService.DecodeProfile r.Profiles,
@@ -327,17 +376,26 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
                                     RemoteAddress = (match r.RemoteAddresses with null -> "" | a -> a)
                                 )
                             )
+
+                        if int r.Action = 0
+                           && (startsWithAny naming.LegacyIpPrefixes name
+                               || startsWithAny naming.LegacyAppPrefixes name) then
+                            legacy <- legacy + 1
                     with _ ->
                         () // Skip rules that can't be read
             with ex ->
                 Debug.WriteLine($"FirewallService.LoadRules Error: {ex.Message}")
 
-            results)
+            snapshotRules <- results
+            snapshotLegacyCount <- legacy
+            snapshotCapturedUtc <- DateTime.UtcNow
+            struct (ResizeArray results, legacy)
 
     /// <summary>
     /// Toggle a single rule's enabled state via COM.
     /// </summary>
     member _.ToggleRuleAsync(ruleName: string, enabled: bool) : Task =
+        invalidateSnapshot () // the tab's snapshot no longer matches the store
         Task.Run(
             Action(fun () ->
                 try
@@ -358,6 +416,7 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
     /// resolved display name.
     /// </summary>
     member _.ToggleGroupAsync(groupName: string, enabled: bool) : Task<GroupToggleResult> =
+        invalidateSnapshot () // group state changed under the snapshot
         Task.Run(fun () ->
             let result = GroupToggleResult(GroupName = groupName)
 
@@ -599,6 +658,7 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
     /// Rules created by Windows or other software are never matched.
     /// </summary>
     member _.RemoveAllOwnRulesAsync() : Task<int> =
+        invalidateSnapshot ()
         Task.Run(
             Func<int>(fun () ->
                 try
@@ -885,6 +945,7 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
     /// the next run ("unblock doesn't stick"). Returns the removal count.
     /// </summary>
     member _.RemoveBlockRulesForAppAsync(appPath: string) : Task<int> =
+        invalidateSnapshot ()
         Task.Run(fun () ->
             let mutable removed = 0
 
@@ -972,6 +1033,7 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
     /// retired, first error).
     /// </summary>
     member _.RemoveDuplicateBlockRulesAsync() : Task<struct (int * int * string)> =
+        invalidateSnapshot ()
         Task.Run(fun () ->
             appAddGate.Wait()
             try
@@ -1275,6 +1337,7 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
     /// scanning the firewall collection.
     /// </summary>
     member this.AddIpBlockWithRulesAsync(ip: string, description: string) : Task<struct (int * int * string[])> =
+        invalidateSnapshot ()
         Task.Run(fun () -> this.AddIpBlockCore(ip, description))
 
     /// <summary>
@@ -1283,6 +1346,7 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
     /// are not carried into C#.
     /// </summary>
     member this.AddIpBlockAsync(ip: string, description: string) : Task<struct (int * int)> =
+        invalidateSnapshot ()
         Task.Run(fun () ->
             let struct (created, updated, _) = this.AddIpBlockCore(ip, description)
             struct (created, updated))
@@ -1446,6 +1510,7 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
     /// carried into C#.
     /// </summary>
     member this.AddAppBlockAsync(appPath: string, description: string) : Task<struct (int * int)> =
+        invalidateSnapshot ()
         Task.Run(fun () ->
             let struct (created, updated, _) = this.AddAppBlockCore(appPath, description)
             struct (created, updated))
@@ -1456,6 +1521,7 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
     /// persist needs the real rule name, primary or " · hash" sibling.
     /// </summary>
     member this.AddAppBlockWithPathAsync(appPath: string, description: string) : Task<struct (int * int * string)> =
+        invalidateSnapshot ()
         Task.Run(fun () -> this.AddAppBlockCore(appPath, description))
 
     /// <summary>
@@ -2051,6 +2117,7 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
     /// no longer carries an app name.
     /// </summary>
     member this.ConsolidateLegacyIpBlocksAsync() : Task<struct (int * int * int)> =
+        invalidateSnapshot ()
         Task.Run(fun () ->
             let mutable targets = 0
             let mutable removed = 0
@@ -2169,29 +2236,13 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
             struct (targets, removed, migrated)
         )
 
-    /// <summary>Count of legacy-name block rules still in the firewall (0 after migration).</summary>
-    member _.CountLegacyBlocksAsync() : Task<int> =
+    /// <summary>Count of legacy-name block rules still in the firewall
+    /// (0 after migration). Served from the one-walk snapshot — no second
+    /// enumeration.</summary>
+    member this.CountLegacyBlocksAsync() : Task<int> =
         Task.Run(fun () ->
-            let mutable count = 0
-
-            try
-                let fwPolicy = getPolicy ()
-
-                for r in Com.enumRules fwPolicy.Rules do
-                    try
-                        if int r.Action = 0 then
-                            let name =
-                                match r.Name with
-                                | null -> ""
-                                | n -> n
-
-                            if startsWithAny naming.LegacyIpPrefixes name
-                               || startsWithAny naming.LegacyAppPrefixes name then
-                                count <- count + 1
-                    with _ -> ()
-            with _ -> ()
-
-            count
+            let struct (_, legacy) = lock snapshotGate (fun () -> this.CaptureSnapshotLocked())
+            legacy
         )
 
     /// <summary>

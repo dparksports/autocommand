@@ -33,6 +33,7 @@ namespace AutoCommand.Views
 
         private async void RefreshBtn_Click(object sender, RoutedEventArgs e)
         {
+            FirewallService.Instance.InvalidateRulesSnapshot(); // show the truth now, not the 15 s cache
             await LoadRules();
             await UpdateBaselineStatusAsync();
         }
@@ -89,6 +90,7 @@ namespace AutoCommand.Views
             try
             {
                 var (targets, removedIn, migrated) = await FirewallService.Instance.ConsolidateLegacyIpBlocksAsync();
+                FirewallService.Instance.InvalidateRulesSnapshot();
 
                 // Names changed — re-capture so the enforcer doesn't report the new
                 // AC-BLOCK names as drift (the baseline is keyed by rule name)
@@ -114,28 +116,27 @@ namespace AutoCommand.Views
         private async Task LoadRules()
         {
             int direction = InboundRadio.IsChecked == true ? 1 : 2;
-            _currentRules = await FirewallService.Instance.LoadRulesAsync(direction);
+            var (rules, legacyCount) = await FirewallService.Instance.LoadRulesTabDataAsync(direction);
+            _currentRules = rules;
 
             // Enabled rules first (then alphabetical) so the refreshed list reads top-down
             _currentRules = _currentRules.OrderByDescending(r => r.Enabled)
                                          .ThenBy(r => r.DisplayName, StringComparer.OrdinalIgnoreCase)
                                          .ToList();
 
-            var view = System.Windows.Data.CollectionViewSource.GetDefaultView(_currentRules);
-            view.GroupDescriptions.Clear();
-            view.GroupDescriptions.Add(new System.Windows.Data.PropertyGroupDescription("DisplayName"));
-
-            RulesGrid.ItemsSource = view;
+            // No GroupDescriptions: grouping by rule name (one group per
+            // rule) forced WPF to realize every row container — virtualization
+            // off — making every sort and refresh re-render the whole table.
+            RulesGrid.ItemsSource = _currentRules;
 
             int enabled = _currentRules.Count(r => r.Enabled);
             string dir = direction == 1 ? "Inbound" : "Outbound";
             RuleCountText.Text = $"{_currentRules.Count} {dir} rules ({enabled} enabled)";
 
-            int legacy = await FirewallService.Instance.CountLegacyBlocksAsync();
-            RenameLegacyBtn.IsEnabled = legacy > 0;
-            RenameLegacyBtn.ToolTip = legacy == 0
+            RenameLegacyBtn.IsEnabled = legacyCount > 0;
+            RenameLegacyBtn.ToolTip = legacyCount == 0
                 ? "No legacy-named AutoCommand block rules — nothing to rename."
-                : $"{legacy} legacy-named AutoCommand block rule(s) found. Click to rename them to the current AC-BLOCK scheme.";
+                : $"{legacyCount} legacy-named AutoCommand block rule(s) found. Click to rename them to the current AC-BLOCK scheme.";
         }
 
         private async void ToggleRule_Click(object sender, RoutedEventArgs e)

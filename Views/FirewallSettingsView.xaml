@@ -106,7 +106,7 @@
                 </GroupStyle>
             </DataGrid.GroupStyle>
             <DataGrid.Columns>
-                <DataGridTextColumn Header="Enabled" Binding="{Binding EnabledDisplay}" Width="70">
+                <DataGridTextColumn Header="Enabled" Binding="{Binding EnabledDisplay}" SortMemberPath="Enabled" Width="70">
                     <DataGridTextColumn.ElementStyle>
                         <Style TargetType="TextBlock">
                             <Setter Property="Foreground" Value="{Binding Enabled, Converter={StaticResource EnabledToColor}}"/>
