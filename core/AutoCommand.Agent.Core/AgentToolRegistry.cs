@@ -265,16 +265,6 @@ namespace AutoCommand.Agent.Core
                 a => DiagnoseSite(a)),
 
             new Tool(
-                "get_phonehome_cards",
-                "The Phone Home tab's curated cards: one per well-known Windows talker (DiagTrack, " +
-                "CryptSvc, Delivery Optimization…) — the authored plain-English story, measured " +
-                "connects/hr over the last 24 h against the authored normal band, top destinations " +
-                "with classification, beacon regularity and identity corroboration. Read-only.",
-                Schema(),
-                false,
-                a => GetPhoneHomeCards()),
-
-            new Tool(
                 "investigate_process",
                 "Composite read-only investigation of one process in a single call — the whole " +
                 "'why is this transmitting?' playbook: PID provenance (who launched it, PID-recycle " +
@@ -1547,35 +1537,6 @@ namespace AutoCommand.Agent.Core
             };
         }
 
-        // ── Phone Home / Traces (read-only, backed by TraceMetricsService) ─
-
-        private static string GetPhoneHomeCards()
-        {
-            var arr = new JsonArray();
-            foreach (var key in ServiceCatalog.CuratedPhoneHomeKeys)
-            {
-                try
-                {
-                    var snap = TraceMetricsService.Compute(TraceMetricsService.Match.ForService(key));
-                    var card = SnapshotJson(snap);
-                    ServiceCatalog.TryGet(key, out var info);
-                    card.Insert(0, "service", key);
-                    if (info != null)
-                    {
-                        card["display_name"] = info.DisplayName;
-                        card["story"] = info.PhoneHomeStory ?? info.Description;
-                        card["impact_if_blocked"] = info.Impact.ToString();
-                        card["normal_max_per_hour"] = info.NormalMaxPerHour;
-                    }
-                    arr.Add(card);
-                }
-                catch (Exception ex)
-                {
-                    arr.Add(new JsonObject { ["service"] = key, ["error"] = ex.Message });
-                }
-            }
-            return ToJson(new JsonObject { ["cards"] = arr });
-        }
 
         private static string InvestigateProcess(JsonObject a)
         {
