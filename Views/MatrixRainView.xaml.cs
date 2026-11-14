@@ -173,6 +173,7 @@ namespace AutoCommand.Views
             DiagText.Text =
                 $"{_feed.LastConversationCount} conversations · {_feed.LastPidCount} pids · " +
                 $"{_renderer.LiveColumns} columns · {_renderer.LastFps:0} fps" +
+                (string.IsNullOrEmpty(_renderer.LabelLegend) ? "" : $"   {_renderer.LabelLegend}") +
                 "   (right-click to configure)";
         }
 

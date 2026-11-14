@@ -167,9 +167,7 @@ namespace AutoCommand.Matrix
         private bool _running;
 
         private const int MaxDropsPerColor = 3;
-        private const int NameLabelRows = 12; // process names, vertically —
-        // extension stripped; longer names truncate (the hover tooltip
-        // carries the full name and the PID)
+        private const int LabelRows = 1;      // one lowercase letter per column
         private const double ActivityDecayPerSnapshot = 0.97;  // ~2.3 s half-life at 100 ms snapshots
         private const double ResortSeconds = 2.0;
         /// <summary>Cinema trail lifetime: 0.28^t bottoms out just under
@@ -258,7 +256,7 @@ namespace AutoCommand.Matrix
         private void RecomputeGrid()
         {
             if (_case == null || _w == 0 || _h == 0) return;
-            _bandH = _cfg.ShowLabels ? 3 + NameLabelRows * _case.LabelCellH + 3 : 0;
+            _bandH = _cfg.ShowLabels ? 3 + LabelRows * _case.LabelCellH + 3 : 0;
             _gridCols = Math.Max(1, (int)(_w / _case.CellW));
             _gridRows = Math.Max(1, (int)((_h - _bandH) / _case.CellH));
             // the deco wall is sized to the ALIVE column count every frame
@@ -912,12 +910,16 @@ namespace AutoCommand.Matrix
             FlushBatches(dc, batches);
         }
 
-        /// <summary>The process name reads vertically down its column — a
-        /// rain column is one glyph wide, so sideways labels would spill
-        /// into the neighbor's rain (the old PID digits had the same
-        /// constraint). Names lose their .exe extension and truncate to the
-        /// band's rows; the hover tooltip carries the full name and the
-        /// PID. Blocked processes read their names red.</summary>
+        /// <summary>One lowercase letter per column, in the label band's
+        /// single row: the FIRST lowercase letter of the process name; when
+        /// two active instances would share it, the later one falls back to
+        /// the name's LAST lowercase letter, then any unused letter in the
+        /// name, and only when the name offers nothing does the PID's last
+        /// digit pair step in. The assignment is a deterministic function of
+        /// the active column set (creation order), so the same set always
+        /// renders the same letters. Full name + PID stay on the hover
+        /// tooltip; the diag strip carries the letter → name legend.
+        /// Blocked processes read their letter red.</summary>
         private void DrawLabels(DrawingContext dc)
         {
             if (!_cfg.ShowLabels) return;
@@ -925,32 +927,93 @@ namespace AutoCommand.Matrix
             var normal = new GlyphBatch(_case.LabelEm, _canvas.PixelsPerDip);
             var blocked = new GlyphBatch(_case.LabelEm, _canvas.PixelsPerDip);
             int n = 0, bCount = 0;
+            var used = new HashSet<char>();
+            var legend = new List<string>();
 
-            foreach (var col in _columns.Values)
+            foreach (var col in _columns.Values.Where(c => c.Slot >= 0).OrderBy(c => c.Seq))
             {
-                if (col.Slot < 0) continue;
                 double x = ColumnX(col) + Math.Max(0, (_case.CellW - _case.LabelCellW) / 2);
                 if (x < 0) continue;
 
-                string label = col.Name;
-                if (string.IsNullOrEmpty(label)) label = col.Pid.ToString();
-                if (label.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && label.Length > 4)
-                    label = label[..^4];
-                if (label.Length > NameLabelRows) label = label[..NameLabelRows];
-
+                string name = LabelSourceName(col);
+                char letter = PickLabelLetter(name, used);
                 var batch = col.Blocked ? blocked : normal;
-                for (int i = 0; i < label.Length; i++)
+
+                if (letter != '\0')
                 {
-                    var f = _case.LabelChar(label[i]);
+                    var f = _case.LabelChar(letter);
                     batch.Add(f,
                         x + (_case.LabelCellW - f.Advance) / 2,
-                        3 + i * _case.LabelCellH + _case.LabelCellH * 0.5 + _case.LabelEm * 0.36);
+                        3 + _case.LabelCellH * 0.5 + _case.LabelEm * 0.36);
                     if (col.Blocked) bCount++; else n++;
+                    legend.Add($"{letter}={name}");
+                }
+                else
+                {
+                    // the name offered no assignable letter — the PID's last
+                    // two digits keep the column identifiable
+                    string digits = col.Pid.ToString();
+                    if (digits.Length > 2) digits = digits.Substring(digits.Length - 2);
+                    for (int i = 0; i < digits.Length; i++)
+                    {
+                        int d = digits[i] - '0';
+                        var f = _case.Digits[d];
+                        batch.Add(f,
+                            x + (_case.LabelCellW - f.Advance) / 2,
+                            3 + _case.LabelCellH * 0.5 + _case.LabelEm * 0.36);
+                        if (col.Blocked) bCount++; else n++;
+                    }
+                    legend.Add($"{digits}={name}");
                 }
             }
 
+            LabelLegend = legend.Count > 0 ? string.Join("  ", legend) : "";
             if (n > 0) { normal.Flush(dc, _case.Label); _frameDraws += n; }
             if (bCount > 0) { blocked.Flush(dc, _case.LabelBlocked); _frameDraws += bCount; }
+        }
+
+        /// <summary>Letter → name legend, rebuilt every frame the labels draw
+        /// — the diag strip reads it so single letters stay answerable.</summary>
+        public volatile string LabelLegend = "";
+
+        private static string LabelSourceName(RainColumn col)
+        {
+            string name = col.Name;
+            if (string.IsNullOrEmpty(name)) return "";
+            if (name.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && name.Length > 4)
+                name = name[..^4];
+            return name;
+        }
+
+        /// <summary>Candidates in the user's order: the name's first
+        /// lowercase letter, then its last lowercase letter; all-caps names
+        /// fall back to their first/last letter lowercased; the final resort
+        /// scans every letter in the name for one that is still unused.
+        /// '\0' = nothing assignable (digits will label the column).</summary>
+        private static char PickLabelLetter(string name, HashSet<char> used)
+        {
+            if (string.IsNullOrEmpty(name)) return '\0';
+            var lower = name.Where(char.IsLower).ToList();
+            var candidates = new List<char>(4);
+            if (lower.Count > 0)
+            {
+                candidates.Add(lower[0]);
+                candidates.Add(lower[^1]);
+            }
+            else
+            {
+                var letters = name.Where(char.IsLetter).ToList();
+                if (letters.Count > 0)
+                {
+                    candidates.Add(char.ToLowerInvariant(letters[0]));
+                    candidates.Add(char.ToLowerInvariant(letters[^1]));
+                }
+            }
+            foreach (var c in candidates)
+                if (used.Add(c)) return c;
+            foreach (var c in name.Where(char.IsLetter).Select(char.ToLowerInvariant))
+                if (used.Add(c)) return c;
+            return '\0';
         }
 
         /// <summary>The lead glyphs — the single brightest cells: bloom
