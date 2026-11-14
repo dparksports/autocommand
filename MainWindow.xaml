@@ -40,7 +40,7 @@
         <!-- Main Content. The sidebar is grouped: WATCH (feeds that show what
              the machine is doing), CONTAIN (blocking & defenses), SYSTEM
              (everything configurational). Group headers are non-selectable
-             TabItems; entries are single-line so all 16 fit without
+             TabItems; entries are single-line so every one fits without
              scrolling. The burger item at the very top is a fake tab: its
              selection is intercepted in code-behind to toggle the pane
              collapse instead of navigating. SelectedIndex=2 skips the burger
@@ -110,19 +110,6 @@
                     </Button>
                     <views:MatrixRainView x:Name="MatrixRainTab" Grid.Column="2"/>
                 </Grid>
-            </TabItem>
-            <TabItem x:Name="SpawnWatchesNavItem">
-                <TabItem.Header>
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="🐣" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                        <TextBlock Text="Spawn Watches" Style="{StaticResource NavPaneLabel}" VerticalAlignment="Center"/>
-                    </StackPanel>
-                </TabItem.Header>
-                <!-- Spawn Watches: name prefilters evaluated at Sysmon
-                     ingestion time (SpawnWatchService). Rules are JSON
-                     files in %LOCALAPPDATA%\AutoCommand\watches; the tab
-                     reads what the service already collected. -->
-                <views:SpawnWatchesView x:Name="SpawnWatchesTab"/>
             </TabItem>
 
             <!-- ═══ CONTAIN ═══ -->

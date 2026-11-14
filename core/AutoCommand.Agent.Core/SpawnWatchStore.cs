@@ -189,8 +189,8 @@ namespace AutoCommand.Agent.Core
 
     /// <summary>
     /// Static facade over one default <see cref="SpawnWatchLibrary"/> —
-    /// every existing call site (Spawn Watches tab, agent bridge tools)
-    /// compiles untouched. Tests construct a SpawnWatchLibrary outright
+    /// every existing call site (agent bridge tools) compiles untouched.
+    /// Tests construct a SpawnWatchLibrary outright
     /// instead of reaching into the facade.
     /// </summary>
     public static class SpawnWatchStore

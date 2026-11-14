@@ -770,7 +770,7 @@ namespace AutoCommand.Agent.Core
         {
             var rules = SpawnWatchStore.Load();
             if (rules.Count == 0)
-                return "No spawn watches defined yet. Create one in the Spawn Watches tab, or drop a " +
+                return "No spawn watches defined yet. Drop a " +
                        "rule JSON into " + SpawnWatchStore.WatchesDirectory + " (files are the interface).";
             var counts = SpawnWatchService.HitCounts(DateTime.UtcNow.AddHours(-24));
             var sb = new StringBuilder();
@@ -809,8 +809,7 @@ namespace AutoCommand.Agent.Core
             if (hits.Count == 0)
                 return $"No spawn-watch hits for {(string.IsNullOrEmpty(rule) ? "any rule" : $"'{rule}'")} " +
                        $"in the last {minutes} min. Hits land as rules match events at ingestion time — " +
-                       "check list_watches for the defined rules, and the tab's replay button to cover " +
-                       "the archive retroactively.";
+                       "check list_watches for the defined rules.";
             var sb = new StringBuilder();
             foreach (var h in hits)
             {

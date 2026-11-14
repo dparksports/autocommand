@@ -17,6 +17,35 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.13.1 (2026-11-13)
+================================================================================
+
+# v2026.11.13.1 — Spawn Watches tab retirement (rules files + agent tools carry the feature)
+
+## Spawn Watches: the tab goes, the feature stays
+
+The Spawn Watches tab is retired from the WATCH group. Nothing about how watches
+work changed: rules are still evaluated at Sysmon ingestion time
+(`SpawnWatchService.Start()` runs on the same startup path), hits still land in
+the per-day JSONL index under `%LOCALAPPDATA%\AutoCommand\watches\hits`, and rule
+files are still the interface — drop a rule JSON into
+`%LOCALAPPDATA%\AutoCommand\watches` (or hand-edit one) and it is picked up on
+the next pass, no restart.
+
+- **What was removed**: `Views/SpawnWatchesView.xaml(.cs)` and its nav item
+  (557 lines of GUI). The card editor duplicated what the JSON files already do
+  better — files are the interface; copy one to another machine and it works.
+- **What survives**: the `list_watches` / `tail_watches` tools for the AI
+  assistant (read-only; help strings now point at the rules directory instead of
+  the tab), rule-file hot-reload via the 2-second stamp poll with automatic
+  replay over the last day, and the starter rule + allowlist seeding.
+- **Verification**: `WatchSelfTest` — all 32 checks green (wildcards, `-s`
+  scoping, allowlist subtraction, real Append → hook → consumer → hits pipeline,
+  dropped-in rule pickup, replay dedupe); Release and Debug builds clean.
+- **Docs**: the README sidebar tour and the Watch-tools bullet now describe the
+  rules-directory + agent-tools access path instead of the retired tab.
+
+================================================================================
 v2026.11.13 (2026-11-13)
 ================================================================================
 

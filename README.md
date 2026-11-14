@@ -34,7 +34,7 @@ One question the list answers for itself: the **TX-only (no reply)** checkbox �
 
 ![The sidebar, grouped by the question you're asking: Watch, Contain, System](Assets/infographics/app-map.svg)
 
-The sidebar groups its tools by the question you're asking, not by what they do internally. **Watch** holds the feeds: the Process Monitor (its right panel replays live traffic as Matrix-style rain; either pane folds from the thin rail between them) and Spawn Watches — "who launched this?", answered for scheduled-task launches, Python programs and the svchost timeline side by side. **Contain** holds the stopping tools: Firewall, Blocks, Audit (everything the app did, one ledger), Shields Up. **System** is the rest: Be My Guest, Settings, and Windows Update — the sanctioned way to update: lift exactly the update-pathway blocks, run the update, put everything back and verify. Behind the Advanced-investigation toggle sits **Investigate**, which joins everything the app recorded about one process into a single verdict and a copyable report. Watching never stops just because you looked away — a feed runs until you stop it, not until you click elsewhere.
+The sidebar groups its tools by the question you're asking, not by what they do internally. **Watch** holds the feeds: the Process Monitor (its right panel replays live traffic as Matrix-style rain; either pane folds from the thin rail between them) — "who launched this?", answered for scheduled-task launches, Python programs and the svchost timeline side by side. **Contain** holds the stopping tools: Firewall, Blocks, Audit (everything the app did, one ledger), Shields Up. **System** is the rest: Be My Guest, Settings, and Windows Update — the sanctioned way to update: lift exactly the update-pathway blocks, run the update, put everything back and verify. Behind the Advanced-investigation toggle sits **Investigate**, which joins everything the app recorded about one process into a single verdict and a copyable report. Watching never stops just because you looked away — a feed runs until you stop it, not until you click elsewhere.
 
 ## Watch: beyond the list
 
@@ -47,7 +47,7 @@ Six read-only tools answer the questions a connection list can't:
 - **Phone Home** — curated cards for Windows' own talkers (DiagTrack, CryptSvc, Delivery Optimization…): the plain-English story, measured connects-per-hour against a normal band, beacon regularity.
 - **Transmissions** — the recorded-TLS archive: process, SNI host, provider, byte counts, decrypted-or-not. Decrypted bodies are DPAPI-encrypted at rest, readable only by your user.
 - **Traces** — watch any process or svchost service for hours: frequency, destinations, upload dominance, beacon regularity.
-- **Spawn Watches** — name-based prefilters evaluated the moment a process is *born*, so "what did svchost spawn?" is caught at birth, never chased after the fact.
+- **Spawn Watches** — name-based prefilters evaluated the moment a process is *born*, so "what did svchost spawn?" is caught at birth, never chased after the fact. Rules are JSON files in `%LOCALAPPDATA%\AutoCommand\watches` (drop one in, no restart), surfaced to your AI assistant as `list_watches` / `tail_watches`.
 
 ## When something looks odd
 
