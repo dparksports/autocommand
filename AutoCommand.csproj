@@ -77,13 +77,12 @@
          Services\WpfAgentInteraction at startup; headless hosts install
          nothing. -->
     <ProjectReference Include="core\AutoCommand.Agent.Core\AutoCommand.Agent.Core.csproj" />
-    <!-- The svchost capture/analysis engine, linked in-process: the app runs
-         it directly instead of spawning a bundled child exe (which SmartScreen
-         hard-blocks on download extracts). Vendored in-repo at svchost-watch\
-         (formerly a sibling repository, dparksports/svchost-watch — archived).
-         The standalone CLI exe is not built or shipped; already-installed
-         boot-autostart copies keep working. -->
-    <ProjectReference Include="svchost-watch\SvchostAnalyzer.Core\SvchostAnalyzer.Core.csproj" />
+    <!-- The svchost capture/analysis engine (svchost-watch\SvchostAnalyzer.Core,
+         formerly a sibling repository, dparksports/svchost-watch — archived) was
+         pruned with the Traces tool surface; its CaptureEngine/TraceAnalyzer were
+         the trace_analyze bridge tool's engine, and in-process flow capture lives
+         in Engines.Watch (Capture.fs) instead. -->
+
     <!-- The MCP client's spawn target: a tiny asInvoker console exe (no admin,
          no UAC) that forwards to this app's AI-access listener. Built and
          published alongside the app; Settings > AI access installs a copy to
@@ -136,13 +135,9 @@
     <!-- Spawn watch self-test: rule store, ingestion-time matching, the
          archive Appended hook and replay dedupe offline (own Main()) -->
     <Compile Remove="tests\WatchSelfTest\**" />
-    <!-- Vendored engine: compiled through its own ProjectReference — without
-         this exclusion the default glob would pull its .cs into the app
-         assembly too (duplicate types in the WPF _wpftmp pass). -->
-    <Compile Remove="svchost-watch\**" />
-    <!-- Agent proxy: built through its own ProjectReference — same glob
-         reason as svchost-watch (its obj\** auto-generated sources would be
-         double-compiled into the WPF temp project) -->
+    <!-- Agent proxy: built through its own ProjectReference — without this
+         exclusion the default glob would pull its .cs into the app assembly
+         too (duplicate types in the WPF _wpftmp pass) -->
     <Compile Remove="AgentProxy\**" />
     <!-- Contain self-test: the blocking/safety path — built test-first,
          before the phase 3 extraction (REWRITE.md); own Main() -->

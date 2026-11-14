@@ -15,7 +15,6 @@ using System.Threading;
 using AutoCommand.Services;
 using AutoCommand.Models;
 using ShieldsUp.Core.Services;
-using SvchostAnalyzer.Core;
 
 namespace AutoCommand.Agent.Core
 {
@@ -126,16 +125,6 @@ namespace AutoCommand.Agent.Core
                        ("max", "Maximum hits to return (default 100, cap 500)", false)),
                 false,
                 a => TailWatches(a)),
-
-            new Tool(
-                "trace_analyze",
-                "Run AutoCommand's svchost trace analyzer. With seconds>0: capture live traffic for that " +
-                "long, then analyze (parentage, identity corroboration, destinations, beacon regularity, " +
-                "upload dominance). With seconds=0: analyze the most recent saved capture file instead.",
-                Schema(("seconds", "Live capture length in seconds (default 0 = analyze latest capture file, cap 120)", false),
-                       ("path", "Explicit .jsonl capture path to analyze instead", false)),
-                false,
-                a => TraceAnalyze(a)),
 
             new Tool(
                 "classify_ip",
@@ -284,35 +273,6 @@ namespace AutoCommand.Agent.Core
                 Schema(),
                 false,
                 a => GetPhoneHomeCards()),
-
-            new Tool(
-                "list_trace_projects",
-                "The Traces tab's user-defined tracing projects (JSON files under " +
-                "%LOCALAPPDATA%\\AutoCommand\\traces\\projects): name, process/service match and " +
-                "notes for each. Read-only.",
-                Schema(),
-                false,
-                a => ListTraceProjects()),
-
-            new Tool(
-                "get_trace_project",
-                "One trace project's definition plus its measured snapshot (frequency, destinations, " +
-                "volume, beacon regularity, identity) — the same card the Traces tab renders. Read-only.",
-                Schema(("name", "Project name exactly as listed", true)),
-                false,
-                a => GetTraceProject(a)),
-
-            new Tool(
-                "run_trace",
-                "Ad-hoc trace without saving a project: measure any process (wildcards ok, e.g. " +
-                "'chrome*') or one svchost service key over the last N hours (default 24, cap 24) — " +
-                "the same metrics the Traces tab cards show. Read-only; nothing is captured, blocked " +
-                "or changed.",
-                Schema(("process", "Image name to watch ('*' wildcards)", false),
-                       ("service", "svchost SCM service key instead of a process name", false),
-                       ("hours", "Lookback hours (default 24, max 24)", false)),
-                false,
-                a => RunTrace(a)),
 
             new Tool(
                 "investigate_process",
@@ -822,59 +782,6 @@ namespace AutoCommand.Agent.Core
                 sb.AppendLine(line);
             }
             return sb.ToString();
-        }
-
-        private static string TraceAnalyze(JsonObject a)
-        {
-            int seconds = a["seconds"]?.GetValue<int>() ?? 0;
-            string path = a["path"]?.GetValue<string>();
-
-            try
-            {
-                if (seconds <= 0)
-                {
-                    string file = path;
-                    if (string.IsNullOrEmpty(file))
-                    {
-                        var dir = Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
-                                               "AutoCommand", "captures");
-                        file = Directory.Exists(dir)
-                            ? Directory.GetFiles(dir, "*.jsonl").OrderByDescending(File.GetLastWriteTime).FirstOrDefault()
-                            : null;
-                    }
-                    if (file == null || !File.Exists(file))
-                        return "No capture file to analyze (none passed, none in the captures folder). " +
-                               "Call again with seconds>0 to capture live.";
-                    var result = TraceAnalyzer.Analyze(new[] { file });
-                    return $"analyzed: {Path.GetFileName(file)}\n\n{result.Report}";
-                }
-
-                seconds = Math.Min(seconds, 120);
-                string temp = Path.Combine(Path.GetTempPath(), $"agent-trace-{DateTime.Now:yyyyMMdd-HHmmss}.jsonl");
-                using (var engine = new CaptureEngine(new CaptureOptions
-                {
-                    OutFile = temp,
-                    PollMs = 1000,
-                    Duration = TimeSpan.FromSeconds(seconds),
-                }))
-                {
-                    var done = new ManualResetEventSlim(false);
-                    engine.Completed += _ => done.Set();
-                    engine.Start();
-                    done.Wait(TimeSpan.FromSeconds(seconds + 10));
-                }
-                var analysis = TraceAnalyzer.Analyze(new[] { temp });
-                try { File.Delete(temp); } catch { }
-                return $"live capture {seconds}s (exit {analysis.Flags} flag(s)):\n\n{analysis.Report}";
-            }
-            catch (InvalidOperationException ex)
-            {
-                return "Capture could not start (another capture is likely running in the app): " + ex.Message;
-            }
-            catch (Exception ex)
-            {
-                return "trace_analyze failed: " + ex.Message;
-            }
         }
 
         private static string LookupIp(JsonObject a)
@@ -1668,65 +1575,6 @@ namespace AutoCommand.Agent.Core
                 }
             }
             return ToJson(new JsonObject { ["cards"] = arr });
-        }
-
-        private static string ListTraceProjects()
-        {
-            var arr = new JsonArray();
-            foreach (var p in TraceProjectStore.Load())
-                arr.Add(new JsonObject
-                {
-                    ["name"] = p.Name,
-                    ["match_process"] = p.MatchProcess,
-                    ["service_key"] = p.ServiceKey,
-                    ["notes"] = p.Notes,
-                });
-            return ToJson(new JsonObject
-            {
-                ["projects"] = arr,
-                ["directory"] = TraceProjectStore.ProjectsDirectory,
-            });
-        }
-
-        private static string GetTraceProject(JsonObject a)
-        {
-            string name = a["name"]?.GetValue<string>() ?? "";
-            var project = TraceProjectStore.Load()
-                .FirstOrDefault(p => p.Name.Equals(name, System.StringComparison.OrdinalIgnoreCase));
-            if (project == null)
-                return $"No trace project named '{name}' — call list_trace_projects for the exact names.";
-
-            var match = string.IsNullOrWhiteSpace(project.ServiceKey)
-                ? TraceMetricsService.Match.ForProcess(project.MatchProcess)
-                : TraceMetricsService.Match.ForService(project.ServiceKey);
-            var snap = TraceMetricsService.Compute(match);
-            var o = SnapshotJson(snap);
-            o.Insert(0, "name", project.Name);
-            o["match_process"] = project.MatchProcess;
-            o["service_key"] = project.ServiceKey;
-            o["notes"] = project.Notes;
-            return ToJson(o);
-        }
-
-        private static string RunTrace(JsonObject a)
-        {
-            string process = a["process"]?.GetValue<string>();
-            string service = a["service"]?.GetValue<string>();
-            if (string.IsNullOrWhiteSpace(process) && string.IsNullOrWhiteSpace(service))
-                return "Give either process (image name, wildcards ok) or service (svchost SCM service key).";
-            int hours = 24;
-            if (a["hours"] != null)
-            {
-                try { hours = Math.Clamp(a["hours"].GetValue<int>(), 1, 24); } catch { }
-            }
-            var match = string.IsNullOrWhiteSpace(service)
-                ? TraceMetricsService.Match.ForProcess(process)
-                : TraceMetricsService.Match.ForService(service);
-            var snap = TraceMetricsService.Compute(match, hours);
-            var o = SnapshotJson(snap);
-            o.Insert(0, "match", match.Describe());
-            o["window_hours"] = hours;
-            return ToJson(o);
         }
 
         private static string InvestigateProcess(JsonObject a)
