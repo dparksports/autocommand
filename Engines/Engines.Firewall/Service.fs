@@ -1356,15 +1356,19 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
 
     /// <summary>The rule name a service-scoped block gets: one outbound rule
     /// scoped by INetFwRule.ServiceName covers every destination the service
-    /// ever contacts — no per-IP chase, no rule sprawl.</summary>
+    /// ever contacts — no per-IP chase, no rule sprawl. The key is
+    /// normalized to lowercase so every caller casing lands on one
+    /// canonical rule.</summary>
     member _.ServiceBlockRuleName(serviceKey: string) : string =
-        $"{naming.OwnSvcPrefix}{serviceKey} (Out)"
+        let key = if isNull serviceKey then "" else serviceKey.ToLowerInvariant()
+        $"{naming.OwnSvcPrefix}{key} (Out)"
 
     member private this.AddServiceBlockCore(serviceKey: string, description: string) : string =
         try
+            let key = if isNull serviceKey then "" else serviceKey.ToLowerInvariant()
             let fwPolicy = getPolicy ()
             let rules = fwPolicy.Rules
-            let name = this.ServiceBlockRuleName(serviceKey)
+            let name = this.ServiceBlockRuleName(key)
             let existing = this.FindOwnRule(rules, name)
 
             if not (isNull existing) then
@@ -1382,8 +1386,9 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
                 // The whole point: scoped by SERVICE, not by remote address —
                 // this rule blocks the service's traffic to destinations that
                 // do not exist yet, without touching sibling services in the
-                // same svchost.exe host.
-                rule.ServiceName <- serviceKey
+                // same svchost.exe host. Windows matches ServiceName
+                // case-insensitively; lowercase is the canonical shape.
+                rule.ServiceName <- key
                 rule.Description <- description
                 rules.Add(rule)
                 recordOwnRuleAdded name
@@ -1401,6 +1406,61 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
     member this.AddServiceBlockAsync(serviceKey: string, description: string) : Task<string> =
         invalidateSnapshot ()
         Task.Run(fun () -> this.AddServiceBlockCore(serviceKey, description))
+
+    /// <summary>Block state of the service-scoped rule: None (no rule),
+    /// Active (enabled), Paused (exists but disabled). The seeded own-rule
+    /// index keeps misses at zero enumerations; hits probe one COM Enabled
+    /// read. The key is normalized to lowercase — rule names are canonical
+    /// regardless of the caller's casing.</summary>
+    member this.GetServiceBlockStateAsync(serviceKey: string) : Task<int> =
+        Task.Run(fun () ->
+            let name = this.ServiceBlockRuleName(serviceKey)
+            let indexMiss =
+                lock ownRulesGate (fun () ->
+                    ownRuleIndexSeeded && not (ownRuleNames.Contains name))
+            if indexMiss then 0
+            else
+                try
+                    let fwPolicy = getPolicy ()
+                    let existing = this.FindOwnRule(fwPolicy.Rules, name)
+                    if isNull existing then 0
+                    elif existing.Enabled then 1
+                    else 2
+                with _ -> 0)
+
+    /// <summary>Remove the service-scoped block rule entirely (the row
+    /// menu's Unblock). Returns true when a rule was removed.</summary>
+    member this.RemoveServiceBlockAsync(serviceKey: string) : Task<bool> =
+        invalidateSnapshot ()
+        Task.Run(fun () ->
+            try
+                let fwPolicy = getPolicy ()
+                let rules = fwPolicy.Rules
+                let name = this.ServiceBlockRuleName(serviceKey)
+                let existing = this.FindOwnRule(rules, name)
+                if isNull existing then false
+                else
+                    rules.Remove(name) |> ignore
+                    recordOwnRuleRemoved name
+                    true
+            with ex ->
+                raise (Exception($"Failed to remove service block: {ex.Message}", ex)))
+
+    /// <summary>Enable or disable the service-scoped block rule in place
+    /// (Blocks-view pause/restore). Read-back verified like every other
+    /// Enabled write. Returns false when no rule exists.</summary>
+    member this.SetServiceBlockEnabledAsync(serviceKey: string, enabled: bool) : Task<bool> =
+        invalidateSnapshot ()
+        Task.Run(fun () ->
+            try
+                let fwPolicy = getPolicy ()
+                let name = this.ServiceBlockRuleName(serviceKey)
+                let existing = this.FindOwnRule(fwPolicy.Rules, name)
+                if isNull existing then false
+                else
+                    let struct (_, verified, _) = writeAndVerifyEnabled existing name enabled
+                    verified
+            with _ -> false)
 
     // ── app-block path coverage (autocommand-ii v2 scheme) ───────────
 

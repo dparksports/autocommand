@@ -773,12 +773,15 @@ namespace AutoCommand.Views
 
             // Service-scoped block: svchost rows with a known service identity
             // only — the -s declared tenant, then the first SCM-resident
-            // service. Group-only rows (-k) have no single service to scope to.
+            // service. Group-only rows (-k) have no single service to scope
+            // to. The header flips to Unblock once the state probe returns
+            // (one O(1) index lookup + one COM Enabled read).
             string svcKey = ResolveRowServiceKey(sel);
             BlockServiceMenuItem.IsEnabled = !string.IsNullOrEmpty(svcKey);
             BlockServiceMenuItem.Header = !string.IsNullOrEmpty(svcKey)
                 ? $"⛔ Block service '{svcKey}' — every destination, future included"
                 : "⛔ Block this service (svchost rows with a known service only)";
+            if (!string.IsNullOrEmpty(svcKey)) _ = SyncServiceMenuStateAsync(svcKey);
 
             bool killable = sel != null && sel.ProcessId > 0;
             KillProcessMenuItem.IsEnabled = killable;
@@ -1162,30 +1165,56 @@ namespace AutoCommand.Views
             }
         }
 
+        /// <summary>Async header sync for the service-block menu item: flips
+        /// to Unblock when the rule exists (Active) or explains the pause.
+        /// Harmless when the menu closed before the probe landed.</summary>
+        private async Task SyncServiceMenuStateAsync(string svcKey)
+        {
+            try
+            {
+                var state = (BlockRuleState)await FirewallService.Instance.GetServiceBlockStateAsync(svcKey);
+                if (state == BlockRuleState.Active)
+                {
+                    BlockServiceMenuItem.IsEnabled = true;
+                    BlockServiceMenuItem.Header = $"✅ Unblock service '{svcKey}' — traffic resumes";
+                }
+                else if (state == BlockRuleState.Paused)
+                {
+                    BlockServiceMenuItem.IsEnabled = false;
+                    BlockServiceMenuItem.Header = $"⏸ Service block for {svcKey} is paused — re-enable from the Firewall tab (AC-BLOCK-SVC rules)";
+                }
+            }
+            catch { /* menu state is cosmetic */ }
+        }
+
         /// <summary>The service a svchost row can be service-scoped-blocked
         /// on: the -s declared single tenant, then the first SCM-resident
-        /// service. Group-only rows (-k) return null — no single service to
+        /// service, in its exact SCM casing (the firewall's ServiceName
+        /// matching is case-insensitive, but the rule carries the true
+        /// name). Group-only rows (-k) return null — no single service to
         /// scope to.</summary>
         private static string ResolveRowServiceKey(SvchostMonitorItem item)
         {
             if (item == null || !item.IsSvchost) return null;
             if (!string.IsNullOrEmpty(item.DeclaredService))
-                return item.DeclaredService.ToLowerInvariant();
+                return item.DeclaredService;
             string csv = item.HostedServicesCsv;
             if (!string.IsNullOrEmpty(csv))
             {
-                string first = csv.Split(',')[0].Trim().ToLowerInvariant();
+                string first = csv.Split(',')[0].Trim();
                 if (first.Length > 0) return first;
             }
             return null;
         }
 
         /// <summary>
-        /// Service-scoped block: one firewall rule with INetFwRule.ServiceName
-        /// set, so the service's traffic is dropped at the firewall for every
-        /// destination — the ones already seen and any future one — without
-        /// touching sibling services in the same svchost.exe host. Persists in
-        /// BFE, enforcing even while AutoCommand is closed.
+        /// Service-scoped block/unblock toggle: one firewall rule with
+        /// INetFwRule.ServiceName set, so the service's traffic is dropped
+        /// at the firewall for every destination — the ones already seen and
+        /// any future one — without touching sibling services in the same
+        /// svchost.exe host. Persists in BFE, enforcing even while
+        /// AutoCommand is closed. The confirm carries the service catalog's
+        /// consequence story.
         /// </summary>
         private async void BlockService_Click(object sender, RoutedEventArgs e)
         {
@@ -1193,15 +1222,53 @@ namespace AutoCommand.Views
             string svcKey = ResolveRowServiceKey(item);
             if (string.IsNullOrEmpty(svcKey)) return;
 
+            var state = (BlockRuleState)await FirewallService.Instance.GetServiceBlockStateAsync(svcKey);
+            if (state == BlockRuleState.Paused)
+            {
+                ShowToast($"⏸ The service block for {svcKey} is paused (traffic flows). Re-enable it from the Firewall tab (AC-BLOCK-SVC rules).");
+                return;
+            }
+
+            if (state == BlockRuleState.Active)
+            {
+                if (MessageBox.Show(
+                        $"Remove the service block for '{svcKey}'?\n\nIts traffic resumes immediately.",
+                        "Unblock service", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+                try
+                {
+                    await FirewallService.Instance.RemoveServiceBlockAsync(svcKey);
+                    BlocksStore.AppendEvent("service-unblocked", "svc", svcKey.ToLowerInvariant(), "removed via row menu", "monitor");
+                    ShowToast($"✅ Service {svcKey} unblocked — traffic resumes.");
+                }
+                catch (Exception ex)
+                {
+                    MessageBox.Show($"Failed to unblock service {svcKey}: {ex.Message}", "Error",
+                        MessageBoxButton.OK, MessageBoxImage.Error);
+                }
+                return;
+            }
+
+            string lower = svcKey.ToLowerInvariant();
+            string display = ServiceCatalog.TryGet(lower, out var info) ? info.DisplayName : svcKey;
+            string story = info?.Description ?? "";
+            string impactLine = info == null ? ""
+                : info.Impact == ServiceImpact.High
+                    ? "\n\n⚠ HIGH IMPACT — blocking this service breaks core functionality."
+                    : info.Impact == ServiceImpact.Medium
+                        ? "\n\n⚠ Notable impact — read the consequence above before confirming."
+                        : "";
+
             if (MessageBox.Show(
-                    $"Block the Windows service '{svcKey}' at the firewall?\n\n" +
+                    $"Block the Windows service '{display}' ({svcKey}) at the firewall?\n\n" +
+                    (story.Length > 0 ? story + "\n\n" : "") +
                     "• One rule scoped by SERVICE — it blocks this service's traffic to EVERY\n" +
                     "  destination, including IPs it has never contacted before, even while\n" +
                     "  AutoCommand is not running.\n" +
                     "• Sibling services inside the same svchost.exe host are untouched.\n" +
                     "• No per-destination exceptions exist inside a service block — if you\n" +
                     "  want exceptions, use per-IP blocks instead.\n" +
-                    "• Manage or remove it from the Firewall tab (AC-BLOCK-SVC rules).",
+                    "• Manage or remove it from the Firewall tab (AC-BLOCK-SVC rules)." +
+                    impactLine,
                     "Block service", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
 
             string note = BuildProvenance(item, $"service {svcKey}", false);
@@ -1210,7 +1277,7 @@ namespace AutoCommand.Views
             {
                 string ruleName = await FirewallService.Instance.AddServiceBlockAsync(svcKey, note);
                 _ = FirewallBaselineManager.AdoptRuleStatesAsync(new[] { (ruleName, true) });
-                BlocksStore.AppendEvent("service-blocked", "svc", svcKey, note, "monitor");
+                BlocksStore.AppendEvent("service-blocked", "svc", lower, note, "monitor");
                 ShowToast($"⛔ Service {svcKey} blocked — every destination, present and future.");
             }
             catch (Exception ex)
