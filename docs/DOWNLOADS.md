@@ -4,7 +4,7 @@ Snapshot taken `2026-11-01T03:43:35Z` (UTC), after the AutoCommand III consolida
 repository. Both AutoCommand II and III history, tags and releases now live here.
 
 **Release retention policy:** one release per publish-day (the day's latest) is kept with
-its binaries; older same-day releases remain as git tags with notes in [CHANGELOG](../CHANGELOG.txt),
+its binaries; older same-day releases remain as git tags with notes in the [consolidated release notes](release-notes-history.txt),
 and their binaries are not re-hosted.
 
 > These numbers are **asset requests recorded by GitHub** - raw hits on release-asset URLs,
