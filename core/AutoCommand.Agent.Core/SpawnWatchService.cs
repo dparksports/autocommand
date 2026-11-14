@@ -2,6 +2,7 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.IO;
+using System.IO.Compression;
 using System.Linq;
 using System.Text.Json;
 using System.Threading.Tasks;
@@ -41,6 +42,9 @@ namespace AutoCommand.Agent.Core
         private static readonly ConcurrentQueue<ArchiveEvent> _queue = new();
         private static bool _started;
         private static DateTime? _lastRuleStampUtc;
+        // the day the retention pass last ran (UTC) — the consume loop
+        // re-runs it when the date rolls over while the app stays up
+        private static DateTime _lastPruneDayUtc = DateTime.MinValue;
 
         /// <summary>Rules directory. Settable so the offline self-test can
         /// redirect persistence to a temp dir (house pattern, same seam as
@@ -66,6 +70,8 @@ namespace AutoCommand.Agent.Core
                 _started = true;
                 _lastRuleStampUtc = NewestRuleStamp();
                 SysmonArchiveService.Appended += OnAppended;
+                Prune(); // catch up on compression/pruning this launch skipped
+                _lastPruneDayUtc = DateTime.UtcNow.Date;
                 Task.Run(() =>
                 {
                     try { ReplayRecent(); } catch { /* replay is best-effort */ }
@@ -94,6 +100,13 @@ namespace AutoCommand.Agent.Core
                 {
                     if (_queue.IsEmpty)
                     {
+                        // day rolled over while the app stayed up: yesterday's
+                        // file is sealed now — compress it, prune old archives
+                        if (_lastPruneDayUtc != DateTime.UtcNow.Date)
+                        {
+                            _lastPruneDayUtc = DateTime.UtcNow.Date;
+                            Prune();
+                        }
                         var stamp = NewestRuleStamp();
                         if (stamp != null && stamp != _lastRuleStampUtc)
                         {
@@ -218,6 +231,94 @@ namespace AutoCommand.Agent.Core
             }
             while (pi < p.Length && p[pi] == '*') pi++;
             return pi == p.Length;
+        }
+
+        // ── retention: compress sealed days, prune old archives ───────────
+
+        /// <summary>How long compressed day archives are kept before
+        /// deletion — matches the Sysmon and transmissions archives' 30-day
+        /// retention, so every window the app keeps is one consistent span.</summary>
+        public const int DefaultRetainDays = 30;
+
+        /// <summary>
+        /// Size management for the hits index, the house age-prune pattern
+        /// (SysmonArchive.Prune / TransmissionsArchive.Prune) plus one step:
+        /// day files older than yesterday are compressed to .jsonl.gz
+        /// (~10x smaller), and archives older than <paramref name="retainDays"/>
+        /// are deleted. Nothing reads beyond the 24 h tail window — today and
+        /// yesterday stay hot — so compression costs no query any data, and
+        /// the .gz files remain the manually openable record. Readers are
+        /// naturally unaffected: the "hits-*.jsonl" glob never matches .gz.
+        /// Tolerant of locked files (in use — try again next pass). Returns
+        /// files compressed + removed.
+        /// </summary>
+        public static int Prune(int retainDays = DefaultRetainDays)
+        {
+            var actions = 0;
+            try
+            {
+                if (!Directory.Exists(HitsDirectory)) return 0;
+                var today = DateTime.UtcNow.Date;
+                var compressCutoff = today.AddDays(-1); // day < cutoff ⇒ sealed and outside every read window
+                var deleteCutoff = today.AddDays(-retainDays);
+
+                foreach (var f in Directory.GetFiles(HitsDirectory, "hits-*.jsonl"))
+                {
+                    var day = DayOfFile(f);
+                    if (day == null || day.Value >= compressCutoff) continue;
+                    if (CompressDayFile(f)) actions++;
+                }
+                foreach (var f in Directory.GetFiles(HitsDirectory, "hits-*.jsonl.gz"))
+                {
+                    var day = DayOfFile(f);
+                    if (day == null || day.Value >= deleteCutoff) continue;
+                    try { File.Delete(f); actions++; }
+                    catch { /* locked — next pass */ }
+                }
+            }
+            catch { /* retention is opportunistic (house rule) */ }
+            return actions;
+        }
+
+        /// <summary>"hits-yyyy-MM-dd.jsonl[.gz]" → its UTC day; null when the
+        /// name doesn't carry a parseable day (those files are never touched).</summary>
+        private static DateTime? DayOfFile(string file)
+        {
+            try
+            {
+                var name = Path.GetFileName(file);
+                if (name.EndsWith(".gz", StringComparison.OrdinalIgnoreCase)) name = name[..^3];
+                const string ext = ".jsonl";
+                if (!name.EndsWith(ext, StringComparison.OrdinalIgnoreCase) ||
+                    !name.StartsWith("hits-", StringComparison.OrdinalIgnoreCase)) return null;
+                var stem = name.Substring("hits-".Length, name.Length - "hits-".Length - ext.Length);
+                return DateTime.TryParseExact(stem, "yyyy-MM-dd", null,
+                    System.Globalization.DateTimeStyles.None, out var day) ? day : (DateTime?)null;
+            }
+            catch { return null; }
+        }
+
+        /// <summary>Gzip one day file beside itself and delete the original.
+        /// A .gz already present (a previous pass died between the two steps)
+        /// means the compression is done — just finish the delete.</summary>
+        private static bool CompressDayFile(string file)
+        {
+            try
+            {
+                var gzPath = file + ".gz";
+                if (!File.Exists(gzPath))
+                {
+                    var tmp = gzPath + ".tmp";
+                    using (var src = File.OpenRead(file))
+                    using (var dst = File.Create(tmp))
+                    using (var gz = new GZipStream(dst, CompressionLevel.Optimal))
+                        src.CopyTo(gz);
+                    File.Move(tmp, gzPath);
+                }
+                File.Delete(file);
+                return true;
+            }
+            catch { return false; } // locked / raced — next pass retries
         }
 
         // ── hit index ─────────────────────────────────────────────────────

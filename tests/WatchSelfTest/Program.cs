@@ -8,6 +8,7 @@
 // hook, the consumer, the hits index and the replay dedupe are all the
 // shipped code paths.
 
+using System.IO.Compression;
 using AutoCommand.Agent.Core;
 using AutoCommand.Models;
 
@@ -202,6 +203,43 @@ try
     Check(SpawnWatchService.ReplayRecent() == 0, "replay: second replay adds nothing");
     Check(await AwaitHitAsync("latecatch", 103),
           "read: retro hit visible via ReadHits");
+
+    // ── retention: compress sealed days, prune old archives ──────────
+    // Fabricated day files, written LAST so nothing above reads them.
+    // Today's REAL hit file (the pipeline's dedupe pairs above) is never
+    // touched — only its line count is re-verified after the pass.
+    var today = DateTime.UtcNow.Date;
+    Directory.CreateDirectory(SpawnWatchService.HitsDirectory);
+    var hotFile = SpawnWatchService.HitFilePath(today);
+    var hotLines = File.ReadAllLines(hotFile).Length;
+    void WriteDay(int daysAgo, string body) =>
+        File.WriteAllText(SpawnWatchService.HitFilePath(today.AddDays(-daysAgo)),
+            body + Environment.NewLine);
+    WriteDay(1, "{\"rule\":\"yesterday-fake\"}");
+    WriteDay(2, "{\"rule\":\"day-2\"}");
+    WriteDay(31, "{\"rule\":\"day-31\"}");
+
+    var pruned = SpawnWatchService.Prune();
+    Check(pruned == 3, $"retention: 2 days compressed + 1 archive pruned (got {pruned})");
+    Check(File.Exists(hotFile) && File.ReadAllLines(hotFile).Length == hotLines &&
+          File.Exists(SpawnWatchService.HitFilePath(today.AddDays(-1))),
+          "retention: today and yesterday stay hot (24h reads lose nothing)");
+    var day2 = SpawnWatchService.HitFilePath(today.AddDays(-2));
+    Check(!File.Exists(day2) && File.Exists(day2 + ".gz"),
+          "retention: day-2 compressed to .jsonl.gz beside itself");
+    using (var gz = new GZipStream(File.OpenRead(day2 + ".gz"), CompressionMode.Decompress))
+    using (var rd = new StreamReader(gz))
+        Check(rd.ReadToEnd().Trim() == "{\"rule\":\"day-2\"}",
+              "retention: archive decompresses to the original line");
+    Check(!File.Exists(SpawnWatchService.HitFilePath(today.AddDays(-31))) &&
+          !File.Exists(SpawnWatchService.HitFilePath(today.AddDays(-31)) + ".gz"),
+          "retention: beyond-window day compressed then pruned in one pass");
+    Check(SpawnWatchService.ReplayRecent() == 0,
+          "retention: replay unaffected by .gz siblings (glob never matches them)");
+    Check(SpawnWatchService.ReadHits(null, null, 500).Any(h => h.Rule == "svc-children"),
+          "retention: ReadHits still reads the hot window");
+    Check(SpawnWatchService.Prune() == 0,
+          "retention: second pass is a no-op (idempotent)");
 }
 catch (Exception ex)
 {
