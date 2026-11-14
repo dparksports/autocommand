@@ -167,7 +167,9 @@ namespace AutoCommand.Matrix
         private bool _running;
 
         private const int MaxDropsPerColor = 3;
-        private const int PidLabelRows = 6;   // PIDs up to 6 digits, vertically
+        private const int NameLabelRows = 12; // process names, vertically —
+        // extension stripped; longer names truncate (the hover tooltip
+        // carries the full name and the PID)
         private const double ActivityDecayPerSnapshot = 0.97;  // ~2.3 s half-life at 100 ms snapshots
         private const double ResortSeconds = 2.0;
         /// <summary>Cinema trail lifetime: 0.28^t bottoms out just under
@@ -256,7 +258,7 @@ namespace AutoCommand.Matrix
         private void RecomputeGrid()
         {
             if (_case == null || _w == 0 || _h == 0) return;
-            _bandH = _cfg.ShowLabels ? 3 + PidLabelRows * _case.LabelCellH + 3 : 0;
+            _bandH = _cfg.ShowLabels ? 3 + NameLabelRows * _case.LabelCellH + 3 : 0;
             _gridCols = Math.Max(1, (int)(_w / _case.CellW));
             _gridRows = Math.Max(1, (int)((_h - _bandH) / _case.CellH));
             // the deco wall is sized to the ALIVE column count every frame
@@ -910,9 +912,12 @@ namespace AutoCommand.Matrix
             FlushBatches(dc, batches);
         }
 
-        /// <summary>The PID reads vertically down its column — a rain column
-        /// is one glyph wide, so sideways labels would spill into the
-        /// neighbor's rain. Blocked PIDs read their digits red.</summary>
+        /// <summary>The process name reads vertically down its column — a
+        /// rain column is one glyph wide, so sideways labels would spill
+        /// into the neighbor's rain (the old PID digits had the same
+        /// constraint). Names lose their .exe extension and truncate to the
+        /// band's rows; the hover tooltip carries the full name and the
+        /// PID. Blocked processes read their names red.</summary>
         private void DrawLabels(DrawingContext dc)
         {
             if (!_cfg.ShowLabels) return;
@@ -927,14 +932,16 @@ namespace AutoCommand.Matrix
                 double x = ColumnX(col) + Math.Max(0, (_case.CellW - _case.LabelCellW) / 2);
                 if (x < 0) continue;
 
-                string digits = col.Pid.ToString();
-                if (digits.Length > PidLabelRows) digits = digits.Substring(digits.Length - PidLabelRows);
+                string label = col.Name;
+                if (string.IsNullOrEmpty(label)) label = col.Pid.ToString();
+                if (label.EndsWith(".exe", StringComparison.OrdinalIgnoreCase) && label.Length > 4)
+                    label = label[..^4];
+                if (label.Length > NameLabelRows) label = label[..NameLabelRows];
 
                 var batch = col.Blocked ? blocked : normal;
-                for (int i = 0; i < digits.Length; i++)
+                for (int i = 0; i < label.Length; i++)
                 {
-                    int d = digits[i] - '0';
-                    var f = _case.Digits[d];
+                    var f = _case.LabelChar(label[i]);
                     batch.Add(f,
                         x + (_case.LabelCellW - f.Advance) / 2,
                         3 + i * _case.LabelCellH + _case.LabelCellH * 0.5 + _case.LabelEm * 0.36);
@@ -1172,7 +1179,7 @@ namespace AutoCommand.Matrix
             foreach (var col in _columns.Values)
                 if (col.Slot == slot)
                     return
-                        $"PID {col.Pid}  {col.Name}\n" +
+                        $"{col.Name}  (PID {col.Pid})\n" +
                         $"tx {col.TxPackets:N0} pkts / {FormatBytes(col.TxBytes)}   " +
                         $"rx {col.RxPackets:N0} pkts / {FormatBytes(col.RxBytes)}\n" +
                         $"{col.Connections} tracked connection(s)" +

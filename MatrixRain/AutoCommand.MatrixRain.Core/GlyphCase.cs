@@ -75,6 +75,21 @@ namespace AutoCommand.Matrix
         internal GlyphFace[] Digits = new GlyphFace[10];
 
         private readonly List<GlyphTypeface> _fallbacks = new();
+        private GlyphTypeface _primary;
+        // Lazily-resolved label glyphs for the process names drawn vertically
+        // in the label band — any character the font chain can render, not
+        // just the rain charset. UI-thread only (the frame loop), so no lock.
+        private readonly Dictionary<char, GlyphFace> _labelChars = new();
+
+        /// <summary>Resolve (and cache) one character at the label em size
+        /// for the vertical name labels.</summary>
+        internal GlyphFace LabelChar(char ch)
+        {
+            if (_labelChars.TryGetValue(ch, out var f)) return f;
+            f = Resolve(_primary, ch, LabelEm);
+            _labelChars[ch] = f;
+            return f;
+        }
 
         // ------------------------------------------------------------------
 
@@ -82,6 +97,7 @@ namespace AutoCommand.Matrix
         {
             var c = new GlyphCase();
             var primary = ResolvePrimary(cfg, c._fallbacks, out c.ResolvedFont);
+            c._primary = primary;
             string chars = CharsetFor(cfg.Charset);
             c.GlyphChars = chars;
 
