@@ -47,7 +47,6 @@ const string OfflineToolsJson = """
   { "name": "investigate_process", "description": "The whole 'why is this transmitting?' playbook for one PID in a single call — provenance, traffic profile, block-hit check, plain-English verdict (needs an active session)." },
   { "name": "diagnose_site", "description": "The Site Doctor pipeline for one hostname: fingerprint, dependency-block pass, live probes, verdict (needs an active session)." },
   { "name": "run_trace", "description": "Ad-hoc trace of any process or svchost service over the last N hours — the Traces-tab metrics (needs an active session)." },
-  { "name": "get_transmissions", "description": "Recent recorded TLS transmissions — process, destination, SNI, byte counts; metadata only (needs an active session)." },
   { "name": "get_shieldsup_status", "description": "The Shields Up status board: doors (SSTP, Wi-Fi Direct, kernel debug, VPN services, LLMNR/NetBIOS/mDNS, hotpatch monitoring), hardening switches, hosts audit, per-vendor telemetry opt-out state (needs an active session)." },
   { "name": "get_startup_status", "description": "The Startup & Tasks surface: logon items (Run keys + Startup folders) and scheduled tasks — third-party listed, Windows inbox counted (needs an active session)." },
   { "name": "close_shieldsup_door", "description": "Close ONE door Windows leaves open - sstp, hostednetwork, vpnservices, kdnet, wifidirect, llmnr, netbios, mdns or hotpatch (user-confirmed, reversible; no enable path over the bridge) (needs an active session)." },

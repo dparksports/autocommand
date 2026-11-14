@@ -78,48 +78,30 @@ type ITransmissionsRdap =
     /// <summary>Lookup with cache; network failures come back as negative entries, not throws.</summary>
     abstract LookupAsync: ip: string -> Task<TransmissionsRdapEntry>
 
-// ── per-image stats (C# TransmissionsImageStats, same file) ─────────
-
-/// <summary>Per-image counters for the "Apps without keys" suggestions:
-/// how many of this image's TLS flows decrypted, how many arrived
-/// encrypted with no keys, and enough about the most recent encrypted
-/// one (pid + time) to recover its command line from the Sysmon archive
-/// for a faithful restart-under-watch.</summary>
-type TransmissionsImageStats() =
-    member val Image: string = null with get, set
-    member val DecryptedFlows = 0L with get, set
-    member val EncryptedFlows = 0L with get, set
-    member val LastEncryptedUtc = DateTime() with get, set
-    member val LastEncryptedPid = 0 with get, set
-    member val LastEncryptedBiggestUpload = 0L with get, set
-
-    member this.Clone() = this.MemberwiseClone() :?> TransmissionsImageStats
-
 // ── the pipeline ───────────────────────────────────────────────────
 
 /// <summary>
-/// The Transmissions pipeline: every finalized TCP flow from the shared
-/// raw-socket capture is run through the TLS decryptor (keys from the
-/// keylog the python hook and/or SSLKEYLOGFILE-supporting apps wrote),
-/// the decrypted directions are decoded into HTTP messages, the row is
-/// archived (metadata always when archived; full bodies when they
-/// decrypted), and the UI gets an event per new row.
+/// The Transmissions pipeline, WITNESS-GRADE: every finalized TCP flow from
+/// the shared raw-socket capture is recorded as a METADATA row — endpoints,
+/// SNI straight from the ClientHello (no keys, no decryption), wire byte
+/// counts, Sysmon-attributed pid/image — into the archive the containment
+/// proof's third witness reads. No bodies, no plaintext at rest, no
+/// decryption here: FlowPeek/ConnectionPeek decrypt live on their own
+/// behalf through their own path.
 ///
-/// PID attribution is Sysmon EID 3 via this service's own connect
-/// watcher feeding TagFlow — first-writer-wins, so the python tab's
-/// identical tagging is harmless.
+/// PID attribution is Sysmon EID 3 via this service's own connect watcher
+/// feeding TagFlow — first-writer-wins, so the python tab's identical
+/// tagging is harmless.
 ///
-/// Archiving rule: a flow earns a row when it decrypted to content OR
-/// when it pushed more than 10 KB upstream (the threshold this tab
-/// exists for — a big upload deserves a record even when no keys
-/// existed). Everything else is counted and discarded.
+/// Archiving rule: EVERY TLS-shaped flow earns a row. The containment join
+/// needs history for destinations the user blocks only LATER, so coverage
+/// must be broad; rows are small and day-pruned.
 /// </summary>
 type TransmissionsPipelineService private () as this =
 
     static let shared = TransmissionsPipelineService()
 
     let capture = TcpStreamCaptureService.Shared
-    let keylog = TlsKeylogService()
     let mutable connectWatcher: SysmonConnectWatcherService = Unchecked.defaultof<_>
     let mutable worker: Thread = null
     let mutable cts: CancellationTokenSource = null
@@ -128,8 +110,9 @@ type TransmissionsPipelineService private () as this =
     let mutable queue = new BlockingCollection<TcpFlowRecord>(boundedCapacity = 512)
     let mutable running = 0
 
-    // Recent bodies kept in memory for instant viewer access; archived
-    // rows fall back to disk. FIFO with a byte budget.
+    // Session-ephemeral body cache for ConnectionPeek's plaintext view:
+    // in-memory only (96 MB FIFO), never persisted — the archive itself is
+    // metadata-only at rest.
     let bodiesLock = obj()
     let bodyOrder = LinkedList<string * int64>()
     let bodies = Dictionary<string, byte[] * byte[]>()
@@ -138,38 +121,20 @@ type TransmissionsPipelineService private () as this =
 
     let onRecord = DelegateEvent<Action<TransmissionRecord>>()
     let onError = DelegateEvent<Action<string>>()
-    let onBigEncryptedUpload = DelegateEvent<Action<TransmissionRecord>>()
 
     // Stable delegate so Stop() removes exactly what Start() added.
     let onFlowFinalizedHandler = Action<TcpFlowRecord>(fun flow -> this.OnFlowFinalized flow)
 
     let mutable processed = 0L
-    let mutable decryptedCount = 0L
-    let mutable noKeys = 0L
     let mutable queueDropped = 0L
-
-    // per-image stats (drives "Apps without keys")
-    let statsLock = obj()
-    let stats = Dictionary<string, TransmissionsImageStats>(StringComparer.OrdinalIgnoreCase)
 
     static member Shared = shared
 
     member _.ProcessedCount = Interlocked.Read(&processed)
-    member _.DecryptedCount = Interlocked.Read(&decryptedCount)
-    member _.EncryptedNoKeysCount = Interlocked.Read(&noKeys)
     member _.DroppedCount = Interlocked.Read(&queueDropped)
     member _.LiveQueueDepth = queue.Count
 
     member _.IsRunning = Volatile.Read(&running) = 1
-
-    /// <summary>
-    /// Every &gt;10KB upload that arrived encrypted with no keys — one
-    /// event per flow, deliberately unthrottled. The ignore-list filter
-    /// and any pacing live on the consumer (the view), not here: the
-    /// pipeline reports, it does not decide.
-    /// </summary>
-    [<CLIEvent>]
-    member _.OnBigEncryptedUpload = onBigEncryptedUpload.Publish
 
     [<CLIEvent>]
     member _.OnRecord = onRecord.Publish
@@ -190,8 +155,6 @@ type TransmissionsPipelineService private () as this =
         else
             queue <- new BlockingCollection<TcpFlowRecord>(boundedCapacity = 512)
             cts <- new CancellationTokenSource()
-
-            TlsKeylogService.EnsureHygiene()
 
             connectWatcher <- new SysmonConnectWatcherService()
             // F# port: the parallel port declares these as [<CLIEvent>]
@@ -258,19 +221,10 @@ type TransmissionsPipelineService private () as this =
         let remoteIp = TransmissionsPipelineService.RemoteIpOf flow.ServerEndpoint
         let remotePort = TransmissionsPipelineService.RemotePortOf flow.ServerEndpoint
 
-        keylog.Refresh()
-        let result = TlsDecryptor.Decrypt(flow, keylog)
-
-        let decrypted = result.Success
-        let mutable status =
-            if decrypted then "decrypted"
-            elif result.Status <> null && result.Status.Contains("No TLS handshake") then "no handshake"
-            elif result.Status <> null && (result.Status.Contains("no TLS secrets") ||
-                                           result.Status.Contains("Not instrumented") ||
-                                           result.Status.Contains("keylogging is disabled")) then "encrypted (no keys)"
-            elif result.Status <> null && result.Status.Contains("Unsupported cipher") then "unsupported cipher"
-            else "undecryptable"
-        if result.Truncated && not (status.Contains "truncated") then status <- status + " · truncated"
+        // Witness metadata only: SNI straight from the ClientHello (no keys,
+        // no decryption — FlowPeek/ConnectionPeek decrypt live on their own
+        // behalf), wire byte counts, Sysmon-attributed pid/image.
+        let sni = TlsSni.TryReadSni(flow.ClientData, flow.ClientData.Length)
 
         let record =
             TransmissionRecord(
@@ -280,91 +234,23 @@ type TransmissionsPipelineService private () as this =
                 RemoteIp = remoteIp,
                 RemotePort = remotePort,
                 LocalEndpoint = flow.ClientEndpoint,
-                Sni = result.Sni,
-                TlsVersion = result.TlsVersion,
-                Alpn = result.Alpn,
-                CipherSuite = result.CipherSuite,
+                Sni = sni,
                 ClientBytes = flow.ClientBytes,
                 ServerBytes = flow.ServerBytes,
-                ClientAppBytes = result.ClientAppBytes,
-                ServerAppBytes = result.ServerAppBytes,
-                Status = status)
+                Status = (if sni <> null then "TLS" else "TLS (no SNI)"))
 
-        let mutable requestStream: byte[] = null
-        let mutable responseStream: byte[] = null
-        let mutable messageCount = 0
-        let kinds = HashSet<string>(StringComparer.Ordinal)
-
-        if decrypted then
-            Interlocked.Increment(&decryptedCount) |> ignore
-            requestStream <- TransmissionsPipelineService.ConcatAppData(result, true)
-            responseStream <- TransmissionsPipelineService.ConcatAppData(result, false)
-
-            for msg in HttpStreamDecoder.Decode(requestStream, true, result.Alpn) do
-                messageCount <- messageCount + 1
-                kinds.Add msg.Kind |> ignore
-            for msg in HttpStreamDecoder.Decode(responseStream, false, result.Alpn) do
-                messageCount <- messageCount + 1
-                kinds.Add msg.Kind |> ignore
-            record.MessageCount <- messageCount
-            record.ContentKinds <- String.Join(", ", kinds |> Seq.filter (fun k -> k <> null))
-        elif status = "encrypted (no keys)" then
-            Interlocked.Increment(&noKeys) |> ignore
-
-        // Archive rule: content, or the >10 KB upload this tab exists for.
-        let worthArchiving =
-            (decrypted && (requestStream.Length > 0 || responseStream.Length > 0)) ||
-            record.BigUpload ||
-            (status = "encrypted (no keys)" && record.BigUpload)
-        if worthArchiving then
-            TransmissionsArchiveService.Append(record, requestStream, responseStream) |> ignore
-            if record.HasContent then this.CacheBodies(record.Id, requestStream, responseStream)
-        else
-            // Live-only row: viewers can still show it for this session.
-            if decrypted && (requestStream.Length > 0 || responseStream.Length > 0) then
-                this.CacheBodies(record.Id, requestStream, responseStream)
+        // Archive rule: EVERY TLS-shaped flow. The containment join needs
+        // history for destinations the user blocks only LATER.
+        TransmissionsArchiveService.Append(record) |> ignore
 
         this.ResolveProvider(record, remoteIp)
-        this.TallyImage record
         onRecord.Trigger [| box record |]
 
-        if record.BigUpload && status = "encrypted (no keys)" then
-            onBigEncryptedUpload.Trigger [| box record |]
-
-    // ── per-image stats (drives "Apps without keys") ──────────────────
-
-    member internal _.TallyImage(record: TransmissionRecord) =
-        lock statsLock (fun () ->
-            let imageKey = if isNull record.Image then "" else record.Image
-            let statsItem =
-                match stats.TryGetValue imageKey with
-                | true, existing -> existing
-                | _ ->
-                    let created = TransmissionsImageStats(Image = imageKey)
-                    stats[imageKey] <- created
-                    created
-            if record.Decrypted then statsItem.DecryptedFlows <- statsItem.DecryptedFlows + 1L
-            elif record.Status <> null && record.Status.Contains("no keys") then
-                statsItem.EncryptedFlows <- statsItem.EncryptedFlows + 1L
-                statsItem.LastEncryptedUtc <- record.TsUtc
-                statsItem.LastEncryptedPid <- record.Pid
-                statsItem.LastEncryptedBiggestUpload <- max statsItem.LastEncryptedBiggestUpload record.ClientBytes)
-
-    /// <summary>Snapshot of per-image counts, newest-encrypted first.</summary>
-    member _.GetImageStatsSnapshot() : ResizeArray<TransmissionsImageStats> =
-        lock statsLock (fun () ->
-            ResizeArray<TransmissionsImageStats>(
-                stats.Values
-                |> Seq.sortByDescending (fun s -> s.LastEncryptedUtc)
-                |> Seq.map (fun s -> s.Clone())))
-
     /// <summary>
-    /// Entry point for layer-3 intercept records (the MITM proxy that
-    /// produced them was removed — kept as the archive's ingest seam):
-    /// same treatment as captured flows — HTTP decode for message
-    /// counts, archive + body cache, per-image tally, UI event. Works
-    /// even when the watch is off; the archive makes rows visible
-    /// whenever the tab loads.
+    /// Entry point for layer-3 intercept records (the MITM proxy behind
+    /// ConnectionPeek's per-flow decryption — kept as the archive's ingest
+    /// seam): metadata row, provider attribution, HTTP decode for the live
+    /// view, in-memory body cache (never persisted), UI event.
     /// </summary>
     member this.IngestIntercepted(record: TransmissionRecord, requestStream: byte[], responseStream: byte[], host: string) =
         if isNull (box record) then ()
@@ -397,28 +283,46 @@ type TransmissionsPipelineService private () as this =
                         with _ -> ())) // hostname unresolvable post-mortem — provider stays Unclassified
                     |> ignore
 
-            TransmissionsArchiveService.Append(record, requestStream, responseStream) |> ignore
-            if record.HasContent then this.CacheBodies(record.Id, requestStream, responseStream)
-            this.TallyImage record
+            TransmissionsArchiveService.Append(record) |> ignore
+            this.CacheBodies(record.Id, requestStream, responseStream)
             onRecord.Trigger [| box record |]
         with _ ->
             () // An intercept row must never break the session
 
-    static member private ConcatAppData(result: TlsDecryptResult, fromClient: bool) : byte[] =
-        let parts =
-            result.Records
-            |> Seq.filter (fun r -> r.Decrypted && r.ContentType = "application_data" && r.FromClient = fromClient)
-            |> Seq.map (fun r -> r.Data)
-            |> Seq.toList
-        let total = parts |> List.sumBy (fun p -> if isNull p then 0L else int64 p.Length)
-        if total = 0L || total > 16L * 1024L * 1024L then Array.empty
+    member _.TryGetBodies(id: string, [<Out>] request: byref<byte[]>, [<Out>] response: byref<byte[]>) : bool =
+        let found, pair =
+            lock bodiesLock (fun () ->
+                match bodies.TryGetValue id with
+                | true, p -> true, p
+                | _ -> false, (null, null))
+        if found then
+            request <- fst pair
+            response <- snd pair
+            true
         else
-            let buffer = Array.zeroCreate<byte> (int total)
-            let mutable offset = 0
-            for part in parts do
-                Array.Copy(part, 0, buffer, offset, part.Length)
-                offset <- offset + part.Length
-            buffer
+            request <- null
+            response <- null
+            false
+
+    member private _.CacheBodies(id: string, request: byte[], response: byte[]) =
+        let bytes =
+            (if isNull request then 0L else int64 request.Length) +
+            (if isNull response then 0L else int64 response.Length)
+        lock bodiesLock (fun () ->
+            if bodies.ContainsKey id then
+                let existing = bodyOrder |> Seq.find (fun (idIn, _) -> idIn = id)
+                bodyOrder.Remove existing |> ignore
+                bodyCacheUsed <- bodyCacheUsed - snd existing
+            bodies[id] <- ((if isNull request then Array.empty else request),
+                           (if isNull response then Array.empty else response))
+            bodyOrder.AddLast((id, bytes)) |> ignore
+            bodyCacheUsed <- bodyCacheUsed + bytes
+
+            while bodyCacheUsed > BodyCacheBytes && bodyOrder.Count > 1 do
+                let oldest = bodyOrder.First.Value
+                bodyOrder.RemoveFirst()
+                bodies.Remove(fst oldest) |> ignore
+                bodyCacheUsed <- bodyCacheUsed - snd oldest)
 
     // ── provider attribution ──────────────────────────────────────────
 
@@ -450,51 +354,6 @@ type TransmissionsPipelineService private () as this =
                             with _ -> ()), // negative/failed lookup keeps the static classification
                         TaskScheduler.Default) |> ignore
         with _ -> () // attribution is never fatal
-
-    // ── body cache ────────────────────────────────────────────────────
-
-    member _.TryGetBodies(id: string, [<Out>] request: byref<byte[]>, [<Out>] response: byref<byte[]>) : bool =
-        let found, pair =
-            lock bodiesLock (fun () ->
-                match bodies.TryGetValue id with
-                | true, p -> true, p
-                | _ -> false, (null, null))
-        if found then
-            request <- fst pair
-            response <- snd pair
-            true
-        else
-            request <- null
-            response <- null
-            false
-
-    /// <summary>Loads bodies for an archived row into the live cache
-    /// (from disk) so the viewer's selection path is uniform.</summary>
-    member this.LoadFromArchive(record: TransmissionRecord) : struct (byte[] * byte[]) =
-        let request = TransmissionsArchiveService.LoadBody(record.Id, record.ArchiveDay, "request")
-        let response = TransmissionsArchiveService.LoadBody(record.Id, record.ArchiveDay, "response")
-        if request <> null || response <> null then this.CacheBodies(record.Id, request, response)
-        struct (request, response)
-
-    member private _.CacheBodies(id: string, request: byte[], response: byte[]) =
-        let bytes =
-            (if isNull request then 0L else int64 request.Length) +
-            (if isNull response then 0L else int64 response.Length)
-        lock bodiesLock (fun () ->
-            if bodies.ContainsKey id then
-                let existing = bodyOrder |> Seq.find (fun (idIn, _) -> idIn = id)
-                bodyOrder.Remove existing |> ignore
-                bodyCacheUsed <- bodyCacheUsed - snd existing
-            bodies[id] <- ((if isNull request then Array.empty else request),
-                           (if isNull response then Array.empty else response))
-            bodyOrder.AddLast((id, bytes)) |> ignore
-            bodyCacheUsed <- bodyCacheUsed + bytes
-
-            while bodyCacheUsed > BodyCacheBytes && bodyOrder.Count > 1 do
-                let oldest = bodyOrder.First.Value
-                bodyOrder.RemoveFirst()
-                bodies.Remove(fst oldest) |> ignore
-                bodyCacheUsed <- bodyCacheUsed - snd oldest)
 
     static member private RemoteIpOf(endpoint: string) : string =
         if endpoint <> null && endpoint.LastIndexOf(':') > 0 then endpoint[..endpoint.LastIndexOf(':') - 1]

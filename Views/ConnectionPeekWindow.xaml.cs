@@ -529,17 +529,12 @@ namespace AutoCommand.Views
             PlaintextSection.Visibility = Visibility.Visible;
             DetailHttp.Text = null;
 
-            // Bodies: live cache first, then the archive.
+            // Plaintext comes from this session's live decrypt (the archive
+            // is metadata-only since the witness diet — no bodies at rest).
             byte[] request = null, response = null;
             var pipeline = TransmissionsPipelineService.Shared;
             if (pipeline.TryGetBodies(r.Id, out request, out response))
             { /* cache hit */ }
-            else
-            {
-                var (req2, resp2) = pipeline.LoadFromArchive(r);
-                request = req2;
-                response = resp2;
-            }
 
             var sb = new StringBuilder();
             if (request is { Length: > 0 })

@@ -481,6 +481,12 @@ namespace AutoCommand
                     // (the Appended hook) — started after backfill so the
                     // replay sees the archive the backfill just filled
                     Agent.Core.SpawnWatchService.Start();
+                    // transmissions witness feed: TLS flow metadata (endpoints,
+                    // SNI, byte counts — no bodies, no decryption) into the
+                    // archive the containment proof's third witness reads.
+                    // Previously started on demand by the retired Transmissions
+                    // tab; the witness needs it running app-lifetime.
+                    Engines.Watch.TransmissionsPipelineService.Shared.Start();
                     // real-time 'who is being blocked' feed: joins Sysmon connects
                     // against the blocked inventory; without it, blocks fire
                     // silently at the kernel and no tab or tool ever sees them

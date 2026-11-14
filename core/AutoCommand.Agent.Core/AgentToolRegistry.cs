@@ -151,19 +151,6 @@ namespace AutoCommand.Agent.Core
                 a => LookupIp(a)),
 
             new Tool(
-                "get_transmissions",
-                "Recent recorded TLS transmissions (the Transmissions tab's archive): per conversation — process, " +
-                "pid, destination, SNI hostname, RDAP provider, wire and decrypted byte counts, status " +
-                "(decrypted / encrypted-no-keys), SHA-256 and whether full bodies are on disk. METADATA ONLY: " +
-                "bodies contain credentials and are never returned over the bridge; read them in the app.",
-                Schema(("max", "Maximum rows to return (default 50, cap 200)", false),
-                       ("pid", "Only rows for this process ID", false),
-                       ("contains", "Only rows whose process/SNI/IP/provider/status contains this text", false),
-                       ("minutes", "Look this many minutes back (default 1440 = 24h)", false)),
-                false,
-                a => GetTransmissions(a)),
-
-            new Tool(
                 "list_blocks",
                 "Inventory of every AutoCommand firewall block (the Blocks tab's data): per target — kind, " +
                 "owner class, enabled/total rules, created time and recent hit counts from the live " +
@@ -1134,48 +1121,6 @@ namespace AutoCommand.Agent.Core
                 ["rows"] = rows,
                 ["verdict"] = verdict,
             });
-        }
-
-        /// <summary>Read-only archive query — metadata only by design; the
-        /// decrypted bodies stay on disk for the user to view in the tab.</summary>
-        private static string GetTransmissions(JsonObject a)
-        {
-            int max = Math.Clamp(a["max"]?.GetValue<int>() ?? 50, 1, 200);
-            int minutes = Math.Clamp(a["minutes"]?.GetValue<int>() ?? 1440, 1, 60 * 24 * 30);
-            int? pid = a["pid"] is JsonNode p ? p.GetValue<int>() : null;
-            string contains = a["contains"]?.GetValue<string>();
-
-            var rows = TransmissionsArchiveService.Read(max, pid, contains, DateTime.UtcNow.AddMinutes(-minutes));
-            if (rows.Count == 0)
-                return $"No archived transmissions matching the filter (last {minutes} min). " +
-                       "Rows appear when the Transmissions tab has watched a TLS flow that decrypted " +
-                       "or pushed more than 10 KB upstream.";
-
-            var arr = new JsonArray();
-            foreach (var r in rows)
-            {
-                arr.Add(new JsonObject
-                {
-                    ["ts_utc"] = r.TsUtc.ToString("yyyy-MM-dd HH:mm:ss"),
-                    ["pid"] = r.Pid,
-                    ["process"] = r.ProcessDisplay,
-                    ["destination"] = r.ServerEndpoint,
-                    ["sni"] = r.Sni,
-                    ["provider"] = r.ProviderAndCountry,
-                    ["tls"] = r.TlsVersion,
-                    ["status"] = r.Status,
-                    ["client_bytes"] = r.ClientBytes,
-                    ["server_bytes"] = r.ServerBytes,
-                    ["client_app_bytes"] = r.ClientAppBytes,
-                    ["server_app_bytes"] = r.ServerAppBytes,
-                    ["big_upload"] = r.BigUpload,
-                    ["has_content_on_disk"] = r.HasContent,
-                    ["sha256"] = r.Sha256,
-                    ["message_count"] = r.MessageCount,
-                    ["content_kinds"] = r.ContentKinds,
-                });
-            }
-            return ToJson(new JsonObject { ["type"] = "transmissions", ["rows"] = arr, ["row_count"] = arr.Count });
         }
 
         /// <summary>

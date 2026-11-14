@@ -38,15 +38,12 @@ The sidebar groups its tools by the question you're asking, not by what they do 
 
 ## Watch: beyond the list
 
-![Site Doctor, WSL diagnosis, Phone Home cards, Transmissions archive, Traces, Spawn Watches](Assets/infographics/watch-tools.svg)
+![Site Doctor, WSL diagnosis, Spawn Watches](Assets/infographics/watch-tools.svg)
 
-Six read-only tools answer the questions a connection list can't:
+Three read-only tools answer the questions a connection list can't:
 
 - **"Why is this site slow?"** — Site Doctor runs a ~30-second check (DNS rotation sampling, per-edge TCP and TLS hello shapes, a control host for comparison) and also asks the question nothing else asks: *were this page's other hosts — captcha, assets, APIs — silently blocked?* Verdict in one plain sentence, the math one click away.
 - **"Why is WSL offline?"** — a staged, read-only pipeline from host egress down to the Hyper-V firewall layer, ending in one verdict. It never starts the utility VM.
-- **Phone Home** — curated cards for Windows' own talkers (DiagTrack, CryptSvc, Delivery Optimization…): the plain-English story, measured connects-per-hour against a normal band, beacon regularity.
-- **Transmissions** — the recorded-TLS archive: process, SNI host, provider, byte counts, decrypted-or-not. Decrypted bodies are DPAPI-encrypted at rest, readable only by your user.
-- **Traces** — watch any process or svchost service for hours: frequency, destinations, upload dominance, beacon regularity.
 - **Spawn Watches** — name-based prefilters evaluated the moment a process is *born*, so "what did svchost spawn?" is caught at birth, never chased after the fact. Rules are JSON files in `%LOCALAPPDATA%\AutoCommand\watches` (drop one in, no restart), surfaced to your AI assistant as `list_watches` / `tail_watches`. Hits land in per-day files: once a day rolls over it compresses to a `.gz` archive, and archives prune after 30 days.
 
 ## When something looks odd

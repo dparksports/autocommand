@@ -2,27 +2,23 @@
 // Core\Services\TransmissionsArchiveService.cs (namespaces
 // AutoScope.Models / AutoScope.Services) for the Engines library.
 //
+// WITNESS-GRADE (v2026.11.13.3): the archive records METADATA ONLY —
+// endpoints, SNI, TLS handshake facts, wire byte counts, Sysmon-attributed
+// identity — as the containment proof's third witness (bytes to a blocked
+// destination since the block was created). No decryption, no plaintext
+// bodies, no DPAPI body blobs: FlowPeek/ConnectionPeek decrypt live on
+// their own behalf, and nothing at rest here is plaintext traffic.
+//
 // F# port notes (deviations forced by F#/C# interop, none behavioral):
 //   • TransmissionRecord stays a mutable class implementing
-//     INotifyPropertyChanged with the same property names — the app UI
-//     binds it. The public event and the interface implementation share
-//     one Event cell, so subscribers via either route see the same
-//     notifications. F# classes are sealed (C# classes are not); nothing
-//     binds or subclasses it.
-//   • SetField/OnPropertyChanged keep the C# shapes but take the property
-//     name explicitly instead of [CallerMemberName] (same strings, no
-//     dependence on F# caller-name plumbing in setters).
+//     INotifyPropertyChanged with the same property names.
 //   • Optional parameters use [<Optional; DefaultParameterValue>], not
-//     F# `?` optionals — F# optionals surface as FSharpOption<T> and
-//     would be uncallable with the C# source's default-omission shapes
-//     (Read(4000, null, null, sinceUtc), Read(max: 2000, sinceUtc: ...)).
+//     F# `?` optionals (Read(4000, null, null, sinceUtc) call shapes).
 //   • The archive root defaults to WatchConfig.Identity.DataRoot
-//     \transmissions (the C# hardcoded %LOCALAPPDATA%\AutoScope
-//     \transmissions — the identical physical path for the AutoScope
-//     app); the settable ArchiveDirectory self-test seam stays. The
-//     on-disk format is IDENTICAL: same JSONL line shape via the same
-//     System.Text.Json call, same bodies\<day>\<id>.<direction>.bin
-//     layout — existing archives keep parsing.
+//     \transmissions; the settable ArchiveDirectory self-test seam stays.
+//     Pre-diet archives keep parsing: old rows carry body-count keys the
+//     reader tolerates, and the bodies\ directory they reference is simply
+//     orphaned (pruned by age with the day files).
 
 // FS3211 fires on [<Optional; DefaultParameterValue(null)>] below, but the
 // emitted metadata is exactly what C# needs (same pattern as Probe.fs —
@@ -36,80 +32,7 @@ open System.Collections.Generic
 open System.ComponentModel
 open System.IO
 open System.Runtime.InteropServices
-open System.Security.AccessControl
-open System.Security.Cryptography
-open System.Security.Principal
 open System.Text.Json
-
-/// <summary>
-/// DPAPI (crypt32, CurrentUser) — the at-rest protection for decrypted
-/// body blobs. Body files routinely carry session cookies, bearer tokens
-/// and credentials in POST payloads, so they are stored as DPAPI blobs,
-/// not plaintext. CurrentUser scope means this stops OTHER users (and
-/// copied-profile/stolen-file attacks), not malware already running as
-/// the same user — the same boundary every local secret here has; the
-/// per-user ACL on the bodies directory carries the same split.
-/// </summary>
-module private BodyDpapi =
-
-    [<Literal>]
-    let CRYPTPROTECT_UI_FORBIDDEN = 0x1
-
-    [<Struct; StructLayout(LayoutKind.Sequential)>]
-    type DATA_BLOB =
-        val mutable cbData: int
-        val mutable pbData: nativeint
-
-    [<DllImport("crypt32.dll", SetLastError = true, CharSet = CharSet.Unicode)>]
-    extern bool CryptProtectData(DATA_BLOB& pDataIn, string szDataDescr, nativeint pOptionalEntropy,
-                                 nativeint pvReserved, nativeint pPromptStruct, int dwFlags, DATA_BLOB& pDataOut)
-
-    [<DllImport("crypt32.dll", SetLastError = true, CharSet = CharSet.Unicode)>]
-    extern bool CryptUnprotectData(DATA_BLOB& pDataIn, nativeint ppszDataDescr, nativeint pOptionalEntropy,
-                                   nativeint pvReserved, nativeint pPromptStruct, int dwFlags, DATA_BLOB& pDataOut)
-
-    [<DllImport("kernel32.dll")>]
-    extern nativeint LocalFree(nativeint hMem)
-
-    let protect (plain: byte[]) : byte[] =
-        let mutable inBlob = DATA_BLOB()
-        inBlob.cbData <- plain.Length
-        inBlob.pbData <- Marshal.AllocHGlobal plain.Length
-        let mutable outBlob = DATA_BLOB()
-        try
-            Marshal.Copy(plain, 0, inBlob.pbData, plain.Length)
-            if not (CryptProtectData(&inBlob, "AutoCommand transmissions body", IntPtr.Zero,
-                                     IntPtr.Zero, IntPtr.Zero, CRYPTPROTECT_UI_FORBIDDEN, &outBlob)) then
-                raise (CryptographicException "CryptProtectData failed")
-            let cipher = Array.zeroCreate<byte> outBlob.cbData
-            Marshal.Copy(outBlob.pbData, cipher, 0, outBlob.cbData)
-            cipher
-        finally
-            Marshal.FreeHGlobal inBlob.pbData
-            if outBlob.pbData <> IntPtr.Zero then LocalFree outBlob.pbData |> ignore
-
-    /// <summary>Returns None on any failure (wrong scope, corrupted blob,
-    /// legacy plaintext) — the caller decides what that means.</summary>
-    let tryUnprotect (cipher: byte[]) : byte[] option =
-        try
-            let mutable inBlob = DATA_BLOB()
-            inBlob.cbData <- cipher.Length
-            inBlob.pbData <- Marshal.AllocHGlobal cipher.Length
-            let mutable outBlob = DATA_BLOB()
-            try
-                Marshal.Copy(cipher, 0, inBlob.pbData, cipher.Length)
-                if not (CryptUnprotectData(&inBlob, IntPtr.Zero, IntPtr.Zero,
-                                           IntPtr.Zero, IntPtr.Zero, CRYPTPROTECT_UI_FORBIDDEN, &outBlob)) then
-                    None
-                else
-                    let plain = Array.zeroCreate<byte> outBlob.cbData
-                    Marshal.Copy(outBlob.pbData, plain, 0, outBlob.cbData)
-                    Some plain
-            finally
-                Marshal.FreeHGlobal inBlob.pbData
-                if outBlob.pbData <> IntPtr.Zero then LocalFree outBlob.pbData |> ignore
-        with _ ->
-            None
 
 // ── record model (C# Core\Models\TransmissionRecord.cs) ───────────
 
@@ -224,100 +147,47 @@ type TransmissionRecord() =
 // ── archive service (C# Core\Services\TransmissionsArchiveService.cs) ──
 
 /// <summary>
-/// On-disk store behind the Transmissions tab, mirroring the Sysmon
-/// archive's shape: one readable, greppable JSONL index file per day
-/// under DataRoot\transmissions, plus full-request / full-response body
-/// blobs in bodies\ — no truncation, the >10 KB cases are exactly the
-/// ones that must be complete on disk. Body blobs are stored DPAPI-
-/// encrypted (CurrentUser; see BodyDpapi) and the bodies directory is
-/// created current-user-only — decrypted payloads routinely carry
-/// credentials, so at rest they get the same hygiene as the TLS keylog.
-/// Each row carries a SHA-256 over both PLAINTEXT directions so
-/// "what was sent" stays provable after the fact (LoadBody decrypts for
-/// the viewer; pre-encryption legacy blobs still load).
+/// On-disk store behind the containment proof's third witness, mirroring
+/// the Sysmon archive's shape: one readable, greppable JSONL index file
+/// per day under DataRoot\transmissions. METADATA ONLY — endpoints, SNI,
+/// TLS handshake facts, wire byte counts, provider attribution. No bodies,
+/// no decryption, no plaintext traffic at rest (pre-diet archives keep
+/// parsing; their orphaned bodies\ folder prunes by age with the day
+/// files).
 ///
-/// Retention: day files prune after DefaultRetainDays; the bodies
-/// folder additionally rotates oldest-day directories out once it
-/// exceeds BodiesBudgetBytes. Everything stays local — the AI bridge
-/// exposes metadata only, never these files.
+/// Retention: day files prune after DefaultRetainDays. Everything stays
+/// local; the containment reader (BlockContainmentReader) is the consumer.
 /// </summary>
 [<AbstractClass; Sealed>]
 type TransmissionsArchiveService private () =
 
     static let gate = obj()
     static let mutable lastPruneUtc = DateTime.MinValue
-    static let mutable bodiesDirHardened = false
-
-    /// <summary>Creates the bodies directory with a current-user-only,
-    /// inheritable ACL (the TLS keylog's hygiene applied to the far more
-    /// sensitive store). One-shot, best-effort — the DPAPI wrapping is the
-    /// real at-rest protection; existing installs harden on next write.</summary>
-    static member private EnsureBodiesDir () =
-        Directory.CreateDirectory TransmissionsArchiveService.BodiesRoot |> ignore
-
-        if not bodiesDirHardened then
-            bodiesDirHardened <- true
-            try
-                let info = DirectoryInfo TransmissionsArchiveService.BodiesRoot
-                let security = info.GetAccessControl()
-                security.SetAccessRuleProtection(true, false) // nothing inherited: current user only
-                security.AddAccessRule(FileSystemAccessRule(
-                        WindowsIdentity.GetCurrent().User,
-                        FileSystemRights.FullControl,
-                        InheritanceFlags.ContainerInherit ||| InheritanceFlags.ObjectInherit,
-                        PropagationFlags.None, AccessControlType.Allow))
-                info.SetAccessControl security
-            with _ -> ()
 
     static member DefaultRetainDays = 30
-    static member BodiesBudgetBytes = 256L * 1024L * 1024L
 
     /// <summary>Archive root; settable for offline self-tests (house pattern).
-    /// F# port: defaults to DataRoot\transmissions instead of the C#
-    /// %LOCALAPPDATA%\AutoScope\transmissions — same physical path for the
-    /// AutoScope app, no app name hardcoded in the engine.</summary>
+    /// Defaults to DataRoot\transmissions.</summary>
     static member val ArchiveDirectory =
         Path.Combine(WatchConfig.Identity.DataRoot, "transmissions") with get, set
-
-    static member private BodiesRoot =
-        Path.Combine(TransmissionsArchiveService.ArchiveDirectory, "bodies")
 
     static member DayFilePath(utc: DateTime) =
         Path.Combine(TransmissionsArchiveService.ArchiveDirectory, "transmissions-" + utc.ToString("yyyy-MM-dd") + ".jsonl")
 
     // ── append ────────────────────────────────────────────────────────
 
-    /// <summary>
-    /// Writes one row's index line and (when the flow decrypted to
-    /// content) its body blobs. Returns true when anything was written.
-    /// The pair (request, response) are the decrypted plaintext streams;
-    /// either may be null/empty.
-    /// </summary>
-    static member Append(record: TransmissionRecord, requestStream: byte[], responseStream: byte[]) : bool =
+    /// <summary>Writes one metadata row. Returns true when written.</summary>
+    static member Append(record: TransmissionRecord) : bool =
         if isNull (box record) then false
         else
         try
             lock gate (fun () ->
                 Directory.CreateDirectory TransmissionsArchiveService.ArchiveDirectory |> ignore
 
-                let hasContent =
-                    (requestStream <> null && requestStream.Length > 0) ||
-                    (responseStream <> null && responseStream.Length > 0)
-                record.HasContent <- hasContent
-
-                if hasContent then
-                    record.Sha256 <- TransmissionsArchiveService.ComputeSha256(requestStream, responseStream)
-                    TransmissionsArchiveService.EnsureBodiesDir ()
-                    if requestStream <> null && requestStream.Length > 0 then
-                        File.WriteAllBytes(TransmissionsArchiveService.BodyPath(record, "request"), BodyDpapi.protect requestStream)
-                    if responseStream <> null && responseStream.Length > 0 then
-                        File.WriteAllBytes(TransmissionsArchiveService.BodyPath(record, "response"), BodyDpapi.protect responseStream)
                 record.ArchiveDay <- record.TsUtc.ToString("yyyy-MM-dd")
 
-                // F# port: same keys, same insertion order, same
-                // JsonSerializer call — byte-identical JSONL lines, so
-                // archives written by the C# service and this one are one
-                // format.
+                // Same keys the reader has always parsed (body-count keys are
+                // simply absent from new rows — Read tolerates their absence).
                 let fields = Dictionary<string, obj>()
                 let add (key: string) (value: obj) = fields[key] <- value
                 add "id" record.Id
@@ -334,59 +204,19 @@ type TransmissionsArchiveService private () =
                 add "provider_country" record.ProviderCountry
                 add "client_bytes" record.ClientBytes
                 add "server_bytes" record.ServerBytes
-                add "client_app_bytes" record.ClientAppBytes
-                add "server_app_bytes" record.ServerAppBytes
                 add "status" record.Status
-                add "has_content" hasContent
-                add "sha256" record.Sha256
-                add "message_count" record.MessageCount
-                add "content_kinds" record.ContentKinds
                 let line = JsonSerializer.Serialize fields
                 File.AppendAllText(TransmissionsArchiveService.DayFilePath record.TsUtc, line + Environment.NewLine)
 
                 TransmissionsArchiveService.MaybePrune()
                 true)
         with _ ->
-            false // archive is best-effort; the live row still showed in the UI
-
-    static member LoadBody(id: string, day: string, direction: string) : byte[] =
-        try
-            let path = TransmissionsArchiveService.BodyPath(id, day, direction)
-            if File.Exists path then
-                let blob = File.ReadAllBytes path
-                // DPAPI blob since the at-rest change; a file that fails to
-                // unprotect is a legacy plaintext body from before it —
-                // still loadable, still viewable.
-                match BodyDpapi.tryUnprotect blob with
-                | Some plain -> plain
-                | None -> blob
-            else null
-        with _ -> null
-
-    static member private BodyPath(record: TransmissionRecord, direction: string) =
-        TransmissionsArchiveService.BodyPath(record.Id, record.ArchiveDay, direction)
-
-    static member private BodyPath(id: string, day: string, direction: string) =
-        let dir = Path.Combine(TransmissionsArchiveService.BodiesRoot, (if String.IsNullOrEmpty day then "unknown" else day))
-        Path.Combine(dir, $"{id}.{direction}.bin")
-
-    static member private ComputeSha256(request: byte[], response: byte[]) : string =
-        use sha = SHA256.Create()
-        use combined = new MemoryStream(
-                (if isNull request then 0 else request.Length) +
-                (if isNull response then 0 else response.Length) + 1)
-        if request <> null && request.Length > 0 then
-            combined.Write(request, 0, request.Length)
-            combined.WriteByte(byte '\n')
-        if response <> null && response.Length > 0 then
-            combined.Write(response, 0, response.Length)
-        combined.Position <- 0L
-        (Convert.ToHexString(sha.ComputeHash combined)).ToLowerInvariant()
+            false // archive is best-effort
 
     // ── retention ─────────────────────────────────────────────────────
 
-    /// <summary>Runs at most hourly: day-file age prune + bodies budget
-    /// rotation. Public for the tab's "prune now" and self-tests.</summary>
+    /// <summary>Runs at most hourly: day-file age prune. Public for
+    /// self-tests.</summary>
     static member Prune([<Optional; DefaultParameterValue(30)>] retainDays: int) =
         try
             if not (Directory.Exists TransmissionsArchiveService.ArchiveDirectory) then ()
@@ -399,29 +229,15 @@ type TransmissionsArchiveService private () =
                     try File.Delete file with _ -> () // locked — next prune
                 | _ -> ()
 
-            if Directory.Exists TransmissionsArchiveService.BodiesRoot then
-                let dayDirs =
-                    Directory.GetDirectories TransmissionsArchiveService.BodiesRoot
-                    |> Seq.map (fun d -> (d, TransmissionsArchiveService.ParseDay d))
-                    |> Seq.choose (fun (path, day) -> day |> Option.map (fun day -> (path, day)))
-                    |> Seq.sortBy snd
-                    |> Seq.toList
-                for (path, day) in dayDirs do
-                    if day < cutoff then
-                        try Directory.Delete(path, true) with _ -> ()
-
-                let mutable used = dayDirs |> List.sumBy (fun (path, _) -> TransmissionsArchiveService.DirSize path)
-                let mutable oldest = 0
-                let mutable stopRotating = false
-                while not stopRotating && used > TransmissionsArchiveService.BodiesBudgetBytes && oldest < dayDirs.Length do
-                    let victim = dayDirs[oldest]
-                    oldest <- oldest + 1
-                    let size = TransmissionsArchiveService.DirSize(fst victim)
-                    try
-                        Directory.Delete(fst victim, true)
-                        used <- used - size
-                    with _ ->
-                        stopRotating <- true
+            // Pre-diet bodies\ directories (legacy plaintext/DPAPI blobs)
+            // age out with the day files.
+            let legacyBodies = Path.Combine(TransmissionsArchiveService.ArchiveDirectory, "bodies")
+            if Directory.Exists legacyBodies then
+                for dir in Directory.GetDirectories(legacyBodies, "*") do
+                    let stem = Path.GetFileName(dir)
+                    match DateTime.TryParseExact(stem, "yyyy-MM-dd", null, System.Globalization.DateTimeStyles.None) with
+                    | true, day when day < cutoff -> try Directory.Delete(dir, true) with _ -> ()
+                    | _ -> ()
         with _ -> () // retention is opportunistic
 
     static member private MaybePrune() =

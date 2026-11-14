@@ -1,51 +1,36 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="720" viewBox="0 0 1120 720" role="img" aria-label="Watch, beyond the list: Site Doctor, WSL diagnosis, Phone Home, Transmissions, Traces, Spawn Watches">
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="720" viewBox="0 0 1120 720" role="img" aria-label="Watch, beyond the list: Site Doctor, WSL diagnosis, Spawn Watches">
   <rect width="1120" height="720" fill="#0f172a"/>
   <rect width="1120" height="6" fill="#22d3ee"/>
   <g font-family="Segoe UI, Arial, sans-serif">
     <text x="56" y="78" font-size="42" font-weight="700" fill="#f1f5f9">Watch — beyond the list</text>
     <rect x="56" y="96" width="80" height="5" fill="#22d3ee"/>
-    <text x="56" y="134" font-size="18.5" fill="#94a3b8">Six read-only tools. None of them changes anything by looking.</text>
+    <text x="56" y="134" font-size="18.5" fill="#94a3b8">Three read-only tools. None of them changes anything by looking.</text>
 
-    <rect x="56" y="164" width="492" height="224" rx="14" fill="#1e293b" stroke="#334155"/>
+    <rect x="56" y="164" width="492" height="264" rx="14" fill="#1e293b" stroke="#334155"/>
     <text x="88" y="208" font-size="23" font-weight="700" fill="#f1f5f9">"Why is this site slow?"</text>
     <g font-size="18" fill="#cbd5e1">
       <text x="88" y="248">Site Doctor, ~30 seconds: DNS, TCP,</text>
       <text x="88" y="276">TLS shapes, a control host — and</text>
       <text x="88" y="304">"were its other hosts blocked?"</text>
     </g>
-    <text x="88" y="356" font-size="18" fill="#22d3ee">Verdict in one plain sentence.</text>
+    <text x="88" y="376" font-size="18" fill="#22d3ee">Verdict in one plain sentence.</text>
 
-    <rect x="572" y="164" width="492" height="224" rx="14" fill="#1e293b" stroke="#334155"/>
+    <rect x="572" y="164" width="492" height="264" rx="14" fill="#1e293b" stroke="#334155"/>
     <text x="604" y="208" font-size="23" font-weight="700" fill="#f1f5f9">"Why is WSL offline?"</text>
     <g font-size="18" fill="#cbd5e1">
       <text x="604" y="248">A staged pipeline, host egress to</text>
       <text x="604" y="276">the Hyper-V layer, read-only —</text>
       <text x="604" y="304">it never starts the utility VM.</text>
     </g>
-    <text x="604" y="356" font-size="18" fill="#22d3ee">One verdict: where it broke.</text>
+    <text x="604" y="376" font-size="18" fill="#22d3ee">One verdict: where it broke.</text>
 
-    <rect x="56" y="416" width="325" height="224" rx="14" fill="#1e293b" stroke="#334155"/>
-    <text x="84" y="456" font-size="20" font-weight="700" fill="#f1f5f9">Phone Home</text>
-    <g font-size="16" fill="#cbd5e1">
-      <text x="84" y="492">Windows' own talkers, carded:</text>
-      <text x="84" y="518">the story, measured rate vs a</text>
-      <text x="84" y="544">normal band, beacon regularity.</text>
-    </g>
-
-    <rect x="397" y="416" width="325" height="224" rx="14" fill="#1e293b" stroke="#334155"/>
-    <text x="425" y="456" font-size="20" font-weight="700" fill="#f1f5f9">Transmissions</text>
-    <g font-size="16" fill="#cbd5e1">
-      <text x="425" y="492">The TLS archive: process, host,</text>
-      <text x="425" y="518">provider, bytes. Bodies are</text>
-      <text x="425" y="544">DPAPI-encrypted at rest.</text>
-    </g>
-
-    <rect x="738" y="416" width="326" height="224" rx="14" fill="#1e293b" stroke="#334155"/>
-    <text x="766" y="456" font-size="20" font-weight="700" fill="#f1f5f9">Traces · Spawns</text>
-    <g font-size="16" fill="#cbd5e1">
-      <text x="766" y="492">Hours of watching: frequency,</text>
-      <text x="766" y="518">upload dominance, beacons —</text>
-      <text x="766" y="544">and spawns caught at birth.</text>
+    <rect x="56" y="456" width="1008" height="224" rx="14" fill="#1e293b" stroke="#334155"/>
+    <text x="88" y="500" font-size="23" font-weight="700" fill="#f1f5f9">Spawn Watches</text>
+    <g font-size="18" fill="#cbd5e1">
+      <text x="88" y="540">Name-based prefilters evaluated the moment a process is born —</text>
+      <text x="88" y="568">"what did svchost spawn?" is caught at birth, never chased after the</text>
+      <text x="88" y="596">fact. Rules are JSON files you drop in; your AI assistant reads the</text>
+      <text x="88" y="624">hits through list_watches / tail_watches. Blocked at birth, in red.</text>
     </g>
 
     <text x="1064" y="700" font-size="15" fill="#64748b" text-anchor="end">AutoCommand · dparksports/autocommand</text>
