@@ -17,6 +17,94 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.13.3 (2026-11-13)
+================================================================================
+
+# v2026.11.13.3 — Service-scoped blocks, firewall-tab speedup, one-letter rain labels & codebase pruning
+
+## Service-scoped blocks: block BITS of svchost, future IPs honored
+
+Blocking a svchost-hosted SERVICE now arms one firewall rule scoped by
+`INetFwRule.ServiceName` (`AC-BLOCK-SVC <service>` — the COM shim already
+plumbed the property). Because the rule matches the service identity rather
+than a remote address, the service's traffic is dropped at the firewall for
+**every destination — the ones already seen and any future one** — persisting
+in BFE even while AutoCommand is closed, with no per-IP chase or rule sprawl.
+Sibling services inside the same svchost.exe host are untouched: the honest
+alternative to the all-host app block.
+
+- Row context menu on svchost rows with a known service identity: `Block
+  service <key> — every destination, future included` (the declared `-s`
+  tenant, then the first SCM-resident service; group-only `-k` rows decline).
+- The confirmation states the scope honestly: no per-destination exceptions
+  exist inside a service block — per-IP blocks remain the tool for those.
+- Provenance rides in the rule Description; the rule joins the baseline via
+  `AdoptRuleStatesAsync` so Auto-Mitigate guards it; the audit trail records
+  the block; `IsOurBlock` recognizes the new prefix so inventory, the seeded
+  own-rule index and coverage see it. Follow-up (scoped out): row badges for
+  service-blocked rows and Blocks-view pause/restore for the new kind.
+
+## Firewall tab: one-walk snapshot kills the double COM enumeration
+
+Every Firewall-tab interaction used to re-enumerate the ENTIRE BFE policy
+store twice — `LoadRulesAsync(direction)` walked all rules and filtered
+client-side, then `CountLegacyBlocksAsync` walked them again (N rules × ~10
+COM round-trips × 2 — the several-second lag on direction switches and header
+sorts). Both reads now share one snapshot captured in a single walk (both
+directions + the legacy count, each rule's Direction read on the way past);
+direction switching and the legacy probe are in-memory filters.
+
+- Invalidated by every rule mutation routed through the service and a 15 s
+  TTL for external edits (`wf.msc`, the enforcer's drift fixes); the refresh
+  button forces the re-walk.
+- The grid's per-rule-name `GroupDescription` — which silently disabled UI
+  virtualization and re-realized every row on sort — is gone; the Enabled
+  column sorts by the bool, not its display string.
+
+## Matrix rain: one-letter stream labels
+
+The label band shrinks from PID digits to a single glyph row: each active
+column gets one lowercase letter from its process name — the FIRST lowercase
+letter; when two live instances would share it, the later one takes the name's
+LAST lowercase letter; all-caps names fall back to first/last letter
+lowercased; the last resort scans the name for any unused letter, and only a
+name with nothing assignable gets the PID's last two digits.
+
+- The assignment is a deterministic function of the active column set
+  (creation order) — the same set always renders the same letters — and the
+  band gives ~170 px back to the rain.
+- The hover tooltip keeps the full name + PID; the diagnostics strip now
+  carries the `letter=name` legend so single letters stay answerable.
+
+## Process Monitor: toolbar and context-menu cleanup
+
+- Toolbar: the `Hide Known/Cloud IPs` and `TX-only (no reply)` checkboxes,
+  the `Ignore Process` input + button (the row context menu carries the same
+  action), and the `Monitor active: …` status texts are retired — the status
+  strip keeps its install/repair/error jobs. High-transmitter threshold
+  default 1 KB → 0 B (still persisted and editable).
+- Row context menu: `Peer into this connection`, `Peer into this program`,
+  `Track this service`, `Why is WSL offline?`, `Scheduled task details` and
+  `Disable this scheduled task` are retired, with their dead machinery
+  (handlers, gating, `FirstService`, the IP/service peek openers, and the
+  unreachable `WslDiagnosisWindow`). The menu now carries the
+  trace/reveal/resolve/ignore/block/kill core. The WSL diagnosis survives as
+  the `diagnose_wsl` bridge tool; program-scoped peeks survive via
+  ConnectionPeek's launch-under-watch.
+
+## Shell & repo
+
+- The hamburger collapse now shrinks the sidebar PANEL to the 56 px icon rail
+  (the labels used to hide while the strip stayed 220 wide) — the burger
+  press, the narrow-launch auto-fold and any later flag change all reshape it.
+- Repo pruning (reference-audited): 21 legacy PNG infographics (4.4 MB), the
+  corporate/oss/regenerate generator variants, two unreferenced
+  `docs/infographic-*.svg` files, the stale `CHANGELOG.txt` (superseded by
+  the consolidated notes this file is), `docs/DOWNLOADS.md` +
+  `download-history.json` and the vendored `dotnet-install.ps1` — 34 files,
+  ≈4.5 MB, zero build references.
+
+================================================================================
 v2026.11.13.2 (2026-11-13)
 ================================================================================
 
