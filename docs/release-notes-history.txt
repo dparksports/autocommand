@@ -17,6 +17,48 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.14.3 (2026-11-14)
+================================================================================
+
+# v2026.11.14.3 — The rain weighs its drops: volume, not just frequency
+
+## Drop mass — bytes-per-packet becomes visible
+
+The rain read packet COUNT only: every TX packet bought one glyph step, so a
+coalesced 64 KB offload send and a 60-byte keepalive looked identical, and
+"quietly moving real data" was indistinguishable from "chatty beacon" at a
+glance. Each spawned drop now carries its window's avg bytes-per-packet as
+MASS — log-linear between two configurable thresholds, EMA-smoothed so one
+odd window never flips the look — and mass rides three channels on the drop
+itself, same hue family, so blocked-red and rx-blue stay unambiguous:
+
+- **Wake length ×0.5–2** (instrument) / **trail life ×0.6–1.2** (cinema): a
+  freight drop carves a streak up to twice as long; drizzle fades in half of
+  it. The trail the eye follows IS the volume the drop carried.
+- **Lead bloom ×1–1.35 and lift +10%**: freight reads heavier even in
+  peripheral vision, without breaking the zLift subtlety.
+- **Fall speed +0–30%**: gravity intuition, still far inside the calm
+  fall-speed ceiling.
+
+The two shapes this separates at a glance: **low count + high volume** = rare
+long bright drops (bulk transfer — the TCP-offload shape Windows produces
+constantly), and **high count + low volume** = constant short drizzle (the
+beacon-shaped one). Count still owns spawn frequency; volume only weights the
+drops the count spawns.
+
+- New right-click toggle **Drop mass from volume (bytes/packet)** — default
+  ON, hot-reloads like every knob; thresholds live in `matrix_rain.json`
+  (`massDrizzleKbPerPacket` 1.2, `massFreightKbPerPacket` 18).
+- The diagnostics strip gains the tier legend (drizzle/stream/freight), so
+  the encoding is discoverable where the rain runs.
+- Column tooltip names the tier in words: "avg 4.2 KB/pkt - steady stream" —
+  the confirmation layer for what the eye saw.
+- RainSelfTest: offline boundary checks for the mass curve (drizzle floor,
+  freight ceiling, log-midpoint 0.5, MSS mid-scale) plus a `--mass-checks`
+  headless exit; the synthetic busy.exe moved to 4 KB/pkt so the visual
+  harness exercises weighted drops instead of permanent drizzle.
+
+================================================================================
 v2026.11.14.2 (2026-11-14)
 ================================================================================
 
