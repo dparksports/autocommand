@@ -96,7 +96,7 @@ namespace AutoCommand.Services
             {
                 Id = "diagtrack-cadence-scan",
                 Name = "DiagTrack cadence scan",
-                Description = "Keeps the Cadence tab's DiagTrack per-hour packet and session counts " +
+                Description = "Keeps the Exfil tab's DiagTrack per-hour packet and session counts " +
                               "current by incrementally scanning new Sysmon archive bytes. Read-only " +
                               "against the archive; typical cost is a few thousand small lines.",
                 Cost = InstrumentCost.Light,

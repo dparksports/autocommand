@@ -19,7 +19,7 @@
 
         <!-- header -->
         <StackPanel Grid.Row="0">
-            <TextBlock Text="Cadence — typing vs telemetry" FontSize="18" FontWeight="SemiBold"
+            <TextBlock Text="Exfil — typing vs telemetry" FontSize="18" FontWeight="SemiBold"
                        Foreground="{DynamicResource TextPrimaryBrush}"/>
             <TextBlock Text="DiagTrack's hourly transmit cadence over the last 7 days, beside your typing counts if — and only if — you opt in. The point: traffic that follows your typing is you; traffic that fires while you are away is the machine."
                        Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,3,0,0" TextWrapping="Wrap"/>

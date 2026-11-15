@@ -80,7 +80,7 @@ namespace AutoCommand.Views
             var purge = MessageBox.Show(
                 "Stop counting keystrokes?\n\nYes — stop, and also delete the stored hourly counts.\n" +
                 "No — stop, but keep the already-collected counts on disk.",
-                "Cadence", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
+                "Exfil", MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
             Services.KeyCadenceService.Instance.Disable(purgeFile: purge);
             Reload();
         }

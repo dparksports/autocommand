@@ -206,7 +206,7 @@ namespace AutoCommand.Services
                 Name = "Key cadence flush (counts only)",
                 Description = "Commits the opt-in hourly keystroke-COUNT cadence to key-cadence.json. " +
                               "Counts only — the hook never stores which keys were pressed, and the " +
-                              "instrument no-ops entirely while the Cadence toggle is off.",
+                              "instrument no-ops entirely while the Exfil toggle is off.",
                 Cost = InstrumentCost.Light,
                 DefaultSeconds = 60,
                 MinSeconds = 10,
