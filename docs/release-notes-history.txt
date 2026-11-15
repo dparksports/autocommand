@@ -17,6 +17,50 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.14.2 (2026-11-14)
+================================================================================
+
+# v2026.11.14.2 — The ignore list finally has an audit trail
+
+## Every ignore-list change lands in the one ledger
+
+The Process Monitor's ignore list (`ignored_processes.txt`) was the one
+security preference with no record: entries appeared silently, and an
+unexpected `svchost.exe` row had no way to answer "when was this added, and
+by whom?". Every add and remove now appends to
+**ignored_processes-events.log** (beside the state file, same 6-field pipe
+format as `blocks-events.log`), and the 🧾 Audit tab narrates them like
+every other change:
+
+- "svchost.exe was added to the process ignore list — its connections are no
+  longer listed" / "removed — it will be listed again", grouped into
+  incidents like the rest of the ledger, filterable under the new
+  **Ignore list** category and included in the CSV export.
+- Each event records the acting surface ("monitor" = Process Monitor UI;
+  a bridge tool passes "mcp") and whether the state file actually persisted
+  ("persisted" / "memory-only" when the write failed — the trail never
+  claims a persistence that did not happen).
+- **Pre-existing entries are marked once**: on first launch after this
+  release, every entry the trail has never seen gets one `ignore-imported`
+  event — an entry like the current `svchost.exe` shows up as "already on
+  the ignore list before tracking began — no record of when or by whom".
+  The marker never repeats on later launches.
+- **The ignore popup answers at the source**: each entry in the Process
+  Monitor's "Ignored: N" popup now reads `svchost.exe  (added 11/14 9:08 PM
+  · Process Monitor)` or `(already on the list before tracking began)` —
+  provenance visible where the question comes up, not only in the Audit tab.
+
+Design notes: trail writes are direct (not the buffered appender) on
+purpose — ignore mutations are user-paced, the state file they describe is
+already written directly, and read-your-write matters for the popup; a
+crash window where the state file gained the entry but the trail did not
+would mis-mark it pre-existing on the next startup. ContainSelfTest covers
+parse/classify/group/sentences for the three new actions, and an engine
+harness verified import-once, restart-silence, origin passthrough and
+no-op-removal against a throwaway DataRoot. TECHNICAL_NOTES documents the
+new file's purpose.
+
+================================================================================
 v2026.11.14.1 (2026-11-14)
 ================================================================================
 
