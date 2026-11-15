@@ -112,11 +112,22 @@
                         </Border>
                     </Popup>
                     <Popup x:Name="IgnoredListPopup" PlacementTarget="{Binding ElementName=IgnoredListBtn}" Placement="Bottom" StaysOpen="False">
-                        <Border Background="{DynamicResource SurfaceAltBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="10" MinWidth="260" Margin="0,4,0,0">
+                        <Border Background="{DynamicResource SurfaceAltBrush}" BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4" Padding="10" MinWidth="380" Margin="0,4,0,0">
                             <StackPanel>
                                 <TextBlock Text="Ignored processes" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" Margin="0,0,0,6"/>
-                                <ListBox x:Name="IgnoredListBox" MaxHeight="200" MinHeight="34" Background="{DynamicResource SurfaceBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderBrush}" FontFamily="Consolas" FontSize="11"/>
+                                <ListBox x:Name="IgnoredListBox" MaxHeight="200" MinHeight="34" Background="{DynamicResource SurfaceBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderBrush}" FontFamily="Consolas" FontSize="11"
+                                         SelectionChanged="IgnoredListBox_SelectionChanged"/>
                                 <Button Content="Remove Selected" Click="RemoveIgnoredBtn_Click" Margin="0,8,0,0" Padding="12,2" HorizontalAlignment="Left" Style="{StaticResource PrimaryButton}"/>
+                                <TextBlock x:Name="IgnoreOverviewText" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="10" TextWrapping="Wrap" Margin="0,8,0,4"/>
+                                <!-- history of revisions: when / how / what, from the
+                                     append-only trail — including hand edits, which the
+                                     watcher reconciles into the trail as they happen -->
+                                <TextBlock Text="History (select an entry above)" Foreground="{DynamicResource TextPrimaryBrush}" FontWeight="SemiBold" Margin="0,4,0,4"/>
+                                <ListBox x:Name="IgnoredHistoryList" MaxHeight="140" MinHeight="24" Background="{DynamicResource SurfaceBrush}" Foreground="{DynamicResource TextPrimaryBrush}" BorderBrush="{DynamicResource BorderBrush}" FontFamily="Consolas" FontSize="11"/>
+                                <Button x:Name="DeepScanBtn" Content="⏱ Show file write times (USN deep scan)" Click="DeepScanBtn_Click" Margin="0,8,0,0" Padding="4,2" HorizontalAlignment="Left"
+                                        Background="Transparent" Foreground="{DynamicResource AccentBlueBrush}" BorderThickness="0" Cursor="Hand"
+                                        ToolTip="Reads the NTFS USN journal for every write to ignored_processes.txt — the 'when' for changes that predate the trail. Entry-level detail before tracking began is not recoverable."/>
+                                <TextBlock x:Name="DeepScanText" Foreground="{DynamicResource TextSecondaryBrush}" FontSize="10" TextWrapping="Wrap" Margin="0,4,0,0"/>
                             </StackPanel>
                         </Border>
                     </Popup>

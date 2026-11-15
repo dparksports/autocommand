@@ -334,6 +334,148 @@ type SysmonWatcherService(trackedIps: ConcurrentDictionary<string, SvchostMonito
                 appendIgnoreEvent "ignored" normalized
                     (if persisted then "persisted" else "memory-only") origin
 
+    // ── hand-edit reconciliation ─────────────────────────────────────
+    //
+    // ignored_processes.txt is user-writable: a hand edit must reach the
+    // trail like any other revision — the popup's history and the Audit
+    // tab's Ignore list read both, and "when, how, what" needs every
+    // revision, including ones that never passed through the app. A
+    // FileSystemWatcher diffs the file against the runtime set:
+    //   • entries the file gained → "ignored",   origin "file-edit"
+    //   • entries the file lost   → "unignored", origin "file-edit"
+    // The app's own writes need no guard flag: saveIgnoredProcesses writes
+    // exactly the runtime set, so the diff after an own save is empty and
+    // nothing logs. Two protections against reading a half-written file
+    // (File.WriteAllLines truncates before writing): a 400 ms debounce —
+    // every event restarts the timer, so a write storm reconciles once —
+    // and a settled read (two identical reads 250 ms apart) before any
+    // diff is applied. The diff applies as ONE batch — additions land in
+    // the bag first and trigger a single save — so an edit that both adds
+    // and removes entries cannot drop its unprocessed additions mid-batch.
+
+    static let mutable ignoreWatcherStarted = false
+
+    let fileWatchLock = obj ()
+    let mutable ignoreFsw: FileSystemWatcher = null
+    let mutable debounceTimer: System.Threading.Timer = null
+
+    let applyIgnoredFileEdit (fileSet: HashSet<string>) =
+        let additions =
+            fileSet
+            |> Seq.filter (fun n ->
+                not (
+                    ignoredProcesses
+                    |> Seq.exists (fun p -> String.Equals(p, n, StringComparison.OrdinalIgnoreCase))
+                ))
+            |> Array.ofSeq
+
+        let removals =
+            ignoredProcesses
+            |> Seq.filter (fun p -> not (fileSet.Contains p))
+            |> Array.ofSeq
+
+        if additions.Length > 0 then
+            for n in additions do
+                ignoredProcesses.Add n
+            let persisted = saveIgnoredProcesses ()
+            for n in additions do
+                appendIgnoreEvent "ignored" n
+                    (if persisted then "persisted" else "memory-only") "file-edit"
+
+        if removals.Length > 0 then
+            // mirror RemoveIgnoredProcess's drain/refill (no save — the file
+            // already reflects the removal; it is what triggered this pass)
+            let remaining =
+                ignoredProcesses
+                |> Seq.filter (fun p ->
+                    removals
+                    |> Array.exists (fun r -> String.Equals(p, r, StringComparison.OrdinalIgnoreCase))
+                    |> not)
+                |> Array.ofSeq
+
+            let mutable taken = Unchecked.defaultof<string>
+            while ignoredProcesses.TryTake(&taken) do ()
+
+            for p in remaining do
+                ignoredProcesses.Add p
+
+            for n in removals do
+                appendIgnoreEvent "unignored" n "file edit" "file-edit"
+
+    let readIgnoredFileSet () =
+        try
+            if not (File.Exists(ignoredProcessesPath ())) then None
+            else
+                let set_ = HashSet<string>(StringComparer.OrdinalIgnoreCase)
+                for line in File.ReadAllLines(ignoredProcessesPath ()) do
+                    let n = normalizeProcessName line
+                    if n.Length > 0 then set_.Add n |> ignore
+                Some set_
+        with _ ->
+            None
+
+    let reconcileIgnoredFile () =
+        let a = readIgnoredFileSet ()
+        Thread.Sleep 200
+        let b = readIgnoredFileSet ()
+
+        let same (x: HashSet<string> option) (y: HashSet<string> option) =
+            match x, y with
+            | Some m, Some n ->
+                m.Count = n.Count && (m |> Seq.forall (fun v -> n.Contains v))
+            | _ -> false
+
+        if same a b then
+            match b with
+            | Some set_ -> applyIgnoredFileEdit set_
+            | None -> ()
+        else
+            // still settling — one more attempt, then leave it for the next
+            // filesystem event (the runtime list is only touched on a
+            // stable read, never on a guess)
+            Thread.Sleep 250
+            let c = readIgnoredFileSet ()
+            if same b c then
+                match c with
+                | Some set_ -> applyIgnoredFileEdit set_
+                | None -> ()
+
+    let reconcileIgnoredFileSafe () =
+        try reconcileIgnoredFile () with _ -> ()
+
+    let scheduleIgnoredReconcile () =
+        lock fileWatchLock (fun () ->
+            if debounceTimer <> null then
+                debounceTimer.Dispose()
+            debounceTimer <-
+                new Timer(
+                    (fun _ -> reconcileIgnoredFileSafe ()),
+                    null, 400, Timeout.Infinite))
+
+    let startIgnoreFileWatcher () =
+        if ignoreWatcherStarted then ()
+        else
+            ignoreWatcherStarted <- true
+            try
+                Directory.CreateDirectory(Path.GetDirectoryName(ignoredProcessesPath ()))
+                |> ignore
+
+                let fsw =
+                    new FileSystemWatcher(
+                        Path.GetDirectoryName(ignoredProcessesPath ()),
+                        "ignored_processes.txt")
+                fsw.NotifyFilter <-
+                    NotifyFilters.LastWrite ||| NotifyFilters.FileName ||| NotifyFilters.Size
+                fsw.Changed.Add(fun _ -> scheduleIgnoredReconcile ())
+                fsw.Created.Add(fun _ -> scheduleIgnoredReconcile ())
+                fsw.Renamed.Add(fun _ -> scheduleIgnoredReconcile ())
+                fsw.EnableRaisingEvents <- true
+                ignoreFsw <- fsw   // keep it rooted for the service's lifetime
+            with _ ->
+                // degrade honestly: hand edits surface at the next startup
+                // reconcile via the "ignore-imported" markers
+                ignoreWatcherStarted <- false
+
     do
         try
             // Pre-existing entries the trail has never recorded (hand edits,
@@ -356,6 +498,10 @@ type SysmonWatcherService(trackedIps: ConcurrentDictionary<string, SvchostMonito
         with _ ->
             // first run or unreadable file — start with an empty ignore list
             ()
+
+    // the trail must watch from the start — hand edits during this very
+    // session are exactly the revisions history has to capture
+    do startIgnoreFileWatcher ()
 
     // ── members ──────────────────────────────────────────────────────
 

@@ -212,6 +212,7 @@ namespace AutoCommand.Contain.Core
             "undo" => "you · undo",
             "mcp" => "AI session · gate",
             "update-mode" => "you · Windows Update",
+            "file-edit" => "a hand edit outside AutoCommand",
             "pre-audit" => "unknown · before tracking",
             _ => origin.Length == 0 ? "unknown" : origin
         };

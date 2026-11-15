@@ -851,33 +851,11 @@ namespace AutoCommand.Views
 
         /// <summary>
         /// Provenance for one ignore-list entry, from the append-only trail
-        /// (ignored_processes-events.log): the newest add-side event for the
-        /// key. Removals are skipped — an entry shown here IS on the list,
-        /// so "when/by whom was it last added" is the question this answers;
-        /// a key the trail has never seen (hand edit mid-run) shows plain.
+        /// (ignored_processes-events.log) via the shared history service —
+        /// the newest add-side event for the key, or the pre-tracking note.
         /// </summary>
-        private string IgnoreProvenance(string name)
-        {
-            try
-            {
-                AuditEvent newest = null;
-                foreach (var e in AuditTrail.ReadEvents(
-                    AutoCommand.Engines.Watch.SysmonWatcherService.IgnoredEventsLogPath))
-                {
-                    if ((e.Action != "ignored" && e.Action != "ignore-imported") ||
-                        !string.Equals(e.Key, name, StringComparison.OrdinalIgnoreCase)) continue;
-                    if (newest == null || e.TimeUtc > newest.TimeUtc) newest = e;
-                }
-
-                if (newest == null) return "";
-                if (newest.Action == "ignore-imported") return "already on the list before tracking began";
-                return $"added {newest.TimeUtc.ToLocalTime():M/d h:mm tt} · {AuditTrail.ActorFor(newest.Origin)}";
-            }
-            catch
-            {
-                return "";   // an unreadable trail must not break the popup
-            }
-        }
+        private string IgnoreProvenance(string name) =>
+            IgnoreHistoryService.ProvenanceFor(name);
 
         private void RefreshIgnoredUi()
         {
@@ -887,6 +865,63 @@ namespace AutoCommand.Views
                 .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
                 .Select(n => new IgnoreItem(n, IgnoreProvenance(n)))
                 .ToList();
+
+            // current-state strip: where the list stands now, per the trail
+            var ov = IgnoreHistoryService.Overview(ignored);
+            IgnoreOverviewText.Text = ignored.Count == 0
+                ? (ov.RevisionCount == 0
+                    ? "The list is empty, and the trail has no revisions yet."
+                    : $"The list is empty right now — the trail records {ov.RevisionCount} past revision(s), earliest {ov.EarliestRecordUtc?.ToLocalTime():M/d/yy}.")
+                : $"{ignored.Count} entr{(ignored.Count == 1 ? "y" : "ies")}" +
+                  (ov.LastChangeUtc == null
+                    ? " · no revisions recorded yet"
+                    : $" · last change {ov.LastChangeUtc.Value.ToLocalTime():M/d h:mm tt}") +
+                  (ov.EarliestRecordUtc == null
+                    ? ""
+                    : $" · trail begins {ov.EarliestRecordUtc.Value.ToLocalTime():M/d/yy}");
+            IgnoredHistoryList.ItemsSource = new List<string>();
+        }
+
+        private void IgnoredListBox_SelectionChanged(object sender, SelectionChangedEventArgs e)
+        {
+            RenderIgnoreHistory();
+        }
+
+        /// <summary>The full revision timeline for the selected entry —
+        /// when (local time), how (the actor behind the origin), what (the
+        /// action), straight from the trail. Hand edits land here too: the
+        /// file watcher reconciles them into the trail as they happen.</summary>
+        private void RenderIgnoreHistory()
+        {
+            var selected = (IgnoredListBox.SelectedItem as IgnoreItem)?.Name;
+            IgnoredHistoryList.ItemsSource = selected == null
+                ? new List<string>()
+                : IgnoreHistoryService
+                    .TimelineFor(selected)
+                    .Select(r => $"{r.TimeLocal:M/d h:mm:ss tt}  {r.What}  ·  {r.How}" +
+                                 (string.IsNullOrEmpty(r.Detail) ? "" : $"  ({r.Detail})"))
+                    .ToList();
+        }
+
+        private async void DeepScanBtn_Click(object sender, RoutedEventArgs e)
+        {
+            DeepScanBtn.IsEnabled = false;
+            DeepScanText.Text = "Reading the USN journal… (can take up to a minute on a busy volume)";
+            try
+            {
+                var writes = await IgnoreHistoryService.UsnFileWritesAsync();
+                DeepScanText.Text = writes.Count == 0
+                    ? "No write events for ignored_processes.txt in the journal — it has rotated past them, " +
+                      "or the journal is disabled. Entry-level detail before tracking began is not recoverable."
+                    : $"{writes.Count} write event(s) in the journal, newest first:\n" +
+                      string.Join("\n", writes.Take(20)
+                          .Select(w => $"{w.TimeUtc.ToLocalTime():M/d h:mm:ss tt}  ·  {w.Reason}")) +
+                      (writes.Count > 20 ? $"\n… and {writes.Count - 20} more" : "");
+            }
+            finally
+            {
+                DeepScanBtn.IsEnabled = true;
+            }
         }
 
         private void SvchostGrid_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
