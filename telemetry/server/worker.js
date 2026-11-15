@@ -152,11 +152,6 @@ const PAGE_HTML = `<!doctype html>
   .card .l { color:#98A2B3; font-size:12px; margin-top:2px; }
   .panel { background:#1F242E; border:1px solid #39414F; border-radius:10px; padding:18px 20px; margin-bottom:22px; }
   .panel h2 { font-size:15px; margin-bottom:12px; color:#C7D0DB; }
-  svg text { fill:#98A2B3; font-size:11px; }
-  .countries { list-style:none; }
-  .countries li { display:flex; align-items:center; gap:10px; margin:6px 0; font-size:13px; }
-  .countries .bar { height:8px; border-radius:4px; background:#3B82F6; }
-  .countries .cc { width:34px; color:#98A2B3; }
   .btns { display:flex; gap:10px; flex-wrap:wrap; }
   .btn { display:inline-block; padding:10px 18px; border-radius:8px; font-size:14px; font-weight:600;
          text-decoration:none; border:1px solid #39414F; color:#F1F4F9; background:#282F3B; cursor:pointer; }
@@ -174,16 +169,7 @@ const PAGE_HTML = `<!doctype html>
 
 <div class="stats" id="stats"></div>
 
-<div class="panel">
-  <h2>Daily active installs — last 90 days</h2>
-  <svg id="chart" width="100%" height="220" viewBox="0 0 820 220" preserveAspectRatio="none"></svg>
-  <div id="empty" style="color:#98A2B3;font-size:14px;display:none">Counting starts with the next app release — check back soon.</div>
-</div>
-
-<div class="panel">
-  <h2>Where the community is</h2>
-  <ul class="countries" id="countries"></ul>
-</div>
+<div id="status" style="color:#98A2B3;font-size:14px;display:none"></div>
 
 <div class="panel">
   <h2>Get the apps — free, open source</h2>
@@ -246,71 +232,13 @@ const PAGE_HTML = `<!doctype html>
         return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[m];
       });
     }
-    var days = d.days || [];
-    var el = document.getElementById('empty');
-    if (!days.length) { el.style.display = 'block'; return; }
-
-    // countries (server already suppresses rows under 5 counts on this public feed)
-    var cs = d.countries || [];
-    var maxC = 1;
-    for (var ci = 0; ci < cs.length; ci++) { if (cs[ci].pings > maxC) maxC = cs[ci].pings; }
-    document.getElementById('countries').innerHTML = cs.map(function (c) {
-      var w = Math.max(10, Math.round(240 * c.pings / maxC));
-      return '<li><span class="cc">' + esc(c.country) + '</span>' +
-             '<span class="bar" style="width:' + w + 'px"></span>' +
-             '<span>' + esc(String(c.pings)) + '</span></li>';
-    }).join('');
-
-    var last = days[days.length - 1];
-    var last7 = days.slice(-7);
-    var avg7 = Math.round(last7.reduce(function (a, x) { return a + x.dau; }, 0) / last7.length);
-    var stats = [
-      { n: last.dau, l: 'daily actives (' + last.day + ')' },
-      { n: avg7, l: '7-day average' },
-      { n: d.totals ? d.totals.total_pings : 0, l: 'counts all-time' },
-      { n: d.totals ? d.totals.countries : 0, l: 'countries' }
-    ];
-    document.getElementById('stats').innerHTML = stats.map(function (s) {
-      return '<div class="card"><div class="n">' + esc(String(s.n)) + '</div><div class="l">' + esc(s.l) + '</div></div>';
-    }).join('');
-
-    // ── chart: last 90 days, area + line, zero-based ──
-    var w = 820, h = 220, padL = 34, padR = 8, padT = 14, padB = 22;
-    var data = days.slice(-90);
-    var max = Math.max.apply(null, data.map(function (x) { return x.dau; }));
-    max = Math.max(max, 5);
-    var iw = w - padL - padR, ih = h - padT - padB;
-    var x = function (i) { return padL + (data.length === 1 ? iw / 2 : i * iw / (data.length - 1)); };
-    var y = function (v) { return padT + ih - (v / max) * ih; };
-    var pts = data.map(function (d2, i) { return [x(i), y(d2.dau)]; });
-    var line = pts.map(function (p, i) { return (i ? 'L' : 'M') + p[0].toFixed(1) + ' ' + p[1].toFixed(1); }).join(' ');
-    var area = line + ' L' + pts[pts.length - 1][0].toFixed(1) + ' ' + (padT + ih) +
-               ' L' + pts[0][0].toFixed(1) + ' ' + (padT + ih) + ' Z';
-    var svg = document.getElementById('chart');
-    var grid = '';
-    for (var g = 0; g <= 4; g++) {
-      var gy = padT + ih - (g / 4) * ih;
-      var gv = Math.round((g / 4) * max);
-      grid += '<line x1="' + padL + '" y1="' + gy + '" x2="' + (w - padR) + '" y2="' + gy + '" stroke="#282F3B" stroke-width="1"/>' +
-              '<text x="4" y="' + (gy + 4) + '">' + gv + '</text>';
-    }
-    var lx = (data.length > 1) ? [0, data.length - 1] : [0];
-    var labels = lx.map(function (i) {
-      return '<text x="' + Math.min(Math.max(x(i), padL), w - 60) + '" y="' + (h - 6) + '">' + data[i].day + '</text>';
-    }).join('');
-    var dot = pts[pts.length - 1];
-    svg.innerHTML =
-      '<defs><linearGradient id="fill" x1="0" y1="0" x2="0" y2="1">' +
-      '<stop offset="0" stop-color="#3B82F6" stop-opacity="0.35"/><stop offset="1" stop-color="#3B82F6" stop-opacity="0.02"/>' +
-      '</linearGradient></defs>' +
-      grid +
-      '<path d="' + area + '" fill="url(#fill)"/>' +
-      '<path d="' + line + '" fill="none" stroke="#3B82F6" stroke-width="2" stroke-linejoin="round"/>' +
-      '<circle cx="' + dot[0] + '" cy="' + dot[1] + '" r="4" fill="#F59E0B"/>' +
-      labels;
+    var total = d.totals ? d.totals.total_pings : 0;
+    document.getElementById('stats').innerHTML =
+      '<div class="card"><div class="n">' + esc(String(total)) + '</div><div class="l">counts all-time</div></div>';
   }).catch(function () {
-    document.getElementById('empty').style.display = 'block';
-    document.getElementById('empty').textContent = 'Could not load the count right now — try again in a moment.';
+    var el = document.getElementById('status');
+    el.style.display = 'block';
+    el.textContent = 'Could not load the count right now — try again in a moment.';
   });
 })();
 </script>
