@@ -17,6 +17,50 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.15.4 (2026-11-15)
+================================================================================
+
+# v2026.11.15.4 - Shields Up: the defaultuser0 audit (find it, prune it)
+
+**Windows Setup leaves accounts behind. Now Shields Up finds them.** The
+classic leftover is a disabled bootstrap account named "defaultuser0"
+(OOBE creates it, logs it in once, and never cleans it up when the real
+user arrives). A new "Local Accounts" card on the OS Hardening page
+surfaces these, and offers one Prune button per item.
+
+## The audit finds
+
+- Bootstrap leftovers: accounts matching the defaultuser* pattern - the
+  disabled non-admin ones are informational; an admin-member or an ENABLED
+  one is marked "attention" (a dormant privileged account is the
+  interesting case).
+- Orphaned profiles: a registered profile whose local account no longer
+  exists (attention - stale folders and stale ACLs for nothing).
+- Accounts without a profile: informational, usually never logged into.
+
+## The guard (the honest part)
+
+- Never prunes: the current user, built-ins (Administrator, Guest,
+  DefaultAccount, WDAGUtilityAccount), the service SIDs (S-1-5-18/19/20),
+  loaded profiles, enabled accounts, or anything outside the defaultuser*
+  pattern. The service re-checks the guard at prune time even if the UI
+  state changed under it.
+- Snapshots every prune to account-state.json before deleting anything.
+- Verifies by re-read after the delete: account gone, ProfileList entry
+  gone, folder gone. Failures are listed in the dialog, not swallowed.
+- Quick Scan gains the matching step (same service, same guard); the
+  bridge's get_shieldsup_status gains a read-only "accounts" section -
+  pruning stays in the app, never over the bridge.
+
+## Notes
+
+- The vendored ShieldsUp.Core carries the identical audit; the
+  HardenSelfTest guard matrix (9a-9q) gates it in CI.
+- This automates the judgement call from this week's manual session: on
+  the dev machine defaultuser0 was hand-pruned a day earlier, so the card
+  now reads clean there.
+
+================================================================================
 v2026.11.15.3 (2026-11-15)
 ================================================================================
 
