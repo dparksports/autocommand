@@ -4,7 +4,6 @@ using System.Linq;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
-using System.Windows.Media;
 using System.Windows.Threading;
 
 using AutoCommand.Helpers;
@@ -16,10 +15,12 @@ namespace AutoCommand.Views
     /// <summary>
     /// Cadence tab — DiagTrack's hourly transmit cadence beside the (strictly
     /// opt-in) hourly typing counts, 7 local days × 24 hours, with a
-    /// plain-language correlation verdict. Two hard rules shape this view:
+    /// plain-language correlation verdict. Two presentation rules shape it:
     /// the typing side shows NOTHING until the user's toggle is on (missing
-    /// days render "—" — never zeros implying tracking happened), and the
-    /// verdict is only computed over days that were actually tracked.
+    /// days render "—" — never zeros implying tracking happened), and BOTH
+    /// series are always visible together — the matrix renders each day as
+    /// adjacent K|P columns and the strip chart draws both per hour — there
+    /// is no mode to switch, so the two presentations stay continuous.
     /// </summary>
     public partial class CadenceView : UserControl
     {
@@ -29,15 +30,18 @@ namespace AutoCommand.Views
             public int?[] Keys { get; set; } = new int?[7];
             public int?[] Packets { get; set; } = new int?[7];
             public int?[] Sessions { get; set; } = new int?[7];
+            public string[] Tips { get; set; } = new string[7];
         }
 
         private readonly DispatcherTimer _timer;
         private bool _syncingToggle;
         private List<string> _days = new();
+        private IValueConverter _heat = null!;
 
         public CadenceView()
         {
             InitializeComponent();
+            _heat = (IValueConverter)FindResource("Heat");
 
             IsVisibleChanged += (_, e) =>
             {
@@ -83,16 +87,6 @@ namespace AutoCommand.Views
             Reload();
         }
 
-        private void Mode_Changed(object sender, RoutedEventArgs e)
-        {
-            if (IsLoaded) Reload();
-        }
-
-        private void DayCombo_SelectionChanged(object sender, SelectionChangedEventArgs e)
-        {
-            if (IsLoaded) Reload();
-        }
-
         // ── data ─────────────────────────────────────────────────────────
 
         private void Reload()
@@ -117,20 +111,8 @@ namespace AutoCommand.Views
                     .Select(i => DateTime.Now.Date.AddDays(-6 + i).ToString("yyyy-MM-dd"))
                     .ToList();
 
-                // refresh the day combo without losing the user's selection
-                if (DayCombo.ItemsSource == null ||
-                    !DayCombo.Items.Cast<string>().SequenceEqual(_days))
-                {
-                    var keep = DayCombo.SelectedItem as string;
-                    DayCombo.ItemsSource = _days;
-                    var pick = (keep != null && _days.Contains(keep)) ? keep : _days.Last();
-                    _syncingCombo = true;
-                    DayCombo.SelectedItem = pick;
-                    _syncingCombo = false;
-                }
-
                 BuildMatrix(packets, sessions, covered, keys);
-                RenderChart(packets, keys);
+                BuildStrips(packets, keys);
                 BuildVerdict(packets, covered, keys);
 
                 ScanStatusText.Text = diag.FirstScanComplete
@@ -143,7 +125,7 @@ namespace AutoCommand.Views
             }
         }
 
-        private bool _syncingCombo;
+        // ── matrix: every day renders BOTH series as adjacent K|P columns ─
 
         private void BuildMatrix(
             Dictionary<string, int[]> packets,
@@ -151,9 +133,6 @@ namespace AutoCommand.Views
             HashSet<string> covered,
             Dictionary<string, int[]>? keys)
         {
-            bool keysOn = keys != null;
-            bool keysMode = KeysRadio.IsChecked == true;
-
             var rows = new List<HourRow>();
             for (int h = 0; h < 24; h++)
             {
@@ -171,6 +150,11 @@ namespace AutoCommand.Views
                     // the consent boundary, enforced in the model: without the
                     // toggle the typing side is null ("no data"), never zero
                     row.Keys[d] = keys != null && keys.TryGetValue(day, out var ka) ? ka[h] : (int?)null;
+
+                    row.Tips[d] =
+                        $"keys: {(row.Keys[d] == null ? "not tracked" : row.Keys[d].Value.ToString())}" +
+                        $" · packets: {(row.Packets[d] == null ? "not scanned" : row.Packets[d].Value.ToString())}" +
+                        $" · sessions: {(row.Sessions[d] == null ? "n/a" : row.Sessions[d].Value.ToString())}";
                 }
                 rows.Add(row);
             }
@@ -181,49 +165,61 @@ namespace AutoCommand.Views
                 Header = "hour",
                 Binding = new Binding(nameof(HourRow.Hour)),
                 IsReadOnly = true,
-                Width = 50,
+                Width = 46,
             });
 
-            string modeParam = keysMode ? "keys" : "packets";
+            var star = new DataGridLength(1, DataGridLengthUnitType.Star);
             for (int d = 0; d < _days.Count; d++)
             {
-                string path = keysMode ? $"Keys[{d}]" : $"Packets[{d}]";
-                var tipBinding = new Binding($"Sessions[{d}]")
-                {
-                    StringFormat = "{0} session(s) this hour",
-                    TargetNullValue = "not scanned",
-                };
-
-                var cellStyle = new Style(typeof(DataGridCell));
-                cellStyle.Setters.Add(new Setter(
-                    DataGridCell.BackgroundProperty,
-                    new Binding(path) { Converter = FindResource("Heat") as IValueConverter, ConverterParameter = modeParam }));
-                cellStyle.Setters.Add(new Setter(ToolTipService.ToolTipProperty, tipBinding));
-
-                CadenceGrid.Columns.Add(new DataGridTextColumn
-                {
-                    Header = _days[d].Substring(5),
-                    Binding = new Binding(path) { TargetNullValue = "—" },
-                    IsReadOnly = true,
-                    Width = new DataGridLength(1, DataGridLengthUnitType.Star),
-                    CellStyle = cellStyle,
-                });
+                var dayShort = _days[d].Substring(5);
+                var tip = new Binding($"Tips[{d}]");
+                AddCountColumn("K " + dayShort, $"Keys[{d}]", "keys", tip, star);
+                AddCountColumn("P " + dayShort, $"Packets[{d}]", "packets", tip, star);
             }
 
             CadenceGrid.ItemsSource = rows;
         }
 
-        private void RenderChart(Dictionary<string, int[]> packets, Dictionary<string, int[]>? keys)
+        private void AddCountColumn(
+            string header, string path, string heatMode, Binding tip, DataGridLength width)
         {
-            var day = DayCombo.SelectedItem as string;
-            if (string.IsNullOrEmpty(day)) return;
+            var cellStyle = new Style(typeof(DataGridCell));
+            cellStyle.Setters.Add(new Setter(
+                DataGridCell.BackgroundProperty,
+                new Binding(path) { Converter = _heat, ConverterParameter = heatMode }));
+            cellStyle.Setters.Add(new Setter(ToolTipService.ToolTipProperty, tip));
 
-            bool keysOn = keys != null;
-            var k = keys != null && keys.TryGetValue(day, out var ka) ? ka : new int[24];
-            var p = packets.TryGetValue(day, out var pa) ? pa : new int[24];
-            Chart.SetData($"{day} — gray bar: keys counted · cyan ticks: DiagTrack packets" +
-                          (keysOn ? "" : "  (typing counts are OFF — bars stay flat by choice)"), k, p);
+            CadenceGrid.Columns.Add(new DataGridTextColumn
+            {
+                Header = header,
+                Binding = new Binding(path) { TargetNullValue = "—" },
+                IsReadOnly = true,
+                Width = width,
+                CellStyle = cellStyle,
+            });
         }
+
+        // ── strip chart: one strip per day, both series per hour ─────────
+
+        private void BuildStrips(
+            Dictionary<string, int[]> packets,
+            Dictionary<string, int[]>? keys)
+        {
+            var strips = _days.Select((day, i) => new CadenceDayStrip
+            {
+                Label = day.Substring(5),
+                Keys = keys != null && keys.TryGetValue(day, out var ka) ? ka : new int[24],
+                Packets = packets.TryGetValue(day, out var pa) ? pa : new int[24],
+                IsToday = i == _days.Count - 1,
+            }).ToList();
+
+            Chart.SetStrips(
+                "gray bars = keys counted (opt-in) · cyan ticks = DiagTrack packets · " +
+                "one strip per day, newest last · both series always shown",
+                strips);
+        }
+
+        // ── verdict ──────────────────────────────────────────────────────
 
         private void BuildVerdict(
             Dictionary<string, int[]> packets,
@@ -247,7 +243,7 @@ namespace AutoCommand.Views
 
             var keysAll = CadenceMath.Concat(trackedDays.Select(d => keys[d]));
             var packetsAll = CadenceMath.Concat(trackedDays.Select(d =>
-                packets.TryGetValue(d, out var pa) ? pa : covered.Contains(d) ? new int[24] : new int[24]));
+                packets.TryGetValue(d, out var pa) ? pa : new int[24]));
 
             double? rho = CadenceMath.Spearman(keysAll, packetsAll);
             VerdictText.Text = CadenceMath.Verdict(rho) +

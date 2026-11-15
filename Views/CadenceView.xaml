@@ -39,19 +39,11 @@
             </StackPanel>
         </Border>
 
-        <!-- controls -->
+        <!-- legend: both series are always shown — no mode toggle exists -->
         <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,10,0,6">
-            <TextBlock Text="Matrix:" VerticalAlignment="Center"
-                       Foreground="{DynamicResource TextSecondaryBrush}"/>
-            <RadioButton x:Name="PacketsRadio" Content="DiagTrack packets" GroupName="cadenceMode"
-                         IsChecked="True" Margin="8,0,0,0" VerticalAlignment="Center"
-                         Checked="Mode_Changed"/>
-            <RadioButton x:Name="KeysRadio" Content="Typing counts" GroupName="cadenceMode"
-                         Margin="12,0,0,0" VerticalAlignment="Center" Checked="Mode_Changed"/>
-            <TextBlock Text="chart day:" VerticalAlignment="Center" Margin="18,0,0,0"
-                       Foreground="{DynamicResource TextSecondaryBrush}"/>
-            <ComboBox x:Name="DayCombo" Width="112" Margin="4,0,0,0"
-                      SelectionChanged="DayCombo_SelectionChanged"/>
+            <TextBlock Text="matrix cells — left half: K (typing counts, opt-in) · right half: P (DiagTrack packets); “—” = not tracked · strip chart: gray bars = keys, cyan ticks = packets, one strip per day"
+                       Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" MaxWidth="820"
+                       VerticalAlignment="Center"/>
             <TextBlock x:Name="ScanStatusText" VerticalAlignment="Center" Margin="18,0,0,0"
                        Foreground="{DynamicResource MutedTextBrush}"/>
         </StackPanel>
@@ -60,7 +52,7 @@
         <DataGrid Grid.Row="3" x:Name="CadenceGrid" AutoGenerateColumns="False"
                   IsReadOnly="True" HeadersVisibility="Column"
                   GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="{DynamicResource BorderBrush}"
-                  Background="{DynamicResource SurfaceBrush}" RowHeight="20"
+                  Background="{DynamicResource SurfaceBrush}" RowHeight="24"
                   BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
                   CanUserAddRows="False" CanUserSortColumns="False"/>
 
