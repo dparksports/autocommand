@@ -184,7 +184,15 @@ namespace AutoCommand.Views
             });
 
             var star = new DataGridLength(1, DataGridLengthUnitType.Star);
-            var headerStyle = new Style(typeof(System.Windows.Controls.Primitives.DataGridColumnHeader));
+            // Per-column header style MUST derive from the app's implicit
+            // DataGridColumnHeader style (BasedOn): a bare new Style silently
+            // replaces it, the day headers fall back to the default silver
+            // chrome while inheriting the grid's light TextPrimary foreground,
+            // and the labels turn light-on-light - unreadable.
+            var headerStyle = new Style(typeof(System.Windows.Controls.Primitives.DataGridColumnHeader))
+            {
+                BasedOn = (Style)FindResource(typeof(System.Windows.Controls.Primitives.DataGridColumnHeader))
+            };
             headerStyle.Setters.Add(new Setter(ToolTipService.ToolTipProperty,
                 "left half = your typing counts (opt-in) · right half = DiagTrack packets"));
 
