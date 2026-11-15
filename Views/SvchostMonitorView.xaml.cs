@@ -128,6 +128,15 @@ namespace AutoCommand.Views
             InitializeComponent();
             SvchostGrid.ItemsSource = _uiCollection;
 
+            // the rain toggle lives in this toolbar (next to "Block a
+            // Windows service…") — its label follows the main window's
+            // pane state, synced whenever the tab becomes visible
+            IsVisibleChanged += (_, e) =>
+            {
+                if (e.NewValue is true && Window.GetWindow(this) is MainWindow main)
+                    SyncRainButton(main);
+            };
+
             // Most-recent-first order that keeps itself current: the LastSeen
             // setter raises PropertyChanged on every packet, and live sorting
             // repositions that row at the top. The Remote IP tiebreaker keeps
@@ -796,6 +805,31 @@ namespace AutoCommand.Views
         {
             RefreshIgnoredUi();
             IgnoredListPopup.IsOpen = true;
+        }
+
+        // ── rain toggle: the show/hide-animation button users could not find
+        // on the 22 px rail between the list and the rain — it lives here,
+        // next to "Block a Windows service…", and routes to the main window
+        // which owns the pane state.
+
+        private void RainToggleBtn_Click(object sender, RoutedEventArgs e)
+        {
+            if (Window.GetWindow(this) is MainWindow main)
+            {
+                main.ToggleRain();
+                SyncRainButton(main);
+            }
+        }
+
+        private void SyncRainButton(MainWindow main)
+        {
+            RainToggleBtn.Visibility = main.IsMatrixRainEnabled
+                ? Visibility.Visible
+                : Visibility.Collapsed;
+            RainToggleBtn.Content = main.RainVisible ? "🌧 Hide rain" : "🌧 Show rain";
+            RainToggleBtn.ToolTip = main.RainVisible
+                ? "Hide the Matrix rain — the live connection waterfall beside this list"
+                : "Show the Matrix rain — the live connection waterfall beside this list";
         }
 
         private void RemoveIgnoredBtn_Click(object sender, RoutedEventArgs e)

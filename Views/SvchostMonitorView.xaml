@@ -35,6 +35,13 @@
                         <Style TargetType="Border"><Setter Property="CornerRadius" Value="10"/></Style>
                     </Button.Resources>
                 </Button>
+                <Button x:Name="RainToggleBtn" Click="RainToggleBtn_Click" Margin="12,0,0,0" Padding="10,2" FontSize="11"
+                        Background="{DynamicResource SurfaceBrush}" Foreground="{DynamicResource TextSecondaryBrush}" BorderThickness="0" Cursor="Hand" VerticalAlignment="Center"
+                        ToolTip="Show or hide the Matrix rain — the live connection waterfall beside this list">
+                    <Button.Resources>
+                        <Style TargetType="Border"><Setter Property="CornerRadius" Value="10"/></Style>
+                    </Button.Resources>
+                </Button>
             </StackPanel>
         </Grid>
 

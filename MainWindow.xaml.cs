@@ -102,12 +102,19 @@ namespace AutoCommand
             SavePaneState();
         }
 
-        private void RainToggleBtn_Click(object sender, RoutedEventArgs e)
+        /// <summary>Public rain toggle — the button lives in the Process
+        /// Monitor toolbar (next to "Block a Windows service…"), where it is
+        /// actually visible, instead of a triangle on the 22 px rail.</summary>
+        public void ToggleRain()
         {
             _paneState = _paneState == "grid" ? "both" : "grid";
             ApplyPaneState();
             SavePaneState();
         }
+
+        /// <summary>Whether the rain pane is currently shown (feature on AND
+        /// pane state not "grid") — the toolbar button syncs its label to it.</summary>
+        public bool RainVisible => _matrixRainEnabled && _paneState != "grid";
 
         private void ApplyPaneState()
         {
@@ -121,7 +128,6 @@ namespace AutoCommand
                 RainColumn.Width = new GridLength(0);
                 RainSplitter.Visibility = Visibility.Collapsed;
                 ListToggleBtn.Visibility = Visibility.Collapsed;
-                RainToggleBtn.Visibility = Visibility.Collapsed;
                 MatrixRainTab.Visibility = Visibility.Collapsed;
                 return;
             }
@@ -129,7 +135,6 @@ namespace AutoCommand
             RailColumn.Width = new GridLength(22);
             RainSplitter.Visibility = Visibility.Visible;
             ListToggleBtn.Visibility = Visibility.Visible;
-            RainToggleBtn.Visibility = Visibility.Visible;
 
             bool list = _paneState != "rain";
             bool rain = _paneState != "grid";
@@ -139,14 +144,12 @@ namespace AutoCommand
             RainColumn.Width = rain ? new GridLength(_rainWidth) : new GridLength(0);
             MatrixRainTab.Visibility = rain ? Visibility.Visible : Visibility.Collapsed;
             RainSplitter.IsEnabled = rain;   // dragging must not widen a hidden pane
-            // a triangle disables exactly when its press would hide the
-            // only visible pane
+            // the list triangle disables exactly when its press would hide
+            // the only visible pane; the rain toggle lives in the Process
+            // Monitor toolbar and syncs itself to RainVisible there
             ListToggleBtn.IsEnabled = rain;
-            RainToggleBtn.IsEnabled = list;
             ListToggleBtn.Opacity = rain ? 1.0 : 0.25;
-            RainToggleBtn.Opacity = list ? 1.0 : 0.25;
             ListToggleBtn.ToolTip = rain ? "Hide the process list — rain only" : "Show the process list";
-            RainToggleBtn.ToolTip = list ? "Hide the Matrix rain" : "Show the Matrix rain";
         }
 
         // ── rain pane width: auto-fit vs user-dragged ────────────────────
