@@ -58,7 +58,6 @@ namespace AutoCommand.Services
 
         private bool _loaded;
         private bool _scanning;
-        private bool _instrumentRegistered;
         private bool _initialized;
 
         /// <summary>Raised after any scan pass changed the data.</summary>

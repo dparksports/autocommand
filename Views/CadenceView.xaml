@@ -41,7 +41,7 @@
 
         <!-- legend: both series are always shown — no mode toggle exists -->
         <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,10,0,6">
-            <TextBlock Text="matrix cells — left half: K (typing counts, opt-in) · right half: P (DiagTrack packets); “—” = not tracked · strip chart: gray bars = keys, cyan ticks = packets, one strip per day"
+            <TextBlock Text="matrix — each cell: left = your typing (amber, opt-in) · right = telemetry packets (cyan); heat = volume, “—” = not tracked · strips: gray bars = your typing, cyan ticks = telemetry, one strip per day"
                        Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap" MaxWidth="820"
                        VerticalAlignment="Center"/>
             <TextBlock x:Name="ScanStatusText" VerticalAlignment="Center" Margin="18,0,0,0"

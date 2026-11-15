@@ -36,12 +36,15 @@ namespace AutoCommand.Views
         private readonly DispatcherTimer _timer;
         private bool _syncingToggle;
         private List<string> _days = new();
-        private IValueConverter _heat = null!;
 
         public CadenceView()
         {
             InitializeComponent();
-            _heat = (IValueConverter)FindResource("Heat");
+
+            _timer = new DispatcherTimer(DispatcherPriority.Background)
+            {
+                Interval = TimeSpan.FromSeconds(60),
+            };
 
             IsVisibleChanged += (_, e) =>
             {
@@ -54,11 +57,6 @@ namespace AutoCommand.Views
                 {
                     _timer.Stop();
                 }
-            };
-
-            _timer = new DispatcherTimer(DispatcherPriority.Background)
-            {
-                Interval = TimeSpan.FromSeconds(60),
             };
             _timer.Tick += (_, _) => Reload();
 
@@ -125,7 +123,11 @@ namespace AutoCommand.Views
             }
         }
 
-        // ── matrix: every day renders BOTH series as adjacent K|P columns ─
+        // ── matrix: one column per day, each cell split in half ──────────
+        // left half = typing counts (amber heat, opt-in), right half =
+        // DiagTrack packets (cyan heat) — the day is the whole header, so a
+        // non-technical user reads "left me, right the machine" without
+        // decoding K/P labels.
 
         private void BuildMatrix(
             Dictionary<string, int[]> packets,
@@ -141,62 +143,101 @@ namespace AutoCommand.Views
                 {
                     var day = _days[d];
 
-                    row.Packets[d] = packets.TryGetValue(day, out var pa) ? pa[h]
+                    var k = keys != null && keys.TryGetValue(day, out var ka) ? ka[h] : (int?)null;
+                    var p = packets.TryGetValue(day, out var pa) ? pa[h]
                         : (covered.Contains(day) ? 0 : (int?)null);
-
-                    row.Sessions[d] = sessions.TryGetValue(day, out var sa) ? sa[h]
+                    var s = sessions.TryGetValue(day, out var sa) ? sa[h]
                         : (covered.Contains(day) ? 0 : (int?)null);
 
                     // the consent boundary, enforced in the model: without the
                     // toggle the typing side is null ("no data"), never zero
-                    row.Keys[d] = keys != null && keys.TryGetValue(day, out var ka) ? ka[h] : (int?)null;
+                    row.Keys[d] = k;
+                    row.Packets[d] = p;
+                    row.Sessions[d] = s;
 
                     row.Tips[d] =
-                        $"keys: {(row.Keys[d] == null ? "not tracked" : row.Keys[d].Value.ToString())}" +
-                        $" · packets: {(row.Packets[d] == null ? "not scanned" : row.Packets[d].Value.ToString())}" +
-                        $" · sessions: {(row.Sessions[d] == null ? "n/a" : row.Sessions[d].Value.ToString())}";
+                        $"keys: {(k == null ? "not tracked" : k.Value.ToString())}" +
+                        $" · packets: {(p == null ? "not scanned" : p.Value.ToString())}" +
+                        $" · sessions: {(s == null ? "n/a" : s.Value.ToString())}";
                 }
                 rows.Add(row);
             }
 
             CadenceGrid.Columns.Clear();
+
+            // hour labels: readable by design — wider column, smaller muted
+            // font, so "00h" never clips
+            var hourStyle = new Style(typeof(DataGridCell));
+            hourStyle.Setters.Add(new Setter(
+                System.Windows.Documents.TextElement.FontSizeProperty, 11.0));
+            hourStyle.Setters.Add(new Setter(
+                System.Windows.Documents.TextElement.ForegroundProperty,
+                FindResource("TextSecondaryBrush") as System.Windows.Media.Brush));
+
             CadenceGrid.Columns.Add(new DataGridTextColumn
             {
                 Header = "hour",
                 Binding = new Binding(nameof(HourRow.Hour)),
                 IsReadOnly = true,
-                Width = 46,
+                Width = 54,
+                CellStyle = hourStyle,
             });
 
             var star = new DataGridLength(1, DataGridLengthUnitType.Star);
+            var headerStyle = new Style(typeof(System.Windows.Controls.Primitives.DataGridColumnHeader));
+            headerStyle.Setters.Add(new Setter(ToolTipService.ToolTipProperty,
+                "left half = your typing counts (opt-in) · right half = DiagTrack packets"));
+
             for (int d = 0; d < _days.Count; d++)
             {
-                var dayShort = _days[d].Substring(5);
-                var tip = new Binding($"Tips[{d}]");
-                AddCountColumn("K " + dayShort, $"Keys[{d}]", "keys", tip, star);
-                AddCountColumn("P " + dayShort, $"Packets[{d}]", "packets", tip, star);
+                CadenceGrid.Columns.Add(new DataGridTemplateColumn
+                {
+                    Header = _days[d].Substring(5),
+                    CellTemplate = BuildDualCellTemplate(d),
+                    Width = star,
+                    HeaderStyle = headerStyle,
+                });
             }
 
             CadenceGrid.ItemsSource = rows;
         }
 
-        private void AddCountColumn(
-            string header, string path, string heatMode, Binding tip, DataGridLength width)
+        /// <summary>One day column's dual-half cell, built by parsing plain
+        /// XAML — the bindings are ordinary markup, the heat converter is
+        /// embedded in the template's own resources.</summary>
+        private DataTemplate BuildDualCellTemplate(int d)
         {
-            var cellStyle = new Style(typeof(DataGridCell));
-            cellStyle.Setters.Add(new Setter(
-                DataGridCell.BackgroundProperty,
-                new Binding(path) { Converter = _heat, ConverterParameter = heatMode }));
-            cellStyle.Setters.Add(new Setter(ToolTipService.ToolTipProperty, tip));
+            string keysPath = "Keys[" + d + "]";
+            string packetsPath = "Packets[" + d + "]";
+            string tipsPath = "Tips[" + d + "]";
 
-            CadenceGrid.Columns.Add(new DataGridTextColumn
-            {
-                Header = header,
-                Binding = new Binding(path) { TargetNullValue = "—" },
-                IsReadOnly = true,
-                Width = width,
-                CellStyle = cellStyle,
-            });
+            string xaml =
+                "<DataTemplate xmlns='http://schemas.microsoft.com/winfx/2006/xaml/presentation'\n" +
+                "                xmlns:x='http://schemas.microsoft.com/winfx/2006/xaml'\n" +
+                "                xmlns:conv='clr-namespace:AutoCommand.Converters;assembly=AutoCommand'>\n" +
+                "  <DataTemplate.Resources>\n" +
+                "    <conv:CountToHeatConverter x:Key='Heat'/>\n" +
+                "  </DataTemplate.Resources>\n" +
+                "  <Grid Background='Transparent' ToolTip='{Binding " + tipsPath + "}'>\n" +
+                "    <Grid.ColumnDefinitions>\n" +
+                "      <ColumnDefinition Width='*'/>\n" +
+                "      <ColumnDefinition Width='*'/>\n" +
+                "    </Grid.ColumnDefinitions>\n" +
+                "    <Border Grid.Column='0' Background='{Binding " + keysPath + ", Converter={StaticResource Heat}, ConverterParameter=keys}'\n" +
+                "            BorderBrush='{DynamicResource BorderBrush}' BorderThickness='0,0,0.6,0'>\n" +
+                "      <TextBlock Text='{Binding " + keysPath + ", TargetNullValue=—}' FontSize='10'\n" +
+                "                 HorizontalAlignment='Center' VerticalAlignment='Center'\n" +
+                "                 Foreground='{DynamicResource TextPrimaryBrush}'/>\n" +
+                "    </Border>\n" +
+                "    <Border Grid.Column='1' Background='{Binding " + packetsPath + ", Converter={StaticResource Heat}, ConverterParameter=packets}'>\n" +
+                "      <TextBlock Text='{Binding " + packetsPath + ", TargetNullValue=—}' FontSize='10'\n" +
+                "                 HorizontalAlignment='Center' VerticalAlignment='Center'\n" +
+                "                 Foreground='{DynamicResource TextPrimaryBrush}'/>\n" +
+                "    </Border>\n" +
+                "  </Grid>\n" +
+                "</DataTemplate>";
+
+            return (DataTemplate)System.Windows.Markup.XamlReader.Parse(xaml);
         }
 
         // ── strip chart: one strip per day, both series per hour ─────────

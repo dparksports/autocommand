@@ -309,7 +309,7 @@ namespace AutoCommand.Services
             try
             {
                 using var k = Microsoft.Win32.Registry.CurrentUser.OpenSubKey(RegKey);
-                return (string)k?.GetValue("Consent") ?? "ask";
+                return k?.GetValue("Consent") as string ?? "ask";
             }
             catch { return "ask"; }
         }
