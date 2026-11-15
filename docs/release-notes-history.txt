@@ -17,6 +17,27 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.14.4 (2026-11-14)
+================================================================================
+
+# v2026.11.14.4 — GitHub CI parses again: the strict-suites gate actually runs
+
+Since `0587a0a` (2026-11-12) every **ci** workflow run on master failed before
+running a single suite: wiring `'tests/WatchSelfTest'` into the `$suites`
+array left a trailing comma as the last element, and pwsh rejects trailing
+commas in array literals — the "Offline suites (strict)" step died at *parse*
+time ("Missing expression after ','"), so the red runs meant **"never ran",
+not "a suite failed"**. No release was affected: the tag workflow carries no
+such step and stayed green, and the desk gate `scripts/local-ci.ps1` — the
+source of truth the yml mirrors — always carried the list without the comma.
+
+- One character: the comma is gone; the array now matches `local-ci.ps1`
+  verbatim. The first real suite battery since Nov 12 runs on every push.
+- No application code changed in this release — behavior is identical to
+  v2026.11.14.3; the version rides a tagged build so the fix ships with a
+  release.
+
+================================================================================
 v2026.11.14.3 (2026-11-14)
 ================================================================================
 
