@@ -7,7 +7,9 @@ using System.Text.RegularExpressions;
 
 namespace AutoCommand.Contain.Core
 {
-    /// <summary>One parsed blocks-events.log line: utc|action|kind|key|detail|origin.</summary>
+    /// <summary>One parsed ledger line: utc|action|kind|key|detail|origin —
+    /// the shared format of blocks-events.log and the Process Monitor's
+    /// ignored_processes-events.log.</summary>
     public class AuditEvent
     {
         public DateTime TimeUtc;
@@ -175,14 +177,16 @@ namespace AutoCommand.Contain.Core
                 or "update-opened" or "update-restored" or "dedup-retired" => "fleet",
             "paused" or "resumed" or "rule-toggled" => "pause",
             "created" or "removed" or "attributed" => "auto",
+            "ignored" or "unignored" or "ignore-imported" => "ignore",
             _ => "external"      // external-modified and anything the OS feed adds later
         };
 
         public static string SeverityOf(string action, string detail) => action switch
         {
             "created" => "routine",
-            "removed" or "attributed" or "resumed" => "routine",
+            "removed" or "attributed" or "resumed" or "unignored" => "routine",
             "paused" or "rule-toggled" => "info",
+            "ignored" or "ignore-imported" => "info",   // deliberate, reversible — same tier as a pause
             "fleet-disabled" or "fleet-enabled" or "consolidated" => "resolved",
             "update-opened" or "update-restored" => "resolved",
             "dedup-retired" => "resolved",
@@ -208,6 +212,7 @@ namespace AutoCommand.Contain.Core
             "undo" => "you · undo",
             "mcp" => "AI session · gate",
             "update-mode" => "you · Windows Update",
+            "pre-audit" => "unknown · before tracking",
             _ => origin.Length == 0 ? "unknown" : origin
         };
 
@@ -277,6 +282,23 @@ namespace AutoCommand.Contain.Core
                 case "rule-toggled":
                     var e = inc.Events[0];
                     return $"You toggled a rule by hand in the Firewall tab — {e.Key} switched {(e.Detail == "enabled" ? "ON" : "OFF")}";
+
+                case "ignored":
+                    return inc.Count == 1
+                        ? $"{TargetName(inc.Events[0])} was added to the process ignore list — its connections are no longer listed"
+                        : $"{inc.Count} processes were added to the ignore list over {SpanWords(inc)}";
+
+                case "unignored":
+                    return inc.Count == 1
+                        ? $"{TargetName(inc.Events[0])} was removed from the ignore list — it will be listed again"
+                        : $"{inc.Count} processes were removed from the ignore list over {SpanWords(inc)}";
+
+                case "ignore-imported":
+                    // pre-existing entries the trail has no history for —
+                    // the sentence IS the answer to "when was this added?"
+                    return inc.Count == 1
+                        ? $"{TargetName(inc.Events[0])} was already on the ignore list before tracking began — no record of when or by whom"
+                        : $"{inc.Count} processes were already on the ignore list before tracking began (no record of when or by whom)";
 
                 default:
                     return $"Something outside AutoCommand changed {Noun(inc.Count, "block rule")} — {inc.Events[0].Detail}";

@@ -372,6 +372,56 @@ Check("audit: update actor names the tab, not a mystery",
       AuditTrail.ActorFor("update-mode") == "you · Windows Update",
       AuditTrail.ActorFor("update-mode"));
 
+// ignore-list trail — the Process Monitor's ignored_processes-events.log
+// rides the same pipe format, so add/remove/import classify, group and
+// narrate like every other ledger action (the "ignore" category the Audit
+// tab's category filter gained).
+var igT0 = auditT0.AddSeconds(3000);
+
+// a lone add names its target; a burst counts instead
+var igOne = AuditTrail.BuildIncidents(new[]
+{
+    AuditTrail.ParseLine($"{igT0:O}|ignored|proc|svchost.exe|persisted|monitor")
+});
+Check("audit: lone ignore add is 'ignore' category, info severity",
+      igOne.Count == 1 && igOne[0].Category == "ignore" && igOne[0].Severity == "info",
+      igOne.Count == 1 ? $"{igOne[0].Category}/{igOne[0].Severity}" : $"{igOne.Count}");
+Check("audit: lone ignore add sentence names the target and the list",
+      igOne.Count == 1 && igOne[0].Sentence.Contains("svchost.exe") &&
+      igOne[0].Sentence.Contains("ignore list"),
+      igOne.Count == 1 ? igOne[0].Sentence : "");
+
+var igLines = new[]
+{
+    $"{igT0:O}|ignored|proc|svchost.exe|persisted|monitor",
+    $"{igT0.AddSeconds(5):O}|ignored|proc|chrome.exe|persisted|monitor",
+    $"{igT0.AddSeconds(10):O}|ignore-imported|proc|svchost.exe|pre-existing|pre-audit",
+};
+var igInc = AuditTrail.BuildIncidents(igLines.Select(AuditTrail.ParseLine).Where(e => e != null));
+Check("audit: grouped ignore adds + import make two incidents",
+      igInc.Count == 2, $"{igInc.Count}");
+var igAdd = igInc[0];
+Check("audit: ignore add burst counts processes in the sentence",
+      igAdd.Category == "ignore" && igAdd.Severity == "info" && igAdd.Count == 2 &&
+      igAdd.Sentence.Contains("2 processes"),
+      igAdd.Sentence);
+var igImport = igInc[1];
+Check("audit: import marker says nothing was recorded",
+      igImport.Sentence.Contains("before tracking began") &&
+      igImport.Sentence.Contains("no record"),
+      igImport.Sentence);
+Check("audit: pre-audit actor maps to 'unknown · before tracking'",
+      AuditTrail.ActorFor("pre-audit") == "unknown · before tracking",
+      AuditTrail.ActorFor("pre-audit"));
+var igUn = AuditTrail.BuildIncidents(new[]
+{
+    AuditTrail.ParseLine($"{igT0.AddSeconds(20):O}|unignored|proc|chrome.exe|persisted|monitor")
+});
+Check("audit: unignored is routine and reads as a restore",
+      igUn.Count == 1 && igUn[0].Severity == "routine" &&
+      igUn[0].Sentence.Contains("listed again"),
+      igUn.Count == 1 ? igUn[0].Sentence : "");
+
 Check("audit: every incident has a day header", incidents.All(i => i.DayHeader.Length > 0));
 string auditMarker = Path.Combine(Path.GetTempPath(), "audit-seen-" + Guid.NewGuid().ToString("N"));
 try

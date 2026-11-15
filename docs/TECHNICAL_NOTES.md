@@ -188,6 +188,7 @@ Process Monitor, where it can be blocked like any other destination.
 | `C:\ProgramData\AutoCommand\onesettings-cadence\audit.jsonl` | OneSettingsCadence CLI — audit trail: every change with old→new values and the backup filename |
 | `<app>\blocked.txt` | Firewall blocks created from the monitors |
 | `<app>\ignored_processes.txt` | Process Monitor ignore list |
+| `<app>\ignored_processes-events.log` | Process Monitor ignore-list audit trail — one line per add/remove, plus one-time `ignore-imported` markers for entries that predate tracking (same pipe format as `blocks-events.log`; surfaced in the Audit tab and the monitor's ignore popup) |
 | `<app>\ultimate_autopilot_stats.csv` | Hourly connection-stats export |
 | `<app>\check_interval.txt` | Security Enforcer cadence |
 | `<app>\update_freeze.json` + `freeze_backups\` | Frozen self-updaters and their ACL snapshots |

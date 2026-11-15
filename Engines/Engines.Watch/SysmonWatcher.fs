@@ -100,6 +100,60 @@ type SysmonWatcherService(trackedIps: ConcurrentDictionary<string, SvchostMonito
     static let ignoredProcessesPath () =
         Path.Combine(WatchConfig.Identity.DataRoot, "ignored_processes.txt")
 
+    // Append-only audit trail for the ignore list itself — same 6-field
+    // pipe format as blocks-events.log (utc|action|kind|key|detail|origin),
+    // so AuditTrail (Contain.Core) parses it unchanged. Actions: "ignored"
+    // (added), "unignored" (removed), "ignore-imported" (an entry already
+    // on the list when tracking began — nothing recorded when or by whom
+    // it arrived, and this marker says so once).
+    static let ignoredEventsPath () =
+        Path.Combine(WatchConfig.Identity.DataRoot, "ignored_processes-events.log")
+
+    static let trailLock = obj ()
+
+    // Fields must not carry the delimiter; process names cannot contain
+    // '|' on Windows, but hand-edited state files can hold anything.
+    static let sanitizeTrailField (value: string) =
+        let v = if isNull value then String.Empty else value
+        v.Replace("|", " ").Trim()
+
+    // Direct write, not BufferedAppender: ignore mutations are user-paced
+    // and rare, the state file they describe is already written directly,
+    // and read-your-write matters — the ignore popup and the Audit tab read
+    // this trail right after a click. A crash window where the state file
+    // gained the entry but the trail did not would mis-mark it
+    // "ignore-imported" on the next startup.
+    static let appendIgnoreEvent (action: string) (key: string) (detail: string) (origin: string) =
+        try
+            lock trailLock (fun () ->
+                Directory.CreateDirectory(Path.GetDirectoryName(ignoredEventsPath ())) |> ignore
+
+                let line =
+                    sprintf "%s|%s|proc|%s|%s|%s"
+                        (DateTime.UtcNow.ToString("O", CultureInfo.InvariantCulture))
+                        (sanitizeTrailField action)
+                        (sanitizeTrailField key)
+                        (sanitizeTrailField detail)
+                        (sanitizeTrailField origin)
+
+                File.AppendAllText(ignoredEventsPath (), line + Environment.NewLine))
+        with _ ->
+            () // the trail must never break the list operation
+
+    // Keys that already have an event in the trail — the ctor load uses
+    // this to mark pre-existing entries exactly once (a missing or
+    // unreadable trail simply means nothing has been recorded yet).
+    static let loadTrailKeys () =
+        let keys = HashSet<string>(StringComparer.OrdinalIgnoreCase)
+        try
+            for line in File.ReadAllLines(ignoredEventsPath ()) do
+                let f = line.Split('|')
+                if f.Length >= 4 && f.[2] = "proc" && f.[3].Length > 0 then
+                    keys.Add f.[3] |> ignore
+        with _ ->
+            ()
+        keys
+
     static let normalizeProcessName (processName: string) =
         if String.IsNullOrWhiteSpace processName then
             String.Empty
@@ -236,6 +290,9 @@ type SysmonWatcherService(trackedIps: ConcurrentDictionary<string, SvchostMonito
 
     // ── instance helpers ─────────────────────────────────────────────
 
+    // Returns whether the state file write succeeded — the audit trail
+    // records "memory-only" when it did not, so the trail never claims a
+    // persistence that did not happen.
     let saveIgnoredProcesses () =
         try
             Directory.CreateDirectory(Path.GetDirectoryName(ignoredProcessesPath ())) |> ignore
@@ -245,9 +302,10 @@ type SysmonWatcherService(trackedIps: ConcurrentDictionary<string, SvchostMonito
                 ignoredProcesses
                 |> Seq.sortWith (fun a b -> StringComparer.OrdinalIgnoreCase.Compare(a, b))
             )
+            true
         with _ ->
             // persistence is best-effort — filtering still works without it
-            ()
+            false
 
     // F# port: C#'s ctor called LoadIgnoredProcesses, which called the
     // instance AddIgnoredProcess per line (so a pre-normalized file is
@@ -256,7 +314,11 @@ type SysmonWatcherService(trackedIps: ConcurrentDictionary<string, SvchostMonito
     // "accessed recursively before fully initialized", silently swallowed
     // by the catch — verified), so the add logic is a let-bound function
     // the ctor and the member share — same calls, same order.
-    let addIgnoredProcessCore (processName: string) =
+    // `record=false` for the ctor load: a startup load is not a change —
+    // recording one "ignored" event per entry per launch would drown the
+    // trail; the load's provenance lives in the one-time "ignore-imported"
+    // markers the ctor emits below for entries the trail has never seen.
+    let addIgnoredProcessCore (processName: string) (origin: string) (record: bool) =
         let normalized = normalizeProcessName processName
 
         if normalized.Length = 0 then ()
@@ -266,12 +328,31 @@ type SysmonWatcherService(trackedIps: ConcurrentDictionary<string, SvchostMonito
         then ()
         else
             ignoredProcesses.Add normalized
-            saveIgnoredProcesses ()
+            let persisted = saveIgnoredProcesses ()
+
+            if record then
+                appendIgnoreEvent "ignored" normalized
+                    (if persisted then "persisted" else "memory-only") origin
 
     do
         try
-            for line in File.ReadAllLines(ignoredProcessesPath ()) do
-                addIgnoredProcessCore line
+            // Pre-existing entries the trail has never recorded (hand edits,
+            // older builds, anything from before this trail existed) get one
+            // "ignore-imported" marker: the honest answer to "when was this
+            // added?" is "before tracking began, by an unrecorded path".
+            // Emitted before the load so a crash mid-load still leaves the
+            // marker — the next startup's key scan finds it and skips.
+            let known = loadTrailKeys ()
+            let lines = File.ReadAllLines(ignoredProcessesPath ())
+
+            for line in lines do
+                let normalized = normalizeProcessName line
+
+                if normalized.Length > 0 && not (known.Contains normalized) then
+                    appendIgnoreEvent "ignore-imported" normalized "pre-existing" "pre-audit"
+
+            for line in lines do
+                addIgnoredProcessCore line "pre-audit" false
         with _ ->
             // first run or unreadable file — start with an empty ignore list
             ()
@@ -318,12 +399,30 @@ type SysmonWatcherService(trackedIps: ConcurrentDictionary<string, SvchostMonito
         ignoredProcesses.ToArray() :> IReadOnlyCollection<string>
 
     /// <summary>
+    /// Path of the append-only ignore-list audit trail (same 6-field pipe
+    /// format as blocks-events.log) — the Audit tab and the Process
+    /// Monitor's ignore popup read it to show when and by whom an entry
+    /// was added or removed.
+    /// </summary>
+    static member IgnoredEventsLogPath: string = ignoredEventsPath ()
+
+    /// <summary>
     /// Adds a process to the ignore list: its connections will no longer
     /// create list entries. The ".exe" suffix is added when missing.
+    /// Overloads (not ?-optional params) so C# callers see plain strings:
+    /// `origin` lands in the audit trail's origin field ("monitor" = the
+    /// Process Monitor UI; a future bridge tool would pass "mcp").
     /// </summary>
-    member _.AddIgnoredProcess(processName: string) = addIgnoredProcessCore processName
+    member _.AddIgnoredProcess(processName: string) =
+        addIgnoredProcessCore processName "monitor" true
 
-    member _.RemoveIgnoredProcess(processName: string) =
+    member _.AddIgnoredProcess(processName: string, origin: string) =
+        addIgnoredProcessCore processName origin true
+
+    member this.RemoveIgnoredProcess(processName: string) =
+        this.RemoveIgnoredProcess(processName, "monitor")
+
+    member _.RemoveIgnoredProcess(processName: string, origin: string) =
         let normalized = normalizeProcessName processName
         if normalized.Length = 0 then ()
         else
@@ -347,7 +446,10 @@ type SysmonWatcherService(trackedIps: ConcurrentDictionary<string, SvchostMonito
                 for p in remaining do
                     ignoredProcesses.Add p
 
-                saveIgnoredProcesses ()
+                let persisted = saveIgnoredProcesses ()
+
+                appendIgnoreEvent "unignored" normalized
+                    (if persisted then "persisted" else "memory-only") origin
 
     /// <summary>True when the given process name (or full image path) is ignored.</summary>
     member _.IsProcessIgnored(processName: string) =

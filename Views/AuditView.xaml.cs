@@ -1,7 +1,9 @@
-// 🧾 Audit tab — the readable surface over blocks-events.log. Everything
-// else in the app WRITES that trail; this tab answers, in one sentence per
-// incident, the only questions a returning user actually has: "what
-// happened to my blocks while I wasn't looking, and does anything need me?"
+// 🧾 Audit tab — the readable surface over the app's append-only event
+// trails: blocks-events.log plus the Process Monitor's
+// ignored_processes-events.log. Everything else in the app WRITES those
+// trails; this tab answers, in one sentence per incident, the only
+// questions a returning user actually has: "what happened to my blocks
+// while I wasn't looking, and does anything need me?"
 //
 // Design contract (matches the Blocks digest, not the raw log):
 //   · incidents, not lines — AuditTrail collapses bursts into sentences
@@ -50,6 +52,9 @@ namespace AutoCommand.Views
                     "fleet-enabled" => "blocks re-enabled",
                     "consolidated" => "legacy rules consolidated",
                     "rule-toggled" => $"rule switched {e.Detail}",
+                    "ignored" => "added to process ignore list",
+                    "unignored" => "removed from process ignore list",
+                    "ignore-imported" => "already on ignore list (untracked)",
                     _ => e.Action
                 };
                 Target = e.Kind == "proc" && e.Key.Contains('\\')
@@ -71,7 +76,7 @@ namespace AutoCommand.Views
 
             TimeCombo.ItemsSource = new[] { "Since last visit", "24 hours", "7 days", "All" };
             TimeCombo.SelectedIndex = 0;
-            CatCombo.ItemsSource = new[] { "All changes", "Fleet", "Pauses & manual", "External", "Auto-blocks" };
+            CatCombo.ItemsSource = new[] { "All changes", "Fleet", "Pauses & manual", "External", "Auto-blocks", "Ignore list" };
             CatCombo.SelectedIndex = 0;
 
             var view = CollectionViewSource.GetDefaultView(_incidents);
@@ -91,6 +96,12 @@ namespace AutoCommand.Views
             _firstVisit = _lastSeenUtc == DateTime.MinValue;
 
             _events = AuditTrail.ReadEvents(logPath);
+            // The Process Monitor's ignore-list trail uses the same pipe
+            // format — merge it in so ignore changes surface here with
+            // everything else, not only block events.
+            _events.AddRange(AuditTrail.ReadEvents(
+                AutoCommand.Engines.Watch.SysmonWatcherService.IgnoredEventsLogPath));
+            _events.Sort((a, b) => a.TimeUtc.CompareTo(b.TimeUtc));
             _all = AuditTrail.BuildIncidents(_events);
             _all.Reverse();   // newest day first
 
@@ -118,6 +129,7 @@ namespace AutoCommand.Views
             2 => "pause",
             3 => "external",
             4 => "auto",
+            5 => "ignore",
             _ => "all"
         };
 

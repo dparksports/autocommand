@@ -800,9 +800,9 @@ namespace AutoCommand.Views
 
         private void RemoveIgnoredBtn_Click(object sender, RoutedEventArgs e)
         {
-            if (IgnoredListBox.SelectedItem is string name)
+            if (IgnoredListBox.SelectedItem is IgnoreItem item)
             {
-                _sysmonService.RemoveIgnoredProcess(name);
+                _sysmonService.RemoveIgnoredProcess(item.Name);
                 RefreshIgnoredUi();
             }
         }
@@ -828,11 +828,65 @@ namespace AutoCommand.Views
             }
         }
 
+        /// <summary>
+        /// One row of the ignore popup: the process name plus its trail
+        /// provenance ("added 11/2 7:14 PM · Process Monitor"). The list
+        /// renders ToString(); removal goes through Name so the decorated
+        /// text never reaches the engine.
+        /// </summary>
+        private class IgnoreItem
+        {
+            public string Name { get; }
+            public string Provenance { get; }
+
+            public IgnoreItem(string name, string provenance)
+            {
+                Name = name;
+                Provenance = provenance ?? "";
+            }
+
+            public override string ToString() =>
+                Provenance.Length > 0 ? $"{Name}  ({Provenance})" : Name;
+        }
+
+        /// <summary>
+        /// Provenance for one ignore-list entry, from the append-only trail
+        /// (ignored_processes-events.log): the newest add-side event for the
+        /// key. Removals are skipped — an entry shown here IS on the list,
+        /// so "when/by whom was it last added" is the question this answers;
+        /// a key the trail has never seen (hand edit mid-run) shows plain.
+        /// </summary>
+        private string IgnoreProvenance(string name)
+        {
+            try
+            {
+                AuditEvent newest = null;
+                foreach (var e in AuditTrail.ReadEvents(
+                    AutoCommand.Engines.Watch.SysmonWatcherService.IgnoredEventsLogPath))
+                {
+                    if ((e.Action != "ignored" && e.Action != "ignore-imported") ||
+                        !string.Equals(e.Key, name, StringComparison.OrdinalIgnoreCase)) continue;
+                    if (newest == null || e.TimeUtc > newest.TimeUtc) newest = e;
+                }
+
+                if (newest == null) return "";
+                if (newest.Action == "ignore-imported") return "already on the list before tracking began";
+                return $"added {newest.TimeUtc.ToLocalTime():M/d h:mm tt} · {AuditTrail.ActorFor(newest.Origin)}";
+            }
+            catch
+            {
+                return "";   // an unreadable trail must not break the popup
+            }
+        }
+
         private void RefreshIgnoredUi()
         {
             var ignored = _sysmonService.IgnoredProcesses;
             IgnoredListBtn.Content = $"Ignored: {ignored.Count}";
-            IgnoredListBox.ItemsSource = ignored.OrderBy(n => n, StringComparer.OrdinalIgnoreCase).ToList();
+            IgnoredListBox.ItemsSource = ignored
+                .OrderBy(n => n, StringComparer.OrdinalIgnoreCase)
+                .Select(n => new IgnoreItem(n, IgnoreProvenance(n)))
+                .ToList();
         }
 
         private void SvchostGrid_PreviewMouseRightButtonDown(object sender, MouseButtonEventArgs e)
