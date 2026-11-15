@@ -79,7 +79,7 @@ jobs:
             'tests/WslSelfTest',
             'tests/StartupHealthSelfTest',
             'tests/AllowListSelfTest',
-            'tests/WatchSelfTest',
+            'tests/WatchSelfTest'
           )
           foreach ($s in $suites) {
             Write-Host "== $s =="
