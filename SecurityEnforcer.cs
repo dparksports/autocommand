@@ -749,7 +749,7 @@ namespace AutoCommand
         /// </summary>
         public void MitigateAdapter(string adapterFriendlyName)
         {
-            Task.Run(() =>
+            _ = Task.Run(() =>
             {
                 try
                 {

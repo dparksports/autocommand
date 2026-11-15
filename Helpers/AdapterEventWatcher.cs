@@ -33,7 +33,7 @@ namespace AutoCommand.Helpers
         public void Start()
         {
             if (_disposed) return;
-            Task.Run(() =>
+            _ = Task.Run(() =>
             {
                 try { StartInternal(); }
                 catch (Exception ex) { Debug.WriteLine($"AdapterEventWatcher.Start error: {ex.Message}"); }

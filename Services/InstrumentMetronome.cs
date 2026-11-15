@@ -72,7 +72,6 @@ namespace AutoCommand.Services
             new(StringComparer.OrdinalIgnoreCase);
         private readonly object _gate = new();
         private CancellationTokenSource? _cts;
-        private Task? _loop;
         private bool _running;
         private DateTime _lastHeavyStartUtc = DateTime.MinValue;
 
@@ -201,7 +200,7 @@ namespace AutoCommand.Services
                 if (_running) return;
                 _running = true;
                 _cts = new CancellationTokenSource();
-                _loop = Task.Run(() => LoopAsync(_cts.Token));
+                _ = Task.Run(() => LoopAsync(_cts.Token));
             }
         }
 

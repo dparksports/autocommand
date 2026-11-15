@@ -72,11 +72,11 @@ namespace AutoCommand.Agent.Core
                 SysmonArchiveService.Appended += OnAppended;
                 Prune(); // catch up on compression/pruning this launch skipped
                 _lastPruneDayUtc = DateTime.UtcNow.Date;
-                Task.Run(() =>
+                _ = Task.Run(() =>
                 {
                     try { ReplayRecent(); } catch { /* replay is best-effort */ }
                 });
-                Task.Run(ConsumeLoop);
+                _ = Task.Run(ConsumeLoop);
             }
         }
 

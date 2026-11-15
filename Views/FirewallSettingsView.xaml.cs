@@ -40,6 +40,7 @@ namespace AutoCommand.Views
 
         private async Task UpdateBaselineStatusAsync()
         {
+            await Task.CompletedTask; // no awaitable work yet — the async shape keeps callers uniform
             var info = FirewallBaselineManager.BaselineInfo;
             if (FirewallBaselineManager.IsPaused)
             {
