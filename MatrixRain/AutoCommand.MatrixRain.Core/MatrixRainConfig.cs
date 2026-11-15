@@ -64,6 +64,22 @@ namespace AutoCommand.Matrix
         /// heavy traffic so a busy PID streams instead of solidifying.</summary>
         public double LettersPerTransmit { get; set; } = 1.0;
 
+        /// <summary>Drops carry MASS from their bytes-per-packet ratio:
+        /// a heavy drop carves a longer, brighter wake and falls a little
+        /// faster. Separates "few huge sends" (offloaded bulk — rare long
+        /// freight drops) from "many tiny sends" (beacons — constant
+        /// drizzle), which packet count alone makes look identical. Off =
+        /// the count-only look. Count still owns spawn frequency.</summary>
+        public bool VolumeMass { get; set; } = true;
+
+        /// <summary>Avg bytes/packet at or below which every drop is
+        /// drizzle (mass 0 — keepalives and telemetry frames).</summary>
+        public double MassDrizzleKbPerPacket { get; set; } = 1.2;
+
+        /// <summary>Avg bytes/packet at or above which drops are full
+        /// mass (coalesced/offloaded bulk sends).</summary>
+        public double MassFreightKbPerPacket { get; set; } = 18.0;
+
         /// <summary>Cap on rain columns; the stalest PIDs drop out first.</summary>
         public int MaxColumns { get; set; } = 9;
 
@@ -198,6 +214,9 @@ namespace AutoCommand.Matrix
                     ["// fontFile"] = "optional absolute path to a .ttf/.otf — overrides fontFamily",
                     ["// charset"] = "katakana (default - no roman letters or digits, a field foreign to humankind) | katakana-latin | latin | digits - or a literal set of characters",
                     ["// lettersPerTransmit"] = "falling letters per TX packet (auto-scales down under load)",
+                    ["// volumeMass"] = "drops carry mass from their bytes-per-packet: drizzle (short trail) to freight (long bright wake, slightly faster fall) - bulk sends and beacons read differently at a glance; count still owns spawn frequency",
+                    ["// massDrizzleKbPerPacket"] = "avg bytes/packet at or below which drops are drizzle (mass 0)",
+                    ["// massFreightKbPerPacket"] = "avg bytes/packet at or above which drops are freight (full mass)",
                     ["// maxColumns"] = "the pane carries exactly one column per alive process, hard-capped below ten",
                     ["// colors"] = "any #RRGGBB — head/trail/blocked/blockedHead/label/rx/ambient",
                     ["// ambient"] = "dim backdrop field behind the rain, frozen by default (ambientDriftSeconds 0 = the background never changes on its own; only falling wakes etch into it)",
@@ -238,6 +257,10 @@ namespace AutoCommand.Matrix
             Opacity = Math.Clamp(Opacity, 0.30, 1.0);
             FontSizePx = Math.Clamp(FontSizePx, 9, 48);
             LettersPerTransmit = Math.Clamp(LettersPerTransmit, 0.05, 20.0);
+            MassDrizzleKbPerPacket = Math.Clamp(MassDrizzleKbPerPacket, 0.05, 1024.0);
+            // freight must stay meaningfully above drizzle, or the tiers collapse
+            MassFreightKbPerPacket = Math.Clamp(
+                Math.Max(MassFreightKbPerPacket, MassDrizzleKbPerPacket * 2), 1.0, 65536.0);
             // one column per alive process, never ten or more
             MaxColumns = Math.Clamp(MaxColumns, 1, 9);
             BlockPollSeconds = Math.Clamp(BlockPollSeconds, 10, 3600);

@@ -35,7 +35,10 @@ namespace RainSelfTest
                 _blockedAttempts = (_tick % 20 == 0) ? 1 : 0;  // retry pulse
                 Latest = new List<PidSnapshot>
                 {
-                    new PidSnapshot { Pid = 2044, Name = "busy.exe",   TxPackets = _busyTx, TxBytes = _busyTx * 400, Connections = 2 },
+                    // 4 KB/pkt lands busy.exe mid-mass-scale (between the
+                    // drizzle and freight thresholds) — the visual harness
+                    // actually exercises weighted drops, not just drizzle.
+                    new PidSnapshot { Pid = 2044, Name = "busy.exe",   TxPackets = _busyTx, TxBytes = _busyTx * 4000, Connections = 2 },
                     new PidSnapshot { Pid = 4070, Name = "slow.exe",   TxPackets = _slowTx, Connections = 1 },
                     new PidSnapshot { Pid = 9021, Name = "blocked.exe", Blocked = true, Attempts = _blockedAttempts, Connections = 1 },
                 };
@@ -128,8 +131,35 @@ namespace RainSelfTest
     internal static class Program
     {
         [STAThread]
-        private static void Main()
+        private static int Main(string[] args)
         {
+            // Offline checks of the volume-mass curve (pure math, no UI):
+            // the rain's mass tiering depends on these boundaries holding.
+            string massLog = System.IO.Path.Combine(System.IO.Path.GetTempPath(), "rainselftest.log");
+            double driz = 1.2 * 1024, freight = 18.0 * 1024;
+            int massFails = 0;
+            void MassCheck(string name, bool ok)
+            {
+                string line = $"{(ok ? "PASS" : "FAIL")}  mass: {name}";
+                Console.WriteLine(line);
+                System.IO.File.AppendAllText(massLog, line + "\n");
+                if (!ok) massFails++;
+            }
+            MassCheck("at/below drizzle is mass 0",
+                MatrixRenderer.MassFromAvgBytes(0, driz, freight) == 0 &&
+                MatrixRenderer.MassFromAvgBytes(driz, driz, freight) == 0);
+            MassCheck("at/above freight is mass 1",
+                MatrixRenderer.MassFromAvgBytes(freight, driz, freight) == 1 &&
+                MatrixRenderer.MassFromAvgBytes(1 << 20, driz, freight) == 1);
+            MassCheck("log-linear midpoint lands at 0.5",
+                Math.Abs(MatrixRenderer.MassFromAvgBytes(Math.Sqrt(driz * freight), driz, freight) - 0.5) < 1e-9);
+            MassCheck("MSS-range packet lands mid-scale (0 < m < 0.5)",
+                MatrixRenderer.MassFromAvgBytes(1460, driz, freight) is > 0 and < 0.5);
+            if (massFails > 0)
+                System.IO.File.AppendAllText(massLog, $"!!! MASS CHECKS FAILED: {massFails}\n");
+            // --mass-checks: headless run — the checks above, no window
+            if (args.Contains("--mass-checks")) return massFails == 0 ? 0 : 1;
+
             var app = new Application();
             var tabs = new TabControl();
             var gridTab = new TabItem { Header = "grid (dummy)" };
@@ -176,6 +206,7 @@ namespace RainSelfTest
             back.Start();
 
             app.Run(win);
+            return 0;
         }
     }
 }

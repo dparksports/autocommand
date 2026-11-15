@@ -174,6 +174,7 @@ namespace AutoCommand.Views
                 $"{_feed.LastConversationCount} conversations · {_feed.LastPidCount} pids · " +
                 $"{_renderer.LiveColumns} columns · {_renderer.LastFps:0} fps" +
                 (string.IsNullOrEmpty(_renderer.LabelLegend) ? "" : $"   {_renderer.LabelLegend}") +
+                (string.IsNullOrEmpty(_renderer.MassLegend) ? "" : $"   {_renderer.MassLegend}") +
                 "   (right-click to configure)";
         }
 
@@ -181,9 +182,10 @@ namespace AutoCommand.Views
         // The animation menu — the tray menu's in-tab twin
         // ------------------------------------------------------------------
 
-        private MenuItem _speedItem;
-        private MenuItem _labelsItem, _rxItem, _bloomItem, _ambientItem, _diagItem, _styleItem, _idleItem;
-        private MenuItem _charsetMenu, _zLiftMenu;
+    private MenuItem _speedItem;
+    private MenuItem _labelsItem, _rxItem, _bloomItem, _ambientItem, _diagItem, _styleItem, _idleItem;
+    private MenuItem _massItem;
+    private MenuItem _charsetMenu, _zLiftMenu;
 
         private void BuildMenu()
         {
@@ -204,6 +206,8 @@ namespace AutoCommand.Views
             _bloomItem = Check("Bloom on the lead", () => Mutate(c => c.Bloom = !c.Bloom));
             _ambientItem = Check("Frozen backdrop", () => Mutate(c => c.Ambient = !c.Ambient));
             _diagItem = Check("Diagnostics strip", () => { _diagVisible = !_diagVisible; UpdateDiag(); });
+            _massItem = Check("Drop mass from volume (bytes/packet)", () =>
+                Mutate(c => c.VolumeMass = !c.VolumeMass));
             _styleItem = Check("Movie look (cinema)", () => Mutate(c =>
                 c.Style = c.Style == "cinema" ? "instrument" : "cinema"));
             menu.Items.Add(_styleItem);
@@ -212,6 +216,7 @@ namespace AutoCommand.Views
             menu.Items.Add(_rxItem);
             menu.Items.Add(_idleItem);
             menu.Items.Add(_bloomItem);
+            menu.Items.Add(_massItem);
             menu.Items.Add(_ambientItem);
             menu.Items.Add(_diagItem);
             menu.Items.Add(new Separator());
@@ -271,6 +276,7 @@ namespace AutoCommand.Views
             _rxItem.IsChecked = _cfg.RxMode;
             _idleItem.IsChecked = _cfg.IdleStill;
             _bloomItem.IsChecked = _cfg.Bloom;
+            _massItem.IsChecked = _cfg.VolumeMass;
             _ambientItem.IsChecked = _cfg.Ambient;
             _diagItem.IsChecked = _diagVisible;
             _styleItem.IsChecked = _cfg.Style == "cinema";

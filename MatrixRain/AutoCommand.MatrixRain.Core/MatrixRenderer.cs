@@ -20,6 +20,12 @@ namespace AutoCommand.Matrix
         public int Row;
         public int GlyphIndex;
         public bool Rx;
+        /// <summary>0..1 bytes-per-packet weight (volumeMass): the drop's
+        /// spawn window's avg send size — drizzle keepsalive 0, offloaded
+        /// freight 1. Drives wake length, lead bloom/lift and a slight
+        /// fall-speed boost. 0 when volumeMass is off = exactly the
+        /// count-only look.</summary>
+        public double Mass;
     }
 
     /// <summary>One character behind a lead (instrument style): its grid
@@ -33,6 +39,10 @@ namespace AutoCommand.Matrix
         public int Glyph;
         public double Alpha;    // 0..1, recomputed while a lead anchors it
         public bool Rx;
+        /// <summary>This cell's fade length in characters — inherited from
+        /// the drop that carved it (volume mass widens heavy drops' wakes);
+        /// 0 = the column's base length.</summary>
+        public double Len;
     }
 
     /// <summary>One trail cell in cinema style: the glyph the lead stamped
@@ -44,6 +54,10 @@ namespace AutoCommand.Matrix
         public int Row;
         public int Glyph;
         public double StampSec;
+        /// <summary>Seconds this cell stays visible — inherited from the
+        /// stamping drop's mass (volume mass extends heavy drops' trails);
+        /// 0 = the global TrailLifeSeconds.</summary>
+        public double Life;
     }
 
     /// <summary>One trail cell of a decorative cinema stream.</summary>
@@ -78,7 +92,13 @@ namespace AutoCommand.Matrix
         /// latest snapshot — the pane carries exactly one column per such
         /// process, up to the under-ten cap.</summary>
         public bool Alive;
-        public long LastTx, LastRx;
+        public long LastTx, LastRx, LastTxBytes;
+        /// <summary>0..1 EMA of the bytes-per-packet mass tier (volumeMass):
+        /// the bytes weight every newly spawned drop of this column carries.
+        /// Seeded on first traffic; a lone odd window moves it a third of
+        /// the way, not all the way.</summary>
+        public double MassEma;
+        public bool MassSeeded;
         public DateTime LastActivityUtc = DateTime.MinValue;
         public DateTime LastHeartbeatUtc = DateTime.MinValue;
         public DateTime MissingSinceUtc = DateTime.MinValue;
@@ -127,7 +147,11 @@ namespace AutoCommand.Matrix
     /// are gone too.
     ///
     /// Every TX packet buys one falling glyph step in that PID's column; a
-    /// traffic-blocked PID spends its budget in red.
+    /// traffic-blocked PID spends its budget in red. With volumeMass on,
+    /// each spawned drop also carries the window's avg bytes-per-packet as
+    /// MASS: heavy drops carve longer wakes, bloom wider and fall a touch
+    /// faster - "few huge sends" (offloaded bulk) and "many tiny sends"
+    /// (beacons) stop looking identical.
     /// </summary>
     public sealed class MatrixRenderer : IDisposable
     {
@@ -182,10 +206,11 @@ namespace AutoCommand.Matrix
         // Log-fade curve over TRAIL DISTANCE: F(d) = ln(1 + k(D-d))/ln(9),
         // with k*D == 8 so the shape is constant whatever the length — the
         // char right behind the lead is ~full lead brightness, each further
-        // character one log-step dimmer, gone at distance D.
+        // character one log-step dimmer, gone at distance D. k is derived
+        // per length inside WakeAlphaByDistance: volume mass gives each
+        // cell its own D (heavy drops carve longer wakes).
         private const double WakeDenom = 1.0 / 2.1972245773362196;   // 1/ln(9)
         private double _wakeCharLength = 40;                          // D = wakeFadeSeconds x fallRowsPerSecond
-        private double _wakeCurveK = 8.0 / 40;                        // 8 / D
 
         // Animation is EVENT-DRIVEN: re-ranking happens only after real
         // events (traffic, attempts, arrivals, retirements) — never on a
@@ -217,7 +242,6 @@ namespace AutoCommand.Matrix
             // Trail length in characters: the configured wake lifetime at
             // the current fall speed.
             _wakeCharLength = Math.Clamp(cfg.WakeFadeSeconds * cfg.FallRowsPerSecond, 8, 80);
-            _wakeCurveK = 8.0 / _wakeCharLength;
             _forceDraw = true;
             RecomputeGrid();
         }
@@ -565,9 +589,15 @@ namespace AutoCommand.Matrix
                 }
             }
 
-            // Cinema trails age out from the front (oldest stamp first).
-            while (col.CinemaTrail.Count > 0 && nowSec - col.CinemaTrail[0].StampSec > TrailLifeSeconds)
+            // Cinema trails age out from the front (oldest stamp first) —
+            // each cell by its own mass-inherited life; cells stamped
+            // before volumeMass existed carry 0 and fall back to the base.
+            while (col.CinemaTrail.Count > 0)
+            {
+                double life = col.CinemaTrail[0].Life;
+                if (nowSec - col.CinemaTrail[0].StampSec <= (life > 0 ? life : TrailLifeSeconds)) break;
                 col.CinemaTrail.RemoveAt(0);
+            }
         }
 
         private void StepDrops(RainColumn col, int maxAdvance, bool rx, double nowSec, bool draining)
@@ -593,7 +623,8 @@ namespace AutoCommand.Matrix
                                 {
                                     Row = drop.Row,
                                     Glyph = drop.GlyphIndex,
-                                    StampSec = nowSec
+                                    StampSec = nowSec,
+                                    Life = CinemaLifeFor(drop.Mass)
                                 });
                             }
                             else
@@ -604,7 +635,8 @@ namespace AutoCommand.Matrix
                                 {
                                     Row = drop.Row,
                                     Glyph = drop.GlyphIndex,
-                                    Rx = rx
+                                    Rx = rx,
+                                    Len = WakeLenFor(drop.Mass)
                                 });
                             }
                         }
@@ -627,7 +659,13 @@ namespace AutoCommand.Matrix
             if (budget >= 1.0 && sameColor < MaxDropsPerColor &&
                 (sameColor == 0 || budget > 30))
             {
-                col.Drops.Add(new RainDrop { Row = -1, Rx = rx, GlyphIndex = _rand.Next(glyphCount) });
+                col.Drops.Add(new RainDrop
+                {
+                    Row = -1,
+                    Rx = rx,
+                    GlyphIndex = _rand.Next(glyphCount),
+                    Mass = _cfg.VolumeMass ? col.MassEma : 0.0
+                });
                 budget -= 1.0;
             }
 
@@ -637,7 +675,11 @@ namespace AutoCommand.Matrix
             for (int i = col.Drops.Count - 1; i >= 0; i--)
                 if (col.Drops[i].Rx == rx) { lead = col.Drops[i]; break; }
 
-            int advance = lead == null ? 0 : (int)Math.Min(Math.Floor(budget), maxAdvance);
+            // Heavy drops fall a little faster (up to +30% of the fall
+            // ceiling — gravity intuition, still far inside the house's
+            // calm). mass 0 = exactly today's speed.
+            double boost = lead != null && _cfg.VolumeMass ? 1.0 + 0.3 * lead.Mass : 1.0;
+            int advance = lead == null ? 0 : (int)Math.Min(Math.Floor(budget), (int)(maxAdvance * boost));
             budget -= advance;
 
             if (advance > 0)
@@ -649,29 +691,32 @@ namespace AutoCommand.Matrix
                         if (Cinema)
                         {
                             // the vacated character begins its time-faded
-                            // life — the frame loop draws it at 0.28^age,
-                            // the movie's silky tail
+                            // life - the frame loop draws it at 0.28^age,
+                            // the movie's silky tail, weighted by the
+                            // drop's volume mass
                             col.CinemaTrail.Add(new CinemaCell
                             {
                                 Row = lead.Row,
                                 Glyph = lead.GlyphIndex,
-                                StampSec = nowSec
+                                StampSec = nowSec,
+                                Life = CinemaLifeFor(lead.Mass)
                             });
                         }
                         else
                         {
                             // The vacated character begins its logarithmic
-                            // distance-fade — drawn over the identical
+                            // distance-fade - drawn over the identical
                             // backdrop glyph etched beneath it, so the
                             // completed fade resolves into a background
-                            // character.
+                            // character. Length follows the drop's mass.
                             if (_cfg.Ambient && _ambientGrid != null)
                                 _pendingEtches.Add((col.Slot, lead.Row, lead.GlyphIndex));
                             col.Wake.Add(new WakeCell
                             {
                                 Row = lead.Row,
                                 Glyph = lead.GlyphIndex,
-                                Rx = rx
+                                Rx = rx,
+                                Len = WakeLenFor(lead.Mass)
                             });
                         }
                     }
@@ -810,7 +855,8 @@ namespace AutoCommand.Matrix
                         Pid = p.Pid,
                         Seq = _creationSeq++,
                         LastTx = p.TxPackets,
-                        LastRx = p.RxPackets
+                        LastRx = p.RxPackets,
+                        LastTxBytes = p.TxBytes
                     };
                     _columns[p.Pid] = col;
                     _orderedColumns.Add(col);   // ranked properly at the next re-sort
@@ -828,6 +874,9 @@ namespace AutoCommand.Matrix
 
                 long dTx = p.TxPackets - col.LastTx;
                 long dRx = p.RxPackets - col.LastRx;
+                // A negative byte delta is the same counter restart the
+                // packet-delta comment below covers — clamp, never flood.
+                long dBytes = Math.Max(0, p.TxBytes - col.LastTxBytes);
 
                 // Edge-anchored ranking: recent transmits (and, for blocked
                 // PIDs, connection attempts) on a decaying score — the
@@ -843,6 +892,23 @@ namespace AutoCommand.Matrix
                 // A backwards jump means the counter restarted (new row set on
                 // PID reuse) — re-anchor instead of flooding letters.
 
+                // Volume mass: this window's avg bytes-per-packet maps to a
+                // 0..1 tier (drizzle → freight, log-linear between), EMA-
+                // smoothed, and inherited by every drop spawned until the
+                // next window moves it. Count (dTx) still owns the budget
+                // above — mass only weights the drops that budget spawns,
+                // so "few huge sends" and "many tiny sends" stop looking
+                // identical (TCP offload makes both common on Windows).
+                if (dTx > 0 && _cfg.VolumeMass)
+                {
+                    double avgPkt = dBytes / (double)dTx;
+                    double m = MassFromAvgBytes(avgPkt,
+                        _cfg.MassDrizzleKbPerPacket * 1024.0,
+                        _cfg.MassFreightKbPerPacket * 1024.0);
+                    col.MassEma = col.MassSeeded ? col.MassEma * 0.65 + m * 0.35 : m;
+                    col.MassSeeded = true;
+                }
+
                 // While blocked, the sniffer sees nothing (the firewall drops
                 // the packet before the wire) — each fresh connection attempt
                 // still rolls red.
@@ -852,6 +918,7 @@ namespace AutoCommand.Matrix
                 if (dTx > 0 || p.Attempts > 0) col.LastActivityUtc = now;
                 col.LastTx = p.TxPackets;
                 col.LastRx = p.RxPackets;
+                col.LastTxBytes = p.TxBytes;
 
                 // The idle gate watches the WIRE, not any one column: any
                 // packet movement or connection attempt anywhere keeps the
@@ -876,6 +943,50 @@ namespace AutoCommand.Matrix
                 }
             }
         }
+
+        /// <summary>Bytes-per-packet → mass 0..1: 0 at or below the drizzle
+        /// threshold, 1 at or above freight, log-linear between — the KB →
+        /// MB span crosses orders of magnitude, and the eye reads the
+        /// middle of a log scale as its middle. Pure math so RainSelfTest
+        /// asserts the boundaries offline.</summary>
+        public static double MassFromAvgBytes(double avgPktBytes, double drizzleBytes, double freightBytes)
+        {
+            if (avgPktBytes <= drizzleBytes) return 0;
+            if (avgPktBytes >= freightBytes) return 1;
+            double lo = Math.Log(drizzleBytes), hi = Math.Log(freightBytes);
+            return (Math.Log(avgPktBytes) - lo) / (hi - lo);
+        }
+
+        /// <summary>A drop's wake-fade length in characters: heavy drops
+        /// carve longer wakes (freight up to 2× the base, drizzle half of
+        /// it), so the trail the eye follows IS the volume the drop
+        /// carried. Base length when volumeMass is off.</summary>
+        private double WakeLenFor(double mass) =>
+            _cfg.VolumeMass ? _wakeCharLength * (0.5 + 1.5 * mass) : _wakeCharLength;
+
+        /// <summary>A cinema trail cell's visible lifetime: heavy drops'
+        /// streaks persist up to 1.2× the base life, drizzle fades in
+        /// 0.6× — the age-faded cinema tail doubles as the volume gauge.</summary>
+        private double CinemaLifeFor(double mass) =>
+            _cfg.VolumeMass ? TrailLifeSeconds * (0.6 + 0.6 * mass) : TrailLifeSeconds;
+
+        /// <summary>The tooltip's plain-language tier for an avg
+        /// bytes-per-packet — the words layer that confirms what the eye
+        /// saw in the drop's weight.</summary>
+        private string VolumeTierWord(double avgPktBytes)
+        {
+            double drizzle = _cfg.MassDrizzleKbPerPacket * 1024.0;
+            double freight = _cfg.MassFreightKbPerPacket * 1024.0;
+            if (avgPktBytes <= drizzle) return "chatty small frames (drizzle)";
+            if (avgPktBytes >= freight) return "coalesced bulk sends (freight)";
+            return "steady stream";
+        }
+
+        /// <summary>One-line tier legend for the diag strip — empty when
+        /// volume mass is off, so the strip stays exactly as long as
+        /// today.</summary>
+        public string MassLegend => _cfg == null || !_cfg.VolumeMass ? "" :
+            $"mass: drizzle <{_cfg.MassDrizzleKbPerPacket:0.#} KB · freight >{_cfg.MassFreightKbPerPacket:0.#} KB/pkt";
 
         // ------------------------------------------------------------------
         // Drawing — state to GlyphRuns, every frame, nothing retained
@@ -983,15 +1094,18 @@ namespace AutoCommand.Matrix
                 {
                     var w = col.Wake[i];
                     int anchor = w.Rx ? leadRx : leadTx;
+                    // Each cell fades over its own length: heavy drops
+                    // (volume mass) carve longer wakes than drizzle.
+                    double len = w.Len > 0 ? w.Len : _wakeCharLength;
                     if (anchor >= 0)
                     {
                         int dist = anchor - w.Row;
-                        if (dist > _wakeCharLength || w.Row < 0 || w.Row >= _gridRows)
+                        if (dist > len || w.Row < 0 || w.Row >= _gridRows)
                         {
                             col.Wake.RemoveAt(i);
                             continue;
                         }
-                        w.Alpha = WakeAlphaByDistance(dist);
+                        w.Alpha = WakeAlphaByDistance(dist, len);
                     }
                     if (w.Alpha <= 0.004) continue;
 
@@ -1158,7 +1272,10 @@ namespace AutoCommand.Matrix
         {
             if (d.Row < 0 || d.Row >= _gridRows) return;
 
-            double em = _case.LiftEm;
+            // Volume mass weights the lead: freight lifts a touch higher
+            // and blooms wider, drizzle stays at today's exact look
+            // (mass 0 when volumeMass is off).
+            double em = _case.LiftEm * (1.0 + 0.10 * d.Mass);
             double scale = em / _case.Em;
             double cw = _case.CellW * scale, ch = _case.CellH * scale;
             double gx = x + (_case.CellW - cw) / 2;
@@ -1176,7 +1293,11 @@ namespace AutoCommand.Matrix
                 sb.Flush(dc, _case.Shadow);
             }
             if (bloom != null)
-                dc.DrawEllipse(bloom, null, new Point(gx + cw / 2, gy + ch / 2), cw * 0.65, ch * 0.65);
+            {
+                double bloomScale = 1.0 + 0.35 * d.Mass;
+                dc.DrawEllipse(bloom, null, new Point(gx + cw / 2, gy + ch / 2),
+                    cw * 0.65 * bloomScale, ch * 0.65 * bloomScale);
+            }
 
             var b = new GlyphBatch(em, ppd);
             PlaceGlyph(b, d.GlyphIndex, gx, gy, cw, ch, em);
@@ -1210,13 +1331,14 @@ namespace AutoCommand.Matrix
         /// right behind the lead is ~full lead brightness (same color
         /// family, capped a hair under so the lead stays strictly
         /// brightest), each further character one log-step dimmer, gone at
-        /// the trail length.</summary>
-        private double WakeAlphaByDistance(int dist)
+        /// the trail length. k derives from the length so the curve shape
+        /// is identical whatever the cell's mass-widened D.</summary>
+        private double WakeAlphaByDistance(int dist, double len)
         {
-            double d = _wakeCharLength;
             if (dist < 0) dist = 0;
-            if (dist >= d) return 0;
-            double f = Math.Log(1 + _wakeCurveK * (d - dist)) * WakeDenom;
+            if (dist >= len) return 0;
+            double k = 8.0 / len;
+            double f = Math.Log(1 + k * (len - dist)) * WakeDenom;
             return Math.Clamp(f, 0, 1) * (248.0 / 256.0);
         }
 
@@ -1337,13 +1459,23 @@ namespace AutoCommand.Matrix
             int slot = (int)(dipX / _case.CellW);
             foreach (var col in _columns.Values)
                 if (col.Slot == slot)
+                {
+                    // the words layer: avg bytes/packet names the tier the
+                    // eye saw in the drops' weight (volumeMass off = count
+                    // still answers, the tier word just stays out of the way)
+                    double avgPkt = col.TxPackets > 0 ? col.TxBytes / (double)col.TxPackets : 0;
                     return
                         $"{col.Name}  (PID {col.Pid})\n" +
                         $"tx {col.TxPackets:N0} pkts / {FormatBytes(col.TxBytes)}   " +
                         $"rx {col.RxPackets:N0} pkts / {FormatBytes(col.RxBytes)}\n" +
+                        (avgPkt > 0
+                            ? $"avg {FormatBytes((long)avgPkt)}/pkt" +
+                              (_cfg.VolumeMass ? $" - {VolumeTierWord(avgPkt)}" : "") + "\n"
+                            : "") +
                         $"{col.Connections} tracked connection(s)" +
                         (col.Blocked ? "\nBlocked - raining red" : "") +
                         (col.Exited ? "\nprocess exited" : "");
+                }
             return null;
         }
 
