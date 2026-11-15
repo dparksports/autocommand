@@ -273,8 +273,9 @@ namespace AutoCommand.Agent.Core
                 "and miniports, Wi-Fi Direct hosted network, kernel debug, the four Windows VPN services, WAN " +
                 "miniports, and the legacy name-resolution doors llmnr/netbios/mdns with their live 24h " +
                 "chatter counts — dropped UDP 137/5355/5353 attempts), the OS-hardening switches (IPv6, LSA " +
-                "Protection, UAC strictness), the hosts-file audit, Defender Tamper Protection, and per-vendor " +
-                "telemetry opt-out state with rule ids. Everything is re-read live — never a cached verdict.",
+                "Protection, UAC strictness), the hosts-file audit, Defender Tamper Protection, leftover " +
+                "setup accounts & orphaned profiles, and per-vendor telemetry opt-out state with rule ids. " +
+                "Everything is re-read live — never a cached verdict.",
                 Schema(),
                 false,
                 a => GetShieldsUpStatus()),
@@ -1761,6 +1762,30 @@ namespace AutoCommand.Agent.Core
                                   "zero bytes.";
             }
             catch (Exception ex) { o["telemetry_rules"] = Err(ex); }
+
+            try
+            {
+                var acc = ShieldsUp.Core.Services.AccountSurfaceService.GetAccountsStatus();
+                var accountRows = new JsonArray();
+                foreach (var f in acc.Findings)
+                    accountRows.Add(new JsonObject
+                    {
+                        ["kind"] = f.Kind,
+                        ["severity"] = f.Severity,
+                        ["account"] = f.AccountName,
+                        ["sid"] = f.Sid,
+                        ["detail"] = f.Detail,
+                    });
+                o["accounts"] = new JsonObject
+                {
+                    ["finding_count"] = acc.Findings.Count,
+                    ["findings"] = accountRows,
+                    ["note"] = acc.Failures.Count > 0
+                        ? string.Join("; ", acc.Failures)
+                        : "pruning happens in the Shields Up app's OS Hardening page — read-only here",
+                };
+            }
+            catch (Exception ex) { o["accounts"] = Err(ex); }
 
             return ToJson(o);
 

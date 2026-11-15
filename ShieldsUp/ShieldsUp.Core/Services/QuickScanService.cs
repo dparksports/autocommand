@@ -163,6 +163,45 @@ public static class QuickScanService
                     // its own autostart decisions.
                     new SetupStep
                     {
+                        Id = "accounts",
+                        Title = "OS Hardening: leftover setup accounts",
+                        Description = "Removes disabled Windows bootstrap accounts (the defaultuser0 class) and orphaned user profiles. The guard refuses enabled accounts, built-ins, the current user, and loaded profiles.",
+                        Apply = async progress =>
+                        {
+                            var status = await Task.Run(AccountSurfaceService.GetAccountsStatus);
+                            if (status.Findings.Count == 0)
+                                return (true, "no leftover accounts or profiles");
+
+                            var allFailures = new List<string>();
+                            int pruned = 0;
+                            foreach (var f in status.Findings)
+                            {
+                                if (f.Kind == "account_without_profile") continue; // informational only
+                                if (string.IsNullOrEmpty(f.Sid)) continue;
+                                progress?.Report($"Pruning {(f.AccountName ?? f.Sid)}…");
+                                var failures = await Task.Run(() => AccountSurfaceService.PruneLeftover(f.Sid));
+                                if (failures.Count == 0) pruned++;
+                                else allFailures.AddRange(failures);
+                            }
+                            return (allFailures.Count == 0,
+                                $"pruned {pruned} leftover(s)"
+                                + (allFailures.Count > 0 ? "; failures: " + string.Join("; ", allFailures) : ""));
+                        },
+                        Verify = async () =>
+                        {
+                            var (ok, detail) = await Task.Run(() =>
+                            {
+                                var status = AccountSurfaceService.GetAccountsStatus();
+                                return (status.Findings.Count == 0,
+                                    status.Findings.Count == 0
+                                        ? "no leftover accounts or profiles"
+                                        : $"{status.Findings.Count} leftover finding(s) — see the OS Hardening page");
+                            });
+                            return (ok, detail);
+                        }
+                    },
+                    new SetupStep
+                    {
                         Id = "bloatware",
                         Title = "Bloatware: remove",
                         Description = "Uninstalls the apps on the bloatware list (Outlook, Xbox, Teams, Copilot, OneDrive, … — user-configurable; included in the master confirmation).",

@@ -187,6 +187,75 @@ try
               == ShieldsUp.Core.Services.StartupSurfaceService.LogonKind.Folder &&
           ShieldsUp.Core.Services.StartupSurfaceService.KindOfLocation("Common Startup")
               == ShieldsUp.Core.Services.StartupSurfaceService.LogonKind.Folder);
+
+    // ── 9. local-accounts audit — pure classifiers and the prune guard ──
+    Check("9a bootstrap names: defaultuser0/1/100000 match",
+          AccountSurfaceService.IsBootstrapAccountName("defaultuser0") &&
+          AccountSurfaceService.IsBootstrapAccountName("DefaultUser1") &&
+          AccountSurfaceService.IsBootstrapAccountName("defaultuser100000"));
+    Check("9b bootstrap names: near-misses never match",
+          !AccountSurfaceService.IsBootstrapAccountName("defaultuser") &&
+          !AccountSurfaceService.IsBootstrapAccountName("defaultuserX") &&
+          !AccountSurfaceService.IsBootstrapAccountName("defaultuser0a") &&
+          !AccountSurfaceService.IsBootstrapAccountName("nov8") &&
+          !AccountSurfaceService.IsBootstrapAccountName(""));
+    var adminLeftover = AccountSurfaceService.ClassifyAccount(
+        new AccountInfo("defaultuser0", "S-1-5-21-1-2-3-1000", false, true));
+    Check("9c a disabled admin bootstrap leftover is attention",
+          adminLeftover is not null && adminLeftover.Severity == "attention" &&
+          adminLeftover.Kind == "bootstrap_leftover_account");
+    var plainLeftover = AccountSurfaceService.ClassifyAccount(
+        new AccountInfo("defaultuser2", "S-1-5-21-1-2-3-1002", false, false));
+    Check("9d a disabled non-admin bootstrap leftover is info",
+          plainLeftover is not null && plainLeftover.Severity == "info");
+    Check("9e an ENABLED bootstrap leftover is attention",
+          AccountSurfaceService.ClassifyAccount(
+              new AccountInfo("defaultuser3", "S-1-5-21-1-2-3-1003", true, false))
+              .Severity == "attention");
+    Check("9f a normal account is never a finding",
+          AccountSurfaceService.ClassifyAccount(
+              new AccountInfo("nov8", "S-1-5-21-1-2-3-1001", true, true)) is null);
+
+    var machinePrefix = AccountSurfaceService.MachineSidPrefix(
+        new[] { "S-1-5-21-1-2-3-1001" });
+    Check("9g machine sid prefix is derived from a local account",
+          machinePrefix == "S-1-5-21-1-2-3");
+    var orphan = AccountSurfaceService.ClassifyProfile(
+        new ProfileInfo("S-1-5-21-1-2-3-1009", @"C:\Users\ghost", false, null),
+        new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "S-1-5-21-1-2-3-1001" },
+        machinePrefix);
+    Check("9h a registered profile without an account is an orphaned_profile finding",
+          orphan is not null && orphan.Kind == "orphaned_profile" && orphan.Severity == "attention");
+    Check("9i a profile whose account exists is not a finding",
+          AccountSurfaceService.ClassifyProfile(
+              new ProfileInfo("S-1-5-21-1-2-3-1001", @"C:\Users\nov8", false, null),
+              new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "S-1-5-21-1-2-3-1001" },
+              machinePrefix) is null);
+    Check("9j a non-machine SID (service/domain) is never a finding",
+          AccountSurfaceService.ClassifyProfile(
+              new ProfileInfo("S-1-5-18", @"C:\Windows\System32\config\systemprofile", false, null),
+              new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "S-1-5-21-1-2-3-1001" },
+              machinePrefix) is null);
+
+    const string currentUserSid = "S-1-5-21-1-2-3-1001";
+    Check("9k guard: a valid disabled leftover is prunable",
+          AccountSurfaceService.MayPrune("S-1-5-21-1-2-3-1009", false, false, currentUserSid, null));
+    Check("9l guard: the current user is never prunable",
+          !AccountSurfaceService.MayPrune(currentUserSid, false, false, currentUserSid, null));
+    Check("9m guard: built-in RIDs and service SIDs are never prunable",
+          !AccountSurfaceService.MayPrune("S-1-5-21-1-2-3-500", false, false, currentUserSid, null) &&
+          !AccountSurfaceService.MayPrune("S-1-5-21-1-2-3-501", false, false, currentUserSid, null) &&
+          !AccountSurfaceService.MayPrune("S-1-5-20", false, false, currentUserSid, null));
+    Check("9n guard: enabled accounts and loaded profiles are never prunable",
+          !AccountSurfaceService.MayPrune("S-1-5-21-1-2-3-1009", true, false, currentUserSid, null) &&
+          !AccountSurfaceService.MayPrune("S-1-5-21-1-2-3-1009", false, true, currentUserSid, null));
+    Check("9o guard: an extra protected list is honored",
+          !AccountSurfaceService.MayPrune("S-1-5-21-1-2-3-1009", false, false, currentUserSid,
+              new HashSet<string>(StringComparer.OrdinalIgnoreCase) { "S-1-5-21-1-2-3-1009" }));
+    Check("9p guard: a null/blank sid is never prunable",
+          !AccountSurfaceService.MayPrune(null, false, false, currentUserSid, null));
+    Check("9q accounts state path lives under the configured root",
+          AppPaths.AccountsStatePath.StartsWith(tempRoot, StringComparison.Ordinal));
 }
 catch (Exception ex)
 {

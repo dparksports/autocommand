@@ -33,6 +33,7 @@ public static class AppPaths
     public static string TelemetryStatePath => Path.Combine(DataRoot, "telemetry_state.json");
     public static string NameResolutionStatePath => Path.Combine(DataRoot, "name-resolution-doors.json");
     public static string EfiBaselinePath => Path.Combine(DataRoot, "efi_baseline.json");
+    public static string AccountsStatePath => Path.Combine(DataRoot, "account-state.json");
 
     public static string CrashLogPath => Path.Combine(AppContext.BaseDirectory, "crash.log");
 
