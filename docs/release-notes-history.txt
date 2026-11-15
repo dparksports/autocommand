@@ -17,6 +17,23 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.15.5 (2026-11-15)
+================================================================================
+
+# v2026.11.15.5 - Exfil: the day-column headers are readable again
+
+**The seven day headers on the Exfil tab were light text on a light
+chrome.** A per-column header style built as `new Style(...)` without
+BasedOn silently replaced the app's implicit dark header style, so those
+columns alone fell back to the default silver chrome while inheriting the
+grid's near-white foreground - roughly 1.4:1 contrast.
+
+The style now derives from the implicit one (BasedOn), so the day headers
+render like every other grid in the app: dark surface, secondary text
+(4.6:1), and the live light/dark theme swap still applies. The per-column
+tooltip is unchanged.
+
+================================================================================
 v2026.11.15.4 (2026-11-15)
 ================================================================================
 
