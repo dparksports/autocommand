@@ -17,6 +17,37 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.15.3 (2026-11-15)
+================================================================================
+
+# v2026.11.15.3 — Cadence becomes Exfil, right beside Process Monitor
+
+**The tab is renamed and re-homed.** "Cadence" is now "Exfil" (📤) and
+moved out of the sidebar's tail into the WATCH group, directly under
+Process Monitor — it is a feed about what leaves the machine, so it
+lives with the other feeds. Same view, same opt-in consent toggle, same
+data: only the name, the icon and the position changed. The consent
+dialog and the Settings → Instrumentation cards now speak of the Exfil
+tab and the Exfil toggle. Nothing under the hood moved: instrument ids,
+the KeyCadence registry key and the cadence JSON filenames are
+unchanged, so existing consent and calibration carry over untouched.
+
+**Build: the offline NU1900 notice is silenced for real.** Every restore
+on a machine that cannot reach api.nuget.org logged NU1900 ("error
+occurred while getting package vulnerability data"). Three classic
+suppressions were tried and proven ineffective — NoWarn,
+NuGetAudit=false, and a warnings-as-messages mapping in
+Directory.Build.props: restore-time task warnings only honor the
+downgrade when it arrives as a GLOBAL property. The new
+Directory.Build.rsp injects exactly that argument for every build in
+the tree. The audit itself stays enabled, so when api.nuget.org is
+reachable again the real findings (NU1901–NU1903) surface as warnings —
+desired, they are actionable.
+
+Build notes: behavior-identical to v2026.11.15.2 apart from the tab
+name, position and icon; local builds are warning-clean again.
+
+================================================================================
 v2026.11.15.2 (2026-11-15)
 ================================================================================
 
