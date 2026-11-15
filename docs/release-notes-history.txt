@@ -17,6 +17,50 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.14.5 (2026-11-14)
+================================================================================
+
+# v2026.11.14.5 — Cadence (typing vs telemetry) + ignore-list revision history
+
+Two features, both born from the same question: how do you tell what the
+machine does on its own from what happens while you're using it?
+
+**Cadence tab (SYSTEM → 📈 Cadence).** DiagTrack's hourly transmit cadence —
+packets and sessions, 7 days × 24 hours — beside an opt-in, hourly
+keystroke-count signal, with a plain-language verdict: "follows your typing"
+vs "machine-timed". The consent boundary is structural:
+
+- Off by default, and off means nothing: no keyboard listener exists, no
+  counter runs, no file is written.
+- Counts only — the low-level hook never reads the key you pressed; a
+  keystroke is +1 into the current hour. No per-keystroke record exists in
+  any code path, by construction.
+- Stored locally only (`%LOCALAPPDATA%\AutoCommand\key-cadence.json`, 8
+  days), never sent anywhere. Consent is readable policy at
+  `HKCU\Software\AutoCommand\KeyCadence`, and disabling offers a purge of
+  the stored counts. Details in docs/PRIVACY.md.
+
+The DiagTrack side needs no consent — it is the app's own Sysmon
+observation, read incrementally from the archive (ProcessGuid-mapped, so
+PID recycling across boots cannot misattribute a packet). The verdict uses
+rank correlation with fixed bands, so the colors and words never drift
+with the data.
+
+**Ignore-list revision history (Process Monitor → Ignored popup).** The
+ignore trail now captures hand edits to ignored_processes.txt as they
+happen (origin `file-edit`, reconciled by a debounced, settled-read file
+watcher — mid-run removals included), so "when was this added, and by
+what" has a real answer instead of a gap. The popup grows: a current-state
+strip, a per-entry revision timeline, and a USN deep scan that dates
+writes to the ignore file even before tracking began (entry-level detail
+before the trail is declared unrecoverable, never inferred). The Audit
+tab renders hand edits through the same trail ("a hand edit outside
+AutoCommand").
+
+v2026.11.14.4 shipped the CI parse fix with no code changes (its notes
+stand as written); this release carries the two features on top.
+
+================================================================================
 v2026.11.14.4 (2026-11-14)
 ================================================================================
 
