@@ -299,6 +299,13 @@ namespace AutoCommand
             // code: telemetry/ in the repository.
             _ = Services.UsagePingService.RunStartupFlowAsync();
 
+            // Key cadence (opt-in, counts only): hour-bucketed typing counts
+            // joined with DiagTrack's packet cadence in the Cadence tab.
+            // Inert until the user's toggle says yes — the keyboard hook is
+            // not installed otherwise. Consent/purge:
+            // HKCU\Software\AutoCommand\KeyCadence (see docs/PRIVACY.md).
+            Services.KeyCadenceService.Instance.Initialize();
+
             // The F# bridge engine + the app's tool surface, then the WPF
             // confirm seam: mutating AI-session asks show the
             // AgentConfirmWindow dialog at the app's UI. Headless hosts Wire

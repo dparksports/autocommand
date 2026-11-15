@@ -79,6 +79,30 @@ touch go one step further, so the rules are explicit:
 Everything the tab persists (`%LOCALAPPDATA%\AutoCommand\bits\`) is job
 metadata only, in the readable files the Technical Notes list.
 
+**Cadence tab (typing counts), spelled out.** The Cadence tab can show how
+your typing cadence relates to DiagTrack's hourly transmit cadence — and it
+is built so the privacy question has exactly one answer:
+
+- **Off by default, and off means nothing.** Until you flip the toggle in
+  the tab, no keyboard listener exists, no counter runs, no file is written.
+  Nothing is read back after you decline.
+- **Counts only, never content.** When you opt in, a low-level keyboard
+  hook increments a single number on each key-press. The key you pressed is
+  never read by AutoCommand's code, never stored, never compared — there is
+  no per-keystroke record of any kind, only `{local day → 24 hourly counts}`.
+- **Local only, 8 days.** The counts live in
+  `%LOCALAPPDATA%\AutoCommand\key-cadence.json` on your machine. Nothing
+  about them (or anything else in this feature) is ever sent anywhere.
+- **Consent state** is readable policy:
+  `HKEY_CURRENT_USER\Software\AutoCommand\KeyCadence` (`Consent` =
+  `ask|yes|no`). Turning the toggle off stops counting immediately; you are
+  asked whether to also delete the stored counts (purge = the file is gone).
+- **What the tab shows besides counts:** DiagTrack's hourly packet and
+  session counts, derived locally from the same on-machine Sysmon archive
+  every other tab reads. The correlation verdict is computed locally with a
+  fixed rule (rank correlation bands documented in the view's code) — no
+  model, no cloud, no inference service.
+
 Contact: SECURITY.md lists how to reach the maintainer.
 
 © 2026 Dan Park, magicpoint.ai

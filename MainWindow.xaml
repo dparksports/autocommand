@@ -177,6 +177,17 @@
                 </TabItem.Header>
                 <views:SettingsView x:Name="SettingsTab"/>
             </TabItem>
+            <TabItem>
+                <TabItem.Header>
+                    <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="📈" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <TextBlock Text="Cadence" Style="{StaticResource NavPaneLabel}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </TabItem.Header>
+                <!-- Opt-in (counts only) hourly typing cadence beside DiagTrack's
+                     per-hour transmit cadence, 7 days — see docs/PRIVACY.md -->
+                <views:CadenceView x:Name="CadenceTab"/>
+            </TabItem>
         </TabControl>
 
         <!-- Status Bar -->

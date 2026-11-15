@@ -1,0 +1,82 @@
+<UserControl x:Class="AutoCommand.Views.CadenceView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+             xmlns:conv="clr-namespace:AutoCommand.Converters"
+             xmlns:views="clr-namespace:AutoCommand.Views">
+    <UserControl.Resources>
+        <conv:CountToHeatConverter x:Key="Heat"/>
+    </UserControl.Resources>
+
+    <Grid Margin="14">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <!-- header -->
+        <StackPanel Grid.Row="0">
+            <TextBlock Text="Cadence — typing vs telemetry" FontSize="18" FontWeight="SemiBold"
+                       Foreground="{DynamicResource TextPrimaryBrush}"/>
+            <TextBlock Text="DiagTrack's hourly transmit cadence over the last 7 days, beside your typing counts if — and only if — you opt in. The point: traffic that follows your typing is you; traffic that fires while you are away is the machine."
+                       Foreground="{DynamicResource TextSecondaryBrush}" Margin="0,3,0,0" TextWrapping="Wrap"/>
+        </StackPanel>
+
+        <!-- consent card -->
+        <Border Grid.Row="1" Background="{DynamicResource SurfaceBrush}"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                CornerRadius="6" Padding="12" Margin="0,10,0,0">
+            <StackPanel>
+                <CheckBox x:Name="ConsentToggle" Content="Count my keystrokes (hourly totals — counts only)"
+                          FontWeight="SemiBold"
+                          Checked="ConsentToggle_Checked" Unchecked="ConsentToggle_Unchecked"/>
+                <TextBlock Text="Counts only — never which keys. The counter never reads the key you pressed; a keystroke is just +1 into the current hour. Stored on this PC only, kept 8 days, never sent anywhere. Nothing is counted until you switch this on, and switching off stops counting immediately."
+                           Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap"
+                           Margin="22,4,0,2"/>
+            </StackPanel>
+        </Border>
+
+        <!-- controls -->
+        <StackPanel Grid.Row="2" Orientation="Horizontal" Margin="0,10,0,6">
+            <TextBlock Text="Matrix:" VerticalAlignment="Center"
+                       Foreground="{DynamicResource TextSecondaryBrush}"/>
+            <RadioButton x:Name="PacketsRadio" Content="DiagTrack packets" GroupName="cadenceMode"
+                         IsChecked="True" Margin="8,0,0,0" VerticalAlignment="Center"
+                         Checked="Mode_Changed"/>
+            <RadioButton x:Name="KeysRadio" Content="Typing counts" GroupName="cadenceMode"
+                         Margin="12,0,0,0" VerticalAlignment="Center" Checked="Mode_Changed"/>
+            <TextBlock Text="chart day:" VerticalAlignment="Center" Margin="18,0,0,0"
+                       Foreground="{DynamicResource TextSecondaryBrush}"/>
+            <ComboBox x:Name="DayCombo" Width="112" Margin="4,0,0,0"
+                      SelectionChanged="DayCombo_SelectionChanged"/>
+            <TextBlock x:Name="ScanStatusText" VerticalAlignment="Center" Margin="18,0,0,0"
+                       Foreground="{DynamicResource MutedTextBrush}"/>
+        </StackPanel>
+
+        <!-- 7-day × 24-hour matrix -->
+        <DataGrid Grid.Row="3" x:Name="CadenceGrid" AutoGenerateColumns="False"
+                  IsReadOnly="True" HeadersVisibility="Column"
+                  GridLinesVisibility="Horizontal" HorizontalGridLinesBrush="{DynamicResource BorderBrush}"
+                  Background="{DynamicResource SurfaceBrush}" RowHeight="20"
+                  BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
+                  CanUserAddRows="False" CanUserSortColumns="False"/>
+
+        <!-- paired-bar correlation chart for the selected day -->
+        <Border Grid.Row="4" Height="150" Margin="0,10,0,0"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="4"
+                Background="{DynamicResource SurfaceBrush}">
+            <views:CadenceChartCanvas x:Name="Chart"/>
+        </Border>
+
+        <!-- plain-language verdict strip -->
+        <StackPanel Grid.Row="5" Margin="0,8,0,0">
+            <TextBlock x:Name="VerdictText" TextWrapping="Wrap"
+                       Foreground="{DynamicResource TextPrimaryBrush}"/>
+            <TextBlock x:Name="TypingLockedText" TextWrapping="Wrap" Margin="0,2,0,0"
+                       Foreground="{DynamicResource TextSecondaryBrush}"/>
+        </StackPanel>
+    </Grid>
+</UserControl>
