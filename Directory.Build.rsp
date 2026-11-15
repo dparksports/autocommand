@@ -1,0 +1,11 @@
+# NU1900 ("error occurred while getting package vulnerability data") fires on
+# every restore while this normally-offline machine cannot reach api.nuget.org.
+# It is a connectivity notice, not a finding. Proven ineffective for it:
+# <NoWarn>NU1900</NoWarn>, <NuGetAudit>false</NuGetAudit>, and a
+# MSBuildWarningsAsMessages mapping in Directory.Build.props — MSBuild applies
+# the warnings-as-messages downgrade only from GLOBAL properties, and only
+# command-line arguments are global during restore. This rsp injects exactly
+# that argument for every build in this tree. The audit itself stays enabled:
+# when api.nuget.org is reachable again the real findings (NU1901-NU1903)
+# surface as warnings — desired, they are actionable.
+-p:MSBuildWarningsAsMessages=NU1900

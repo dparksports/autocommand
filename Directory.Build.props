@@ -1,16 +1,7 @@
 <Project>
-  <!-- NU1900 ("error occurred while getting package vulnerability data")
-       fires on every restore when this normally-offline machine cannot
-       reach api.nuget.org. It is a connectivity notice, not a finding.
-       NoWarn does NOT reach restore-time audit warnings (NU1900 kept
-       firing with the NoWarn line below), so while offline the audit
-       itself is disabled instead — that is the only effective central
-       suppression. Delete the NuGetAudit line when api.nuget.org is
-       reachable again: the actual verdicts (NU1901-NU1903) surface with
-       it, and the NoWarn line stays as belt-and-braces for any
-       build-phase-emitted NU1900. -->
-  <PropertyGroup>
-    <NuGetAudit>false</NuGetAudit>
-    <NoWarn>$(NoWarn);NU1900</NoWarn>
-  </PropertyGroup>
+  <!-- NU1900 suppression lives in Directory.Build.rsp (sibling file): the
+       warnings-as-messages downgrade only works as a GLOBAL property, and
+       only command-line arguments are global during restore — a mapping in
+       this props file is evaluated but never applied. See the rsp header
+       for the full record of what was tried and why. -->
 </Project>
