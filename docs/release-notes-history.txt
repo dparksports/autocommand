@@ -17,6 +17,39 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.14.6 (2026-11-14)
+================================================================================
+
+# v2026.11.14.6 — Cadence continuity: both series, always; the rain toggle comes out of hiding
+
+**The Cadence matrix no longer asks you to pick a series.** Every day
+column now renders as adjacent K | P halves — typing counts (left) and
+DiagTrack packets (right) side by side, heat-tinted per series, one
+tooltip carrying keys · packets · sessions. The Keys/Packets radio
+toggle is gone: there is no mode to switch, so no discontinuity between
+the two presentations.
+
+**The strip chart covers the whole week at once.** Instead of a
+per-day picker, the canvas now draws seven strips — one per local day,
+each hour bucket showing both encodings together (gray typing bar in
+the lower half, cyan packet ticks in the upper half), today's strip
+washed and labeled. One glance = both series, every bucket.
+
+**The fused metric stays where it was:** the verdict strip's per-day
+"typing-locked %" chips and the rank-correlation sentence, computed for
+you — never asked of you.
+
+**The Matrix rain toggle is findable.** The show/hide-animation button
+used to be a small triangle on the 22 px rail between the process list
+and the rain — easy to miss entirely. It now lives in the Process
+Monitor toolbar, right next to "🛡 Block a Windows service…", labeled
+"🌧 Hide rain / 🌧 Show rain" and following the pane state. The list
+fold triangle stays on the rail.
+
+Build notes: v2026.11.14.5 shipped the two features; this release
+carries their presentation rework plus the toggle relocation.
+
+================================================================================
 v2026.11.14.5 (2026-11-14)
 ================================================================================
 
