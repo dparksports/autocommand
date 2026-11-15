@@ -17,6 +17,29 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.15.1 (2026-11-15)
+================================================================================
+
+# v2026.11.15.1 — The community page goes quiet: one count, no charts
+
+The public usage-ping page (the community graph behind the "count me in"
+opt-in) is simplified to a single card: **counts all-time**. The 90-day
+daily-active-installs area chart and the countries list are gone, along
+with the rendering code behind them — the page now answers one question
+("how many counts has the project seen in total?") and nothing else.
+
+No application code changed in this release — the Windows binary is
+identical to v2026.11.14.6. The change lives in the Cloudflare worker
+(`telemetry/server/worker.js`), and it takes effect on the wire when the
+worker is next deployed (see telemetry/server/DEPLOY.md). The privacy
+contract is unchanged and stays stricter than before: the server still
+keeps only daily totals per (app, version, country), still never stores
+an IP, and the page now surfaces even less than it did.
+
+Ships as a tagged build so the repository state and the releases page
+stay in step — same as the CI-fix release v2026.11.14.4.
+
+================================================================================
 v2026.11.14.6 (2026-11-14)
 ================================================================================
 
