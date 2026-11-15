@@ -24,17 +24,12 @@
             </StackPanel>
             <StackPanel Grid.Column="2" Orientation="Horizontal">
                 <Button x:Name="SetupSysmonBtn" Content="🛠 Setup Sysmon" Style="{StaticResource PrimaryButton}" Click="SetupSysmonBtn_Click" Margin="0,0,8,0" Visibility="Collapsed"/>
+                <Button x:Name="BlockServiceBtn" Content="🛡 Block a Windows service…" Style="{StaticResource PrimaryButton}" Click="BlockServiceBtn_Click" Margin="0,0,8,0"
+                        ToolTip="Service-scoped firewall block: one rule per svchost-hosted service that drops its traffic to EVERY destination — present and future — without touching sibling services in the same host. Pick from the curated list; no live connection needed."/>
                 <Button x:Name="ToggleMonitorBtn" Content="Start Monitor" Style="{StaticResource PrimaryButton}" Click="ToggleMonitorBtn_Click" Margin="0,0,8,0"/>
                 <Button x:Name="SaveCsvBtn" Content="Force Save CSV" Style="{StaticResource PrimaryButton}" Click="SaveCsvBtn_Click" Margin="0,0,8,0"/>
                 <Button x:Name="RetryDnsBtn" Content="⟳ Retry unresolved DNS" Style="{StaticResource PrimaryButton}" Click="RetryDnsBtn_Click"
                         ToolTip="Forget cached 'no answer' results and re-queue every unresolved hostname/org lookup on this view (polite pacing applies)"/>
-                <Button x:Name="BlockServiceBtn" Content="🛡 Block a Windows service…" Click="BlockServiceBtn_Click" Margin="12,0,0,0" Padding="10,2" FontSize="11"
-                        Background="{DynamicResource BadgeAmberBg}" Foreground="{DynamicResource AccentAmberBrush}" BorderThickness="0" Cursor="Hand" VerticalAlignment="Center"
-                        ToolTip="Service-scoped firewall block: one rule per svchost-hosted service that drops its traffic to EVERY destination — present and future — without touching sibling services in the same host. Pick from the curated list; no live connection needed.">
-                    <Button.Resources>
-                        <Style TargetType="Border"><Setter Property="CornerRadius" Value="10"/></Style>
-                    </Button.Resources>
-                </Button>
                 <Button x:Name="RainToggleBtn" Click="RainToggleBtn_Click" Margin="12,0,0,0" Padding="10,2" FontSize="11"
                         Background="{DynamicResource SurfaceBrush}" Foreground="{DynamicResource TextSecondaryBrush}" BorderThickness="0" Cursor="Hand" VerticalAlignment="Center"
                         ToolTip="Show or hide the Matrix rain — the live connection waterfall beside this list">
