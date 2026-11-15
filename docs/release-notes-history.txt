@@ -17,6 +17,37 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.15.2 (2026-11-15)
+================================================================================
+
+# v2026.11.15.2 — Cadence reads as one object; the service picker sees every service
+
+**Cadence: both series, always — and now in one cell.** The Keys/Packets
+mode toggle is gone. Each day column renders one cell split in half:
+**left = your typing counts** (amber heat, opt-in), **right = DiagTrack
+packets** (cyan heat) — day headers are just dates, and hue alone answers
+"which half is me". The strip chart covers the whole week at once (one
+strip per day, gray typing bars + cyan packet ticks, today highlighted),
+and the hour labels stopped clipping. The verdict strip (rank-correlation
+sentence + per-day typing-locked %) is unchanged. The consent boundary is
+untouched: no toggle, no counts, no listener — pre-consent days render
+"—", never zeros.
+
+**The service picker sees every service on the machine.** "🛡 Block a
+Windows service…" used to list only the curated catalog entries; it now
+enumerates every installed Windows service with one background WMI query,
+adds a search box, overlays the authored descriptions/impact where they
+exist, and shows each service's ACTUAL host process — "PID 2344 ·
+svchost.exe -k netsvcs · N services share this host", "own process"
+otherwise. Stopped services are listed too: the block is scoped by
+service name, so it applies the moment the service starts. The button
+moved to the monitor toolbar as a primary action, next to the rain
+toggle.
+
+Build notes: also carries the Cadence presentation rework and the rain
+toggle relocation reviewed in v2026.11.14.6/2026.11.15.1 follow-ups.
+
+================================================================================
 v2026.11.15.1 (2026-11-15)
 ================================================================================
 
