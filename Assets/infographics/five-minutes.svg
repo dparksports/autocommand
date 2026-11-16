@@ -1,44 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="440" viewBox="0 0 1120 440" role="img" aria-label="Try AutoCommand in three steps: download and unzip, run as administrator, look around">
-  <rect width="1120" height="440" fill="#0f172a"/>
-  <rect width="1120" height="6" fill="#22d3ee"/>
-  <g font-family="Segoe UI, Arial, sans-serif">
-    <text x="56" y="78" font-size="42" font-weight="700" fill="#f1f5f9">Try it in five minutes</text>
-    <rect x="56" y="96" width="80" height="5" fill="#22d3ee"/>
-
-    <!-- step 1 -->
-    <rect x="56" y="140" width="308" height="240" rx="14" fill="#1e293b" stroke="#334155"/>
-    <circle cx="108" cy="192" r="24" fill="#22d3ee"/>
-    <text x="108" y="201" font-size="26" font-weight="700" fill="#0f172a" text-anchor="middle">1</text>
-    <text x="148" y="200" font-size="23" font-weight="600" fill="#f1f5f9">Download</text>
-    <text x="88" y="254" font-size="18.5" fill="#cbd5e1">The zip from Releases,</text>
-    <text x="88" y="282" font-size="18.5" fill="#cbd5e1">unzipped anywhere.</text>
-    <text x="88" y="334" font-size="16" fill="#94a3b8">No installer. Every release</text>
-    <text x="88" y="358" font-size="16" fill="#94a3b8">ships SHA-256 checksums.</text>
-
-    <path d="M 384 260 L 384 248 L 404 260 L 384 272 Z" fill="#64748b"/>
-
-    <!-- step 2 -->
-    <rect x="424" y="140" width="308" height="240" rx="14" fill="#1e293b" stroke="#334155"/>
-    <circle cx="476" cy="192" r="24" fill="#22d3ee"/>
-    <text x="476" y="201" font-size="26" font-weight="700" fill="#0f172a" text-anchor="middle">2</text>
-    <text x="516" y="200" font-size="23" font-weight="600" fill="#f1f5f9">Run as admin</text>
-    <text x="456" y="254" font-size="18.5" fill="#cbd5e1">Right-click the exe —</text>
-    <text x="456" y="282" font-size="18.5" fill="#cbd5e1">like Task Manager asks.</text>
-    <text x="456" y="334" font-size="16" fill="#94a3b8">Blue SmartScreen?</text>
-    <text x="456" y="358" font-size="16" fill="#94a3b8">More info → Run anyway.</text>
-
-    <path d="M 752 260 L 752 248 L 772 260 L 752 272 Z" fill="#64748b"/>
-
-    <!-- step 3 -->
-    <rect x="792" y="140" width="308" height="240" rx="14" fill="#1e293b" stroke="#334155"/>
-    <circle cx="844" cy="192" r="24" fill="#22d3ee"/>
-    <text x="844" y="201" font-size="26" font-weight="700" fill="#0f172a" text-anchor="middle">3</text>
-    <text x="884" y="200" font-size="23" font-weight="600" fill="#f1f5f9">Look around</text>
-    <text x="824" y="254" font-size="18.5" fill="#cbd5e1">Every program talking</text>
-    <text x="824" y="282" font-size="18.5" fill="#cbd5e1">to the internet, live.</text>
-    <text x="824" y="334" font-size="16" fill="#94a3b8">Looking changes nothing —</text>
-    <text x="824" y="358" font-size="16" fill="#94a3b8">that's the whole tutorial.</text>
-
-    <text x="1064" y="420" font-size="15" fill="#64748b" text-anchor="end">AutoCommand · dparksports/autocommand</text>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="286" viewBox="0 0 1120 286" role="img" aria-label="Three steps: download and unzip, run as administrator, look around">
+<rect width="1120" height="286" fill="#FFFFFF"/>
+<g font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Segoe UI Variable Text', 'Segoe UI', Helvetica, Arial, sans-serif">
+<text x="64" y="56" font-size="11" font-weight="600" fill="#0071E3" text-anchor="start" letter-spacing="1.4">TRY IT IN FIVE MINUTES</text><rect x="64" y="78" width="317" height="118" rx="18" fill="#FFFFFF" stroke="#D2D2D7" stroke-width="1"/><text x="84" y="118" font-size="26" font-weight="700" fill="#0071E3" text-anchor="start">1</text><text x="116" y="115" font-size="14.5" font-weight="600" fill="#1D1D1F" text-anchor="start">Download &amp; unzip</text><text x="84" y="142" font-size="12.5" font-weight="400" fill="#6E6E73" text-anchor="start">AutoCommand-v…-win-x64.zip from Releases —</text><text x="84" y="159" font-size="12.5" font-weight="400" fill="#6E6E73" text-anchor="start">checksums included, no installer.</text><rect x="405" y="78" width="317" height="118" rx="18" fill="#FFFFFF" stroke="#D2D2D7" stroke-width="1"/><text x="425" y="118" font-size="26" font-weight="700" fill="#0071E3" text-anchor="start">2</text><text x="457" y="115" font-size="14.5" font-weight="600" fill="#1D1D1F" text-anchor="start">Run as administrator</text><text x="425" y="142" font-size="12.5" font-weight="400" fill="#6E6E73" text-anchor="start">Same reason Task Manager asks: to see the</text><text x="425" y="159" font-size="12.5" font-weight="400" fill="#6E6E73" text-anchor="start">whole machine, not just your user.</text><rect x="746" y="78" width="317" height="118" rx="18" fill="#FFFFFF" stroke="#D2D2D7" stroke-width="1"/><text x="766" y="118" font-size="26" font-weight="700" fill="#0071E3" text-anchor="start">3</text><text x="798" y="115" font-size="14.5" font-weight="600" fill="#1D1D1F" text-anchor="start">Look around, ask something</text><text x="766" y="142" font-size="12.5" font-weight="400" fill="#6E6E73" text-anchor="start">The first screen lists every program</text><text x="766" y="159" font-size="12.5" font-weight="400" fill="#6E6E73" text-anchor="start">talking to the internet right now.</text><text x="64" y="226" font-size="13" font-weight="400" fill="#6E6E73" text-anchor="start">Air-gapped PC? Everything works offline — bring your own Sysmon64.exe (download it on any connected machine, move it over by USB).</text>
+</g>
 </svg>

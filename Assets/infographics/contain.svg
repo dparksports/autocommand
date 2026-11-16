@@ -1,38 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="680" viewBox="0 0 1120 680" role="img" aria-label="Stopping is safe: pre-block brief, reversible blocks, self-closing gates, containment proof, panic button, lockdown snapshots">
-  <rect width="1120" height="680" fill="#0f172a"/>
-  <rect width="1120" height="6" fill="#22d3ee"/>
-  <g font-family="Segoe UI, Arial, sans-serif">
-    <text x="56" y="78" font-size="42" font-weight="700" fill="#f1f5f9">Stopping is safe</text>
-    <rect x="56" y="96" width="80" height="5" fill="#22d3ee"/>
-    <text x="56" y="134" font-size="18.5" fill="#94a3b8">Every stop is reversible. Nothing is ever deleted along the way.</text>
-
-    <rect x="56" y="164" width="492" height="140" rx="14" fill="#1e293b" stroke="#334155"/>
-    <text x="88" y="208" font-size="23" font-weight="700" fill="#f1f5f9">1 · The pre-block brief</text>
-    <text x="88" y="248" font-size="18" fill="#cbd5e1">Says exactly what the rule will do —</text>
-    <text x="88" y="276" font-size="18" fill="#cbd5e1">before you confirm anything.</text>
-
-    <rect x="572" y="164" width="492" height="140" rx="14" fill="#1e293b" stroke="#334155"/>
-    <text x="604" y="208" font-size="23" font-weight="700" fill="#f1f5f9">2 · Block, with undo</text>
-    <text x="604" y="248" font-size="18" fill="#cbd5e1">Per IP or per program. Your reason,</text>
-    <text x="604" y="276" font-size="18" fill="#cbd5e1">live hit counts, one-click undo.</text>
-
-    <rect x="56" y="328" width="492" height="140" rx="14" fill="#1e293b" stroke="#334155"/>
-    <text x="88" y="372" font-size="23" font-weight="700" fill="#f1f5f9">3 · Gates: temporary unblock</text>
-    <text x="88" y="412" font-size="18" fill="#cbd5e1">Open for 1, 10, 30 or 60 minutes —</text>
-    <text x="88" y="440" font-size="18" fill="#cbd5e1">then blocking returns by itself.</text>
-
-    <rect x="572" y="328" width="492" height="140" rx="14" fill="#1e293b" stroke="#334155"/>
-    <text x="604" y="372" font-size="23" font-weight="700" fill="#f1f5f9">4 · Proof it holds</text>
-    <text x="604" y="412" font-size="18" fill="#cbd5e1">Attempts vs live sockets vs the TLS</text>
-    <text x="604" y="440" font-size="18" fill="#cbd5e1">archive: contained · stale · leak.</text>
-
-    <rect x="56" y="492" width="1008" height="84" rx="14" fill="#7f1d1d" stroke="#f87171" stroke-opacity="0.6"/>
-    <text x="88" y="532" font-size="25" font-weight="700" fill="#fecaca">Restore Internet — the panic button</text>
-    <text x="88" y="560" font-size="17" fill="#fecaca" opacity="0.9">One click. Every block the app ever made, off. Nothing deleted.</text>
-
-    <rect x="56" y="596" width="1008" height="56" rx="14" fill="#1e293b" stroke="#334155"/>
-    <text x="88" y="630" font-size="17" fill="#94a3b8">Even the nuclear option photographs first: lockdown snapshots every rule, Restore snapshot brings them back.</text>
-
-    <text x="1064" y="668" font-size="15" fill="#64748b" text-anchor="end">AutoCommand · dparksports/autocommand</text>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="356" viewBox="0 0 1120 356" role="img" aria-label="Pre-block brief, reversible blocks, self-closing gates, containment proof, panic button, lockdown snapshots">
+<rect width="1120" height="356" fill="#FFFFFF"/>
+<g font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Segoe UI Variable Text', 'Segoe UI', Helvetica, Arial, sans-serif">
+<text x="64" y="56" font-size="11" font-weight="600" fill="#0071E3" text-anchor="start" letter-spacing="1.4">CONTAIN: STOPPING IS SAFE</text><rect x="64" y="78" width="484" height="78" rx="14" fill="#F5F5F7" stroke="none" stroke-width="1"/><g fill="none" stroke="#0071E3" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="80" y="98" width="16" height="22" rx="2"/><path d="M 84.5 105 h 7 M 84.5 109 h 7 M 84.5 113 h 4.5"/></g><text x="116" y="104" font-size="14" font-weight="600" fill="#1D1D1F" text-anchor="start">Pre-block brief</text><text x="116" y="126" font-size="12.5" font-weight="400" fill="#6E6E73" text-anchor="start">says exactly what the rule will do before you confirm</text><rect x="572" y="78" width="484" height="78" rx="14" fill="#F5F5F7" stroke="none" stroke-width="1"/><g fill="none" stroke="#0071E3" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M 587 106 a 9 8 0 1 1 2 8.5"/><path d="M 586 100 l 0.5 6.5 l 6.5 -1"/></g><text x="624" y="104" font-size="14" font-weight="600" fill="#1D1D1F" text-anchor="start">One-click undo</text><text x="624" y="126" font-size="12.5" font-weight="400" fill="#6E6E73" text-anchor="start">every block reverses in one click, with the reason you</text><text x="624" y="143" font-size="12.5" font-weight="400" fill="#6E6E73" text-anchor="start">gave</text><rect x="64" y="174" width="484" height="78" rx="14" fill="#F5F5F7" stroke="none" stroke-width="1"/><g fill="none" stroke="#0071E3" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="88" cy="205" r="10.5"/><path d="M 88 200 v 5 l 4 3"/></g><text x="116" y="200" font-size="14" font-weight="600" fill="#1D1D1F" text-anchor="start">Gates</text><text x="116" y="222" font-size="12.5" font-weight="400" fill="#6E6E73" text-anchor="start">open one blocked target for 1 / 10 / 30 / 60 min, then</text><text x="116" y="239" font-size="12.5" font-weight="400" fill="#6E6E73" text-anchor="start">re-arm</text><rect x="572" y="174" width="484" height="78" rx="14" fill="#F5F5F7" stroke="none" stroke-width="1"/><g fill="none" stroke="#0071E3" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M 587 206 l 6 6.5 l 12.5 -14"/></g><text x="624" y="200" font-size="14" font-weight="600" fill="#1D1D1F" text-anchor="start">Containment proof</text><text x="624" y="222" font-size="12.5" font-weight="400" fill="#6E6E73" text-anchor="start">attempts joined against live sockets: contained ·</text><text x="624" y="239" font-size="12.5" font-weight="400" fill="#6E6E73" text-anchor="start">stale flow · leak</text><rect x="64" y="276" width="992" height="66" rx="14" fill="#EAF3FF" stroke="none" stroke-width="1"/><text x="86" y="311" font-size="14" font-weight="600" fill="#1D1D1F" text-anchor="start">If it all goes wrong:</text><text x="228" y="311" font-size="13.5" font-weight="400" fill="#1D1D1F" text-anchor="start">the �DEA1 Restore Internet button undoes every block the app ever made.</text><text x="86" y="332" font-size="12.5" font-weight="400" fill="#6E6E73" text-anchor="start">Even lockdown photographs every firewall rule first — Restore snapshot brings them back.</text>
+</g>
 </svg>

@@ -1,35 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="420" viewBox="0 0 1120 420" role="img" aria-label="Where it came from: SystemMonitor, AutoCommand II and III, this repository">
-  <rect width="1120" height="420" fill="#0f172a"/>
-  <rect width="1120" height="6" fill="#22d3ee"/>
-  <g font-family="Segoe UI, Arial, sans-serif">
-    <text x="56" y="78" font-size="42" font-weight="700" fill="#f1f5f9">Where it came from</text>
-    <rect x="56" y="96" width="80" height="5" fill="#22d3ee"/>
-
-    <line x1="96" y1="220" x2="1024" y2="220" stroke="#334155" stroke-width="3"/>
-
-    <circle cx="146" cy="220" r="11" fill="#0f172a" stroke="#64748b" stroke-width="2.5"/>
-    <text x="146" y="168" font-size="21" font-weight="700" fill="#f1f5f9" text-anchor="middle">SystemMonitor</text>
-    <text x="146" y="262" font-size="16" fill="#94a3b8" text-anchor="middle">firmware &amp; secure-boot</text>
-    <text x="146" y="286" font-size="16" fill="#94a3b8" text-anchor="middle">forensics dashboard</text>
-
-    <circle cx="432" cy="220" r="11" fill="#0f172a" stroke="#94a3b8" stroke-width="2.5"/>
-    <text x="432" y="168" font-size="21" font-weight="700" fill="#f1f5f9" text-anchor="middle">AutoCommand II</text>
-    <text x="432" y="262" font-size="16" fill="#94a3b8" text-anchor="middle">engines rebuilt</text>
-    <text x="432" y="286" font-size="16" fill="#94a3b8" text-anchor="middle">in F#</text>
-
-    <circle cx="718" cy="220" r="11" fill="#0f172a" stroke="#cbd5e1" stroke-width="2.5"/>
-    <text x="718" y="168" font-size="21" font-weight="700" fill="#f1f5f9" text-anchor="middle">AutoCommand III</text>
-    <text x="718" y="262" font-size="16" fill="#94a3b8" text-anchor="middle">watch · contain · harden</text>
-    <text x="718" y="286" font-size="16" fill="#94a3b8" text-anchor="middle">takes shape</text>
-
-    <circle cx="976" cy="220" r="13" fill="#22d3ee"/>
-    <text x="976" y="168" font-size="21" font-weight="700" fill="#f1f5f9" text-anchor="middle">This repository</text>
-    <text x="976" y="262" font-size="16" fill="#94a3b8" text-anchor="middle">everything in one</text>
-    <text x="976" y="286" font-size="16" fill="#94a3b8" text-anchor="middle">family tree</text>
-
-    <text x="56" y="356" font-size="17" fill="#cbd5e1">The precursor's full source and history live here under systemmonitor/;</text>
-    <text x="56" y="382" font-size="17" fill="#cbd5e1">its classic releases stay downloadable on the old Releases page.</text>
-
-    <text x="1064" y="404" font-size="15" fill="#64748b" text-anchor="end">AutoCommand · dparksports/autocommand</text>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="230" viewBox="0 0 1120 230" role="img" aria-label="SystemMonitor, the precursor, to AutoCommand II and III, to AutoCommand today">
+<rect width="1120" height="230" fill="#FFFFFF"/>
+<g font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Segoe UI Variable Text', 'Segoe UI', Helvetica, Arial, sans-serif">
+<text x="64" y="56" font-size="11" font-weight="600" fill="#0071E3" text-anchor="start" letter-spacing="1.4">WHERE IT CAME FROM</text><rect x="64" y="78" width="214" height="84" rx="14" fill="#F5F5F7" stroke="none" stroke-width="1"/><text x="84" y="110" font-size="14.5" font-weight="600" fill="#1D1D1F" text-anchor="start">SystemMonitor</text><text x="84" y="132" font-size="11.5" font-weight="400" fill="#6E6E73" text-anchor="start">firmware, UEFI/DBX and</text><text x="84" y="149" font-size="11.5" font-weight="400" fill="#6E6E73" text-anchor="start">Defender forensics dashboard</text><g fill="none" stroke="#0071E3" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M 284 120 h 18 M 296 113.5 l 6.5 6.5 l -6.5 6.5"/></g><rect x="310" y="78" width="214" height="84" rx="14" fill="#F5F5F7" stroke="none" stroke-width="1"/><text x="330" y="110" font-size="14.5" font-weight="600" fill="#1D1D1F" text-anchor="start">AutoCommand II</text><text x="330" y="132" font-size="11.5" font-weight="400" fill="#6E6E73" text-anchor="start">the core engines rebuilt in F#</text><g fill="none" stroke="#0071E3" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M 530 120 h 18 M 542 113.5 l 6.5 6.5 l -6.5 6.5"/></g><rect x="556" y="78" width="214" height="84" rx="14" fill="#F5F5F7" stroke="none" stroke-width="1"/><text x="576" y="110" font-size="14.5" font-weight="600" fill="#1D1D1F" text-anchor="start">AutoCommand III</text><text x="576" y="132" font-size="11.5" font-weight="400" fill="#6E6E73" text-anchor="start">the engine stack, hardened and</text><text x="576" y="149" font-size="11.5" font-weight="400" fill="#6E6E73" text-anchor="start">split from the shell</text><g fill="none" stroke="#0071E3" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M 776 120 h 18 M 788 113.5 l 6.5 6.5 l -6.5 6.5"/></g><rect x="802" y="78" width="214" height="84" rx="14" fill="#EAF3FF" stroke="none" stroke-width="1"/><text x="822" y="110" font-size="14.5" font-weight="600" fill="#1D1D1F" text-anchor="start">AutoCommand</text><text x="822" y="132" font-size="11.5" font-weight="400" fill="#6E6E73" text-anchor="start">one repository, the whole</text><text x="822" y="149" font-size="11.5" font-weight="400" fill="#6E6E73" text-anchor="start">family tree</text><text x="64" y="194" font-size="13" font-weight="400" fill="#6E6E73" text-anchor="start">The precursor’s complete source tree and commit history live under systemmonitor/ ; its classic v3.x releases remain on the old Releases page.</text>
+</g>
 </svg>

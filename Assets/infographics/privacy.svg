@@ -1,39 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="570" viewBox="0 0 1120 570" role="img" aria-label="What AutoCommand sends about you: nothing by default — three narrow lookups, everything else local">
-  <rect width="1120" height="570" fill="#0f172a"/>
-  <rect width="1120" height="6" fill="#22d3ee"/>
-  <g font-family="Segoe UI, Arial, sans-serif">
-    <text x="56" y="78" font-size="42" font-weight="700" fill="#f1f5f9">What it sends about you</text>
-    <rect x="56" y="96" width="80" height="5" fill="#22d3ee"/>
-    <text x="56" y="134" font-size="21" font-weight="600" fill="#34d399">Nothing, by default.</text>
-
-    <rect x="56" y="164" width="492" height="344" rx="14" fill="#1e293b" stroke="#334155"/>
-    <text x="88" y="208" font-size="22" font-weight="700" fill="#22d3ee">Can leave the machine</text>
-    <g font-size="17.5" fill="#e2e8f0" font-weight="600">
-      <text x="88" y="252">Who owns this IP?</text>
-      <text x="88" y="316">Sysmon64.exe — on click</text>
-      <text x="88" y="380">DBX revocation list — Shields Up</text>
-    </g>
-    <g font-size="15.5" fill="#94a3b8">
-      <text x="88" y="278">public RDAP registries, HTTPS; they learn</text>
-      <text x="88" y="302">the IP and nothing else</text>
-      <text x="88" y="342">downloaded only when you click Install,</text>
-      <text x="88" y="366">Authenticode-verified before it runs</text>
-      <text x="88" y="406">Microsoft's blob, over HTTPS</text>
-    </g>
-    <text x="88" y="462" font-size="15.5" fill="#94a3b8">Plus one opt-in daily count — app, version,</text>
-    <text x="88" y="486" font-size="15.5" fill="#94a3b8">Windows build. No identifier. Off unless asked.</text>
-
-    <rect x="572" y="164" width="492" height="344" rx="14" fill="#1e293b" stroke="#334155"/>
-    <text x="604" y="208" font-size="22" font-weight="700" fill="#34d399">Stays on your machine</text>
-    <g font-size="17.5" fill="#cbd5e1">
-      <text x="604" y="252">Every connection, spawn, block,</text>
-      <text x="604" y="280">verdict — readable local files.</text>
-      <text x="604" y="336">Decrypted bodies are DPAPI-</text>
-      <text x="604" y="364">encrypted, your user only.</text>
-      <text x="604" y="420">No account. No cloud. The count</text>
-      <text x="604" y="448">server stores daily totals only.</text>
-    </g>
-
-    <text x="56" y="546" font-size="16.5" fill="#94a3b8">Verify, don't trust — the counting worker's code is public in the repo; PRIVACY.md spells out every lookup.</text>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="330" viewBox="0 0 1120 330" role="img" aria-label="Nothing by default: three narrow lookups spelled out, everything else local">
+<rect width="1120" height="330" fill="#FFFFFF"/>
+<g font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Segoe UI Variable Text', 'Segoe UI', Helvetica, Arial, sans-serif">
+<text x="64" y="56" font-size="11" font-weight="600" fill="#0071E3" text-anchor="start" letter-spacing="1.4">WHAT IT SENDS ABOUT YOU</text><rect x="64" y="78" width="992" height="64" rx="16" fill="#EAF3FF" stroke="none" stroke-width="1"/><text x="86" y="116" font-size="16.5" font-weight="600" fill="#1D1D1F" text-anchor="start">Nothing, by default. Everything happens on your computer.</text><rect x="64" y="162" width="328" height="92" rx="18" fill="#FFFFFF" stroke="#D2D2D7" stroke-width="1"/><text x="84" y="192" font-size="14" font-weight="600" fill="#1D1D1F" text-anchor="start">RDAP lookups</text><text x="84" y="214" font-size="11.5" font-weight="400" fill="#6E6E73" text-anchor="start">automatic, HTTPS — asks the registry who</text><text x="84" y="231" font-size="11.5" font-weight="400" fill="#6E6E73" text-anchor="start">owns an IP; sends the queried IP and nothing</text><text x="84" y="248" font-size="11.5" font-weight="400" fill="#6E6E73" text-anchor="start">else</text><rect x="412" y="162" width="328" height="92" rx="18" fill="#FFFFFF" stroke="#D2D2D7" stroke-width="1"/><text x="432" y="192" font-size="14" font-weight="600" fill="#1D1D1F" text-anchor="start">Sysmon download</text><text x="432" y="214" font-size="11.5" font-weight="400" fill="#6E6E73" text-anchor="start">only when you click Install —</text><text x="432" y="231" font-size="11.5" font-weight="400" fill="#6E6E73" text-anchor="start">Authenticode-verified before it runs</text><rect x="760" y="162" width="328" height="92" rx="18" fill="#FFFFFF" stroke="#D2D2D7" stroke-width="1"/><text x="780" y="192" font-size="14" font-weight="600" fill="#1D1D1F" text-anchor="start">DBX blob</text><text x="780" y="214" font-size="11.5" font-weight="400" fill="#6E6E73" text-anchor="start">secure-boot revocation list — only from</text><text x="780" y="231" font-size="11.5" font-weight="400" fill="#6E6E73" text-anchor="start">Shields Up, only that file</text><text x="64" y="286" font-size="13.5" font-weight="400" fill="#6E6E73" text-anchor="start">The one optional extra — an anonymous daily count with no identifiers, not even a random one — is off unless you say yes.</text>
+</g>
 </svg>

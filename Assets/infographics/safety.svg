@@ -1,38 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="500" viewBox="0 0 1120 500" role="img" aria-label="Built so you can experiment safely: local-first, undo everything, honest about what outlives the folder">
-  <rect width="1120" height="500" fill="#0f172a"/>
-  <rect width="1120" height="6" fill="#22d3ee"/>
-  <g font-family="Segoe UI, Arial, sans-serif">
-    <text x="56" y="78" font-size="42" font-weight="700" fill="#f1f5f9">Built so you can experiment</text>
-    <rect x="56" y="96" width="80" height="5" fill="#22d3ee"/>
-    <text x="56" y="134" font-size="18.5" fill="#94a3b8">A security tool you're afraid to touch is a security tool you won't use.</text>
-
-    <rect x="56" y="164" width="325" height="216" rx="14" fill="#1e293b" stroke="#334155"/>
-    <text x="84" y="208" font-size="21" font-weight="700" fill="#f1f5f9">Local-first</text>
-    <g font-size="17.5" fill="#cbd5e1">
-      <text x="84" y="250">Everything it records stays</text>
-      <text x="84" y="278">on your machine, in</text>
-      <text x="84" y="306">readable files.</text>
-    </g>
-
-    <rect x="397" y="164" width="325" height="216" rx="14" fill="#1e293b" stroke="#334155"/>
-    <text x="425" y="208" font-size="21" font-weight="700" fill="#f1f5f9">Undo everything</text>
-    <g font-size="17.5" fill="#cbd5e1">
-      <text x="425" y="250">Every block reverses in</text>
-      <text x="425" y="278">one click. The panic</text>
-      <text x="425" y="306">button undoes them all.</text>
-    </g>
-
-    <rect x="738" y="164" width="326" height="216" rx="14" fill="#1e293b" stroke="#334155"/>
-    <text x="766" y="208" font-size="21" font-weight="700" fill="#f1f5f9">Leaving is honest</text>
-    <g font-size="17.5" fill="#cbd5e1">
-      <text x="766" y="250">Delete the folder and the</text>
-      <text x="766" y="278">app's files go — but what it</text>
-      <text x="766" y="306">installed into Windows stays.</text>
-    </g>
-
-    <rect x="56" y="408" width="1008" height="52" rx="14" fill="#1e293b" stroke="#334155"/>
-    <text x="88" y="440" font-size="16.5" fill="#94a3b8">The way out is built in: the panic button and Settings remove those — Technical Notes lists every location.</text>
-
-    <text x="1064" y="486" font-size="15" fill="#64748b" text-anchor="end">AutoCommand · dparksports/autocommand</text>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="278" viewBox="0 0 1120 278" role="img" aria-label="Local-first, undo everything, honest about what outlives the folder">
+<rect width="1120" height="278" fill="#FFFFFF"/>
+<g font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Segoe UI Variable Text', 'Segoe UI', Helvetica, Arial, sans-serif">
+<text x="64" y="56" font-size="11" font-weight="600" fill="#0071E3" text-anchor="start" letter-spacing="1.4">BUILT SO YOU CAN EXPERIMENT SAFELY</text><rect x="64" y="78" width="328" height="118" rx="18" fill="#FFFFFF" stroke="#D2D2D7" stroke-width="1"/><g fill="none" stroke="#0071E3" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="86" y="101" width="16" height="22" rx="2"/><path d="M 90.5 108 h 7 M 90.5 112 h 7 M 90.5 116 h 4.5"/></g><text x="120" y="117" font-size="14.5" font-weight="600" fill="#1D1D1F" text-anchor="start">Readable, local, first</text><text x="86" y="148" font-size="12" font-weight="400" fill="#6E6E73" text-anchor="start">every record lands in plain files on</text><text x="86" y="166" font-size="12" font-weight="400" fill="#6E6E73" text-anchor="start">your machine — no formats you can’t open</text><rect x="412" y="78" width="328" height="118" rx="18" fill="#FFFFFF" stroke="#D2D2D7" stroke-width="1"/><g fill="none" stroke="#0071E3" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M 433 109 a 9 8 0 1 1 2 8.5"/><path d="M 432 103 l 0.5 6.5 l 6.5 -1"/></g><text x="468" y="117" font-size="14.5" font-weight="600" fill="#1D1D1F" text-anchor="start">Undo everything</text><text x="434" y="148" font-size="12" font-weight="400" fill="#6E6E73" text-anchor="start">per block, per gate, or all at once with</text><text x="434" y="166" font-size="12" font-weight="400" fill="#6E6E73" text-anchor="start">the panic button</text><rect x="760" y="78" width="328" height="118" rx="18" fill="#FFFFFF" stroke="#D2D2D7" stroke-width="1"/><g fill="none" stroke="#0071E3" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M 781 113 l 6 6.5 l 12.5 -14"/></g><text x="816" y="117" font-size="14.5" font-weight="600" fill="#1D1D1F" text-anchor="start">Leaving is honest</text><text x="782" y="148" font-size="12" font-weight="400" fill="#6E6E73" text-anchor="start">delete the folder and the app’s files go</text><text x="782" y="166" font-size="12" font-weight="400" fill="#6E6E73" text-anchor="start">with it — what outlives it is listed,</text><text x="782" y="184" font-size="12" font-weight="400" fill="#6E6E73" text-anchor="start">not hidden</text><text x="64" y="228" font-size="13" font-weight="400" fill="#6E6E73" text-anchor="start">TECHNICAL_NOTES.md lists every location the app writes — nothing is a mystery.</text>
+</g>
 </svg>

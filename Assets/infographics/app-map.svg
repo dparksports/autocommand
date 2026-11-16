@@ -1,56 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="700" viewBox="0 0 1120 700" role="img" aria-label="Where everything lives: the sidebar grouped into Watch, Contain and System">
-  <rect width="1120" height="700" fill="#0f172a"/>
-  <rect width="1120" height="6" fill="#22d3ee"/>
-  <g font-family="Segoe UI, Arial, sans-serif">
-    <text x="56" y="78" font-size="42" font-weight="700" fill="#f1f5f9">Where everything lives</text>
-    <rect x="56" y="96" width="80" height="5" fill="#22d3ee"/>
-    <text x="56" y="134" font-size="18.5" fill="#94a3b8">The sidebar is grouped by the question you're asking.</text>
-
-    <!-- sidebar -->
-    <rect x="56" y="164" width="396" height="492" rx="14" fill="#1e293b" stroke="#334155"/>
-
-    <text x="84" y="204" font-size="16" font-weight="700" fill="#64748b" letter-spacing="3">WATCH</text>
-    <circle cx="96" cy="234" r="9" fill="none" stroke="#22d3ee" stroke-width="2.5"/>
-    <line x1="103" y1="241" x2="111" y2="249" stroke="#22d3ee" stroke-width="2.5"/>
-    <text x="122" y="241" font-size="19.5" fill="#f1f5f9">Process Monitor</text>
-    <text x="122" y="264" font-size="15" fill="#64748b">every connection, live</text>
-
-    <text x="84" y="316" font-size="16" font-weight="700" fill="#64748b" letter-spacing="3">CONTAIN</text>
-    <path d="M 96 348 l 11 -7 l 11 7 v 11 q 0 9 -11 13 q -11 -4 -11 -13 Z" fill="none" stroke="#fbbf24" stroke-width="2.5"/>
-    <text x="122" y="358" font-size="19.5" fill="#f1f5f9">Firewall</text>
-    <text x="122" y="381" font-size="15" fill="#64748b">profiles &amp; lockdown</text>
-    <circle cx="96" cy="417" r="9" fill="none" stroke="#f87171" stroke-width="3"/>
-    <line x1="89" y1="424" x2="103" y2="410" stroke="#f87171" stroke-width="3"/>
-    <text x="122" y="424" font-size="19.5" fill="#f1f5f9">Blocks</text>
-    <text x="122" y="447" font-size="15" fill="#64748b">what's stopped, and why</text>
-    <rect x="88" y="469" width="16" height="20" rx="3" fill="none" stroke="#94a3b8" stroke-width="2"/>
-    <line x1="92" y1="475" x2="100" y2="475" stroke="#94a3b8" stroke-width="2"/>
-    <line x1="92" y1="480" x2="100" y2="480" stroke="#94a3b8" stroke-width="2"/>
-    <text x="122" y="484" font-size="19.5" fill="#f1f5f9">Audit</text>
-    <text x="122" y="507" font-size="15" fill="#64748b">what the app did</text>
-
-    <text x="84" y="548" font-size="16" font-weight="700" fill="#64748b" letter-spacing="3">SYSTEM</text>
-    <text x="96" y="594" font-size="13" font-weight="700" fill="#22d3ee">AI</text>
-    <text x="122" y="593" font-size="19.5" fill="#f1f5f9">Be My Guest · Settings</text>
-
-    <!-- annotations -->
-    <rect x="488" y="164" width="576" height="140" rx="14" fill="#1e293b" stroke="#334155"/>
-    <text x="520" y="210" font-size="22" font-weight="700" fill="#f1f5f9">The panic button lives in the corner</text>
-    <text x="520" y="248" font-size="18" fill="#cbd5e1">Restore Internet undoes every block the</text>
-    <text x="520" y="276" font-size="18" fill="#cbd5e1">app ever made — one click, nothing deleted.</text>
-
-    <rect x="488" y="332" width="576" height="140" rx="14" fill="#1e293b" stroke="#334155"/>
-    <text x="520" y="378" font-size="22" font-weight="700" fill="#f1f5f9">Feeds keep running</text>
-    <text x="520" y="416" font-size="18" fill="#cbd5e1">A feed runs until you stop it — not until</text>
-    <text x="520" y="444" font-size="18" fill="#cbd5e1">you look away. Live traffic also plays as rain.</text>
-
-    <rect x="488" y="500" width="576" height="140" rx="14" fill="#1e293b" stroke="#334155"/>
-    <text x="520" y="546" font-size="22" font-weight="700" fill="#f1f5f9">Investigate</text>
-    <rect x="700" y="526" width="196" height="32" rx="16" fill="#0b1220" stroke="#334155"/>
-    <text x="798" y="548" font-size="14.5" fill="#94a3b8" text-anchor="middle">behind the Advanced toggle</text>
-    <text x="520" y="584" font-size="18" fill="#cbd5e1">Everything recorded about one process,</text>
-    <text x="520" y="612" font-size="18" fill="#cbd5e1">joined into one verdict — and one report.</text>
-
-    <text x="1064" y="680" font-size="15" fill="#64748b" text-anchor="end">AutoCommand · dparksports/autocommand</text>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="468" viewBox="0 0 1120 468" role="img" aria-label="The sidebar, grouped by the question you’re asking: Watch, Contain, System">
+<rect width="1120" height="468" fill="#FFFFFF"/>
+<g font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Segoe UI Variable Text', 'Segoe UI', Helvetica, Arial, sans-serif">
+<text x="64" y="56" font-size="11" font-weight="600" fill="#0071E3" text-anchor="start" letter-spacing="1.4">WHERE EVERYTHING LIVES</text><text x="64" y="88" font-size="15" font-weight="400" fill="#6E6E73" text-anchor="start">Grouped by the question you’re asking — not by what the tools do internally.</text><rect x="64" y="112" width="328" height="328" rx="18" fill="#FFFFFF" stroke="#D2D2D7" stroke-width="1"/><text x="86" y="146" font-size="13" font-weight="700" fill="#0071E3" text-anchor="start" letter-spacing="1.2">WATCH</text><text x="86" y="168" font-size="12.5" font-weight="400" fill="#6E6E73" text-anchor="start">a question about traffic</text><line x1="86" y1="182" x2="370" y2="182" stroke="#D2D2D7" stroke-width="1"/><text x="86" y="206" font-size="14" font-weight="600" fill="#1D1D1F" text-anchor="start">Process Monitor</text><text x="86" y="226" font-size="12" font-weight="400" fill="#6E6E73" text-anchor="start">every connection, who launched it</text><line x1="86" y1="246" x2="370" y2="246" stroke="#D2D2D7" stroke-width="1"/><text x="86" y="284" font-size="14" font-weight="600" fill="#1D1D1F" text-anchor="start">Exfil</text><text x="86" y="304" font-size="12" font-weight="400" fill="#6E6E73" text-anchor="start">typing vs telemetry, hourly, opt-in</text><line x1="86" y1="324" x2="370" y2="324" stroke="#D2D2D7" stroke-width="1"/><text x="86" y="362" font-size="14" font-weight="600" fill="#1D1D1F" text-anchor="start">Matrix rain</text><text x="86" y="382" font-size="12" font-weight="400" fill="#6E6E73" text-anchor="start">the same feed, replayed live</text><rect x="412" y="112" width="328" height="328" rx="18" fill="#FFFFFF" stroke="#D2D2D7" stroke-width="1"/><text x="434" y="146" font-size="13" font-weight="700" fill="#0071E3" text-anchor="start" letter-spacing="1.2">CONTAIN</text><text x="434" y="168" font-size="12.5" font-weight="400" fill="#6E6E73" text-anchor="start">a decision about traffic</text><line x1="434" y1="182" x2="718" y2="182" stroke="#D2D2D7" stroke-width="1"/><text x="434" y="206" font-size="14" font-weight="600" fill="#1D1D1F" text-anchor="start">Firewall</text><text x="434" y="226" font-size="12" font-weight="400" fill="#6E6E73" text-anchor="start">block, gate, whitelist, profile</text><line x1="434" y1="246" x2="718" y2="246" stroke="#D2D2D7" stroke-width="1"/><text x="434" y="284" font-size="14" font-weight="600" fill="#1D1D1F" text-anchor="start">Blocks</text><text x="434" y="304" font-size="12" font-weight="400" fill="#6E6E73" text-anchor="start">everything stopped, one list</text><line x1="434" y1="324" x2="718" y2="324" stroke="#D2D2D7" stroke-width="1"/><text x="434" y="362" font-size="14" font-weight="600" fill="#1D1D1F" text-anchor="start">Audit</text><text x="434" y="382" font-size="12" font-weight="400" fill="#6E6E73" text-anchor="start">everything the app did, one ledger</text><rect x="760" y="112" width="328" height="328" rx="18" fill="#FFFFFF" stroke="#D2D2D7" stroke-width="1"/><text x="782" y="146" font-size="13" font-weight="700" fill="#0071E3" text-anchor="start" letter-spacing="1.2">SYSTEM</text><text x="782" y="168" font-size="12.5" font-weight="400" fill="#6E6E73" text-anchor="start">everything else</text><line x1="782" y1="182" x2="1066" y2="182" stroke="#D2D2D7" stroke-width="1"/><text x="782" y="206" font-size="14" font-weight="600" fill="#1D1D1F" text-anchor="start">Be My Guest</text><text x="782" y="226" font-size="12" font-weight="400" fill="#6E6E73" text-anchor="start">invite your AI assistant, locally</text><line x1="782" y1="246" x2="1066" y2="246" stroke="#D2D2D7" stroke-width="1"/><text x="782" y="284" font-size="14" font-weight="600" fill="#1D1D1F" text-anchor="start">Settings</text><text x="782" y="304" font-size="12" font-weight="400" fill="#6E6E73" text-anchor="start">preferences and instrumentation</text><line x1="782" y1="324" x2="1066" y2="324" stroke="#D2D2D7" stroke-width="1"/><text x="782" y="362" font-size="14" font-weight="600" fill="#1D1D1F" text-anchor="start">Investigate</text><text x="782" y="382" font-size="12" font-weight="400" fill="#6E6E73" text-anchor="start">one process, one verdict (Advanced)</text>
+</g>
 </svg>

@@ -1,40 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="330" viewBox="0 0 1120 330" role="img" aria-label="AutoCommand — see what your Windows PC is really doing, and stop what you don't want">
-  <rect width="1120" height="330" fill="#0f172a"/>
-  <rect width="1120" height="6" fill="#22d3ee"/>
-  <g font-family="Segoe UI, Arial, sans-serif">
-    <text x="56" y="118" font-size="68" font-weight="700" fill="#f1f5f9">AutoCommand</text>
-    <text x="56" y="164" font-size="25" fill="#94a3b8">See what your Windows PC is really doing —</text>
-    <text x="56" y="198" font-size="25" fill="#94a3b8">and stop what you don't want.</text>
-
-    <g font-size="17" fill="#cbd5e1">
-      <rect x="56" y="226" width="192" height="40" rx="20" fill="#1e293b" stroke="#334155"/>
-      <text x="84" y="252">Free &amp; open source</text>
-      <rect x="262" y="226" width="140" height="40" rx="20" fill="#1e293b" stroke="#334155"/>
-      <text x="290" y="252">Local-first</text>
-      <rect x="416" y="226" width="168" height="40" rx="20" fill="#1e293b" stroke="#334155"/>
-      <text x="444" y="252">Reversible stops</text>
-      <rect x="598" y="226" width="152" height="40" rx="20" fill="#1e293b" stroke="#334155"/>
-      <text x="626" y="252">No installer</text>
-    </g>
-
-    <rect x="776" y="56" width="288" height="236" rx="14" fill="#1e293b" stroke="#334155"/>
-    <circle cx="800" cy="80" r="5" fill="#f87171"/>
-    <circle cx="818" cy="80" r="5" fill="#fbbf24"/>
-    <circle cx="836" cy="80" r="5" fill="#34d399"/>
-    <text x="1036" y="86" font-size="15" fill="#64748b" text-anchor="end">live, right now</text>
-    <line x1="792" y1="98" x2="1048" y2="98" stroke="#334155"/>
-
-    <circle cx="810" cy="136" r="8" fill="#34d399"/>
-    <text x="830" y="132" font-size="19" font-weight="600" fill="#f1f5f9">chrome.exe</text>
-    <text x="830" y="154" font-size="15.5" fill="#94a3b8">update.google.com · replied</text>
-
-    <circle cx="810" cy="190" r="8" fill="#fbbf24"/>
-    <text x="830" y="186" font-size="19" font-weight="600" fill="#f1f5f9">DiagTrack.exe</text>
-    <text x="830" y="208" font-size="15.5" fill="#94a3b8">Windows telemetry · known</text>
-
-    <circle cx="810" cy="244" r="8" fill="#f87171"/>
-    <text x="830" y="240" font-size="19" font-weight="600" fill="#f1f5f9">update.exe</text>
-    <text x="830" y="262" font-size="15.5" fill="#94a3b8">no reply · stop in 1 click</text>
-  </g>
-  <text x="1064" y="312" font-size="15" fill="#64748b" text-anchor="end" font-family="Segoe UI, Arial, sans-serif">AutoCommand · dparksports/autocommand</text>
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="392" viewBox="0 0 1120 392" role="img" aria-label="AutoCommand — see what your Windows PC is really doing, and stop what you don’t want">
+<rect width="1120" height="392" fill="#FFFFFF"/>
+<g font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Segoe UI Variable Text', 'Segoe UI', Helvetica, Arial, sans-serif">
+<text x="64" y="84" font-size="11" font-weight="600" fill="#0071E3" text-anchor="start" letter-spacing="1.4">FREE · OPEN SOURCE · WINDOWS 10 &amp; 11</text><text x="64" y="138" font-size="46" font-weight="700" fill="#1D1D1F" text-anchor="start">AutoCommand</text><text x="64" y="174" font-size="19" font-weight="400" fill="#6E6E73" text-anchor="start">See what your Windows PC is really doing — and stop what you don’t want.</text><rect x="64" y="214" width="340" height="118" rx="18" fill="#FFFFFF" stroke="#D2D2D7" stroke-width="1"/><g fill="none" stroke="#0071E3" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M 81 248 q 13 -12 26 0 q -13 12 -26 0"/><circle cx="94" cy="248" r="3.4"/></g><text x="120" y="253" font-size="17" font-weight="600" fill="#1D1D1F" text-anchor="start">Watch</text><text x="88" y="284" font-size="13" font-weight="400" fill="#6E6E73" text-anchor="start">every program that talks to the</text><text x="88" y="302" font-size="13" font-weight="400" fill="#6E6E73" text-anchor="start">internet, in plain English</text><rect x="424" y="214" width="340" height="118" rx="18" fill="#FFFFFF" stroke="#D2D2D7" stroke-width="1"/><g fill="none" stroke="#0071E3" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M 454 235 l 10 4.5 v 6.5 q 0 7.5 -10 11 q -10 -3.5 -10 -11 v -6.5 z"/></g><text x="480" y="253" font-size="17" font-weight="600" fill="#1D1D1F" text-anchor="start">Contain</text><text x="448" y="284" font-size="13" font-weight="400" fill="#6E6E73" text-anchor="start">stop anything you don’t want — one</text><text x="448" y="302" font-size="13" font-weight="400" fill="#6E6E73" text-anchor="start">click, undo included</text><rect x="784" y="214" width="340" height="118" rx="18" fill="#FFFFFF" stroke="#D2D2D7" stroke-width="1"/><g fill="none" stroke="#0071E3" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M 805 249 l 6 6.5 l 12.5 -14"/></g><text x="840" y="253" font-size="17" font-weight="600" fill="#1D1D1F" text-anchor="start">Prove</text><text x="808" y="284" font-size="13" font-weight="400" fill="#6E6E73" text-anchor="start">the evidence in readable local files,</text><text x="808" y="302" font-size="13" font-weight="400" fill="#6E6E73" text-anchor="start">not a black box</text><text x="64" y="366" font-size="13" font-weight="400" fill="#6E6E73" text-anchor="start">Complements your antivirus — they do different jobs. No installer. It reports nothing about you to anyone.</text>
+</g>
 </svg>

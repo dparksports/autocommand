@@ -1,38 +1,6 @@
-<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="720" viewBox="0 0 1120 720" role="img" aria-label="Watch, beyond the list: Site Doctor, WSL diagnosis, Spawn Watches">
-  <rect width="1120" height="720" fill="#0f172a"/>
-  <rect width="1120" height="6" fill="#22d3ee"/>
-  <g font-family="Segoe UI, Arial, sans-serif">
-    <text x="56" y="78" font-size="42" font-weight="700" fill="#f1f5f9">Watch — beyond the list</text>
-    <rect x="56" y="96" width="80" height="5" fill="#22d3ee"/>
-    <text x="56" y="134" font-size="18.5" fill="#94a3b8">Three read-only tools. None of them changes anything by looking.</text>
-
-    <rect x="56" y="164" width="492" height="264" rx="14" fill="#1e293b" stroke="#334155"/>
-    <text x="88" y="208" font-size="23" font-weight="700" fill="#f1f5f9">"Why is this site slow?"</text>
-    <g font-size="18" fill="#cbd5e1">
-      <text x="88" y="248">Site Doctor, ~30 seconds: DNS, TCP,</text>
-      <text x="88" y="276">TLS shapes, a control host — and</text>
-      <text x="88" y="304">"were its other hosts blocked?"</text>
-    </g>
-    <text x="88" y="376" font-size="18" fill="#22d3ee">Verdict in one plain sentence.</text>
-
-    <rect x="572" y="164" width="492" height="264" rx="14" fill="#1e293b" stroke="#334155"/>
-    <text x="604" y="208" font-size="23" font-weight="700" fill="#f1f5f9">"Why is WSL offline?"</text>
-    <g font-size="18" fill="#cbd5e1">
-      <text x="604" y="248">A staged pipeline, host egress to</text>
-      <text x="604" y="276">the Hyper-V layer, read-only —</text>
-      <text x="604" y="304">it never starts the utility VM.</text>
-    </g>
-    <text x="604" y="376" font-size="18" fill="#22d3ee">One verdict: where it broke.</text>
-
-    <rect x="56" y="456" width="1008" height="224" rx="14" fill="#1e293b" stroke="#334155"/>
-    <text x="88" y="500" font-size="23" font-weight="700" fill="#f1f5f9">Spawn Watches</text>
-    <g font-size="18" fill="#cbd5e1">
-      <text x="88" y="540">Name-based prefilters evaluated the moment a process is born —</text>
-      <text x="88" y="568">"what did svchost spawn?" is caught at birth, never chased after the</text>
-      <text x="88" y="596">fact. Rules are JSON files you drop in; your AI assistant reads the</text>
-      <text x="88" y="624">hits through list_watches / tail_watches. Blocked at birth, in red.</text>
-    </g>
-
-    <text x="1064" y="700" font-size="15" fill="#64748b" text-anchor="end">AutoCommand · dparksports/autocommand</text>
-  </g>
+<svg xmlns="http://www.w3.org/2000/svg" width="1120" height="308" viewBox="0 0 1120 308" role="img" aria-label="Site Doctor, WSL diagnosis, Spawn Watches — read-only answers to deeper questions">
+<rect width="1120" height="308" fill="#FFFFFF"/>
+<g font-family="-apple-system, BlinkMacSystemFont, 'SF Pro Display', 'SF Pro Text', 'Segoe UI Variable Text', 'Segoe UI', Helvetica, Arial, sans-serif">
+<text x="64" y="56" font-size="11" font-weight="600" fill="#0071E3" text-anchor="start" letter-spacing="1.4">WATCH: THE QUESTIONS A LIST CAN’T ANSWER</text><rect x="64" y="78" width="328" height="190" rx="18" fill="#FFFFFF" stroke="#D2D2D7" stroke-width="1"/><g fill="none" stroke="#0071E3" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="94" cy="112" r="7.5"/><path d="M 99.5 117.5 l 7 7"/></g><text x="122" y="119" font-size="15.5" font-weight="600" fill="#1D1D1F" text-anchor="start">Site Doctor</text><text x="86" y="150" font-size="13" font-weight="600" fill="#0071E3" text-anchor="start">“Why is this site slow?”</text><text x="86" y="176" font-size="12" font-weight="400" fill="#6E6E73" text-anchor="start">~30-second check: DNS rotation sampling,</text><text x="86" y="195" font-size="12" font-weight="400" fill="#6E6E73" text-anchor="start">per-edge TCP and TLS hello shapes, a control</text><text x="86" y="214" font-size="12" font-weight="400" fill="#6E6E73" text-anchor="start">host for comparison — plus the question</text><text x="86" y="233" font-size="12" font-weight="400" fill="#6E6E73" text-anchor="start">nothing else asks: were this page’s other</text><text x="86" y="252" font-size="12" font-weight="400" fill="#6E6E73" text-anchor="start">hosts silently blocked?</text><rect x="412" y="78" width="328" height="190" rx="18" fill="#FFFFFF" stroke="#D2D2D7" stroke-width="1"/><g fill="none" stroke="#0071E3" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><rect x="433" y="105" width="22" height="7.5" rx="2"/><rect x="433" y="115.5" width="22" height="7.5" rx="2"/><circle cx="438" cy="108.8" r="1.2"/><circle cx="438" cy="119.2" r="1.2"/></g><text x="470" y="119" font-size="15.5" font-weight="600" fill="#1D1D1F" text-anchor="start">WSL doctor</text><text x="434" y="150" font-size="13" font-weight="600" fill="#0071E3" text-anchor="start">“Why is WSL offline?”</text><text x="434" y="176" font-size="12" font-weight="400" fill="#6E6E73" text-anchor="start">A staged, read-only pipeline from host egress</text><text x="434" y="195" font-size="12" font-weight="400" fill="#6E6E73" text-anchor="start">down to the Hyper-V firewall layer, ending in</text><text x="434" y="214" font-size="12" font-weight="400" fill="#6E6E73" text-anchor="start">one plain verdict. It never starts the utility</text><text x="434" y="233" font-size="12" font-weight="400" fill="#6E6E73" text-anchor="start">VM.</text><rect x="760" y="78" width="328" height="190" rx="18" fill="#FFFFFF" stroke="#D2D2D7" stroke-width="1"/><g fill="none" stroke="#0071E3" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><circle cx="792" cy="114" r="10.5"/><circle cx="792" cy="114" r="4.5"/><path d="M 792 114 l 8 -7.5"/></g><text x="818" y="119" font-size="15.5" font-weight="600" fill="#1D1D1F" text-anchor="start">Spawn Watches</text><text x="782" y="150" font-size="13" font-weight="600" fill="#0071E3" text-anchor="start">“What did svchost spawn?”</text><text x="782" y="176" font-size="12" font-weight="400" fill="#6E6E73" text-anchor="start">Name-based prefilters evaluated the moment a</text><text x="782" y="195" font-size="12" font-weight="400" fill="#6E6E73" text-anchor="start">process is born — caught at birth, never</text><text x="782" y="214" font-size="12" font-weight="400" fill="#6E6E73" text-anchor="start">chased after the fact. Drop a JSON rule in;</text><text x="782" y="233" font-size="12" font-weight="400" fill="#6E6E73" text-anchor="start">hits archive daily.</text>
+</g>
 </svg>
