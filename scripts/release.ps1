@@ -77,8 +77,14 @@ if (-not $DryRun) {
     # Three calendar segments, optional fourth for same-day follow-ups
     # (v2026.10.14.1) - keeps the date truthful instead of future-dating it.
     if ($Version -notmatch '^\d+\.\d+\.\d+(\.\d+)?$') { Die "version '$Version' must be calendar-dated, three parts or a fourth same-day segment (e.g. 2026.10.16 or 2026.10.14.1)" }
-    if ([version]$Version -le [version]$currentVersion) {
-        Die "v$Version must be greater than the current v$currentVersion"
+    # EQUAL is allowed on purpose: the version may already be pre-bumped in a
+    # feature commit (observed 2026-11-17: the sweep commit carried the bump
+    # for v2026.11.17.1), and the recovery note above promises a re-run works
+    # after a mid-run bump left the csproj modified - the old stricter guard
+    # broke both flows. LOWER stays an error: re-releasing an old version
+    # would overwrite newer releases.
+    if ([version]$Version -lt [version]$currentVersion) {
+        Die "v$Version is older than the current v$currentVersion - re-releasing an old version is not supported"
     }
     git rev-parse -q --verify "refs/tags/v$Version" | Out-Null
     if ($LASTEXITCODE -eq 0) { Die "tag v$Version already exists" }
@@ -92,18 +98,23 @@ if (-not $DryRun) {
     [System.IO.File]::WriteAllText((Join-Path $repoRoot $notesFile), $notes,
         (New-Object System.Text.UTF8Encoding($false)))
 
-    Step "Bumping AutoCommand.csproj to $Version (currently v$currentVersion)"
-    $newText = $csprojText -replace "(?m)^(\s*<Version>)[\d.]+(</Version>\s*)$", "`${1}$Version`${2}"
-    if ($newText -eq $csprojText) { Die 'failed to rewrite <Version> in AutoCommand.csproj' }
-    [System.IO.File]::WriteAllText($csproj, $newText)
+    if ([version]$Version -eq [version]$currentVersion) {
+        Step "csproj is already at v$Version (pre-bumped) - skipping the bump"
+    }
+    else {
+        Step "Bumping AutoCommand.csproj to $Version (currently v$currentVersion)"
+        $newText = $csprojText -replace "(?m)^(\s*<Version>)[\d.]+(</Version>\s*)$", "`${1}$Version`${2}"
+        if ($newText -eq $csprojText) { Die 'failed to rewrite <Version> in AutoCommand.csproj' }
+        [System.IO.File]::WriteAllText($csproj, $newText)
 
-    # The proxy's csproj follows the app's version (serverInfo / deps.json
-    # must never disagree with the release they shipped in).
-    $proxyCsproj = Join-Path $repoRoot 'AgentProxy\AutoCommand.AgentProxy.csproj'
-    $proxyText = [System.IO.File]::ReadAllText($proxyCsproj)
-    $newProxyText = $proxyText -replace "(?m)^(\s*<Version>)[\d.]+(</Version>\s*)$", "`${1}$Version`${2}"
-    if ($newProxyText -eq $proxyText) { Die 'failed to rewrite <Version> in AgentProxy\AutoCommand.AgentProxy.csproj' }
-    [System.IO.File]::WriteAllText($proxyCsproj, $newProxyText)
+        # The proxy's csproj follows the app's version (serverInfo / deps.json
+        # must never disagree with the release they shipped in).
+        $proxyCsproj = Join-Path $repoRoot 'AgentProxy\AutoCommand.AgentProxy.csproj'
+        $proxyText = [System.IO.File]::ReadAllText($proxyCsproj)
+        $newProxyText = $proxyText -replace "(?m)^(\s*<Version>)[\d.]+(</Version>\s*)$", "`${1}$Version`${2}"
+        if ($newProxyText -eq $proxyText) { Die 'failed to rewrite <Version> in AgentProxy\AutoCommand.AgentProxy.csproj' }
+        [System.IO.File]::WriteAllText($proxyCsproj, $newProxyText)
+    }
 }
 
 $relVersion = if ($DryRun) { $currentVersion } else { $Version }
@@ -183,8 +194,17 @@ if (-not $Yes) {
 # -- Commit, tag, push, release -----------------------------------------------
 Step "Committing and tagging v$Version"
 git add AutoCommand.csproj AgentProxy\AutoCommand.AgentProxy.csproj
-git commit -m "release: v$Version"
-Assert-Exit 'git commit'
+# A pre-bumped tree has BOTH files already at the target version - nothing
+# staged, nothing to commit; the tag alone marks the release point.
+# (--quiet prints nothing either way: branch on $LASTEXITCODE, not output.)
+git diff --cached --quiet -- AutoCommand.csproj "AgentProxy/AutoCommand.AgentProxy.csproj"
+if ($LASTEXITCODE -eq 0) {
+    Step "version files already committed - skipping the release commit"
+}
+else {
+    git commit -m "release: v$Version"
+    Assert-Exit 'git commit'
+}
 git tag "v$Version"
 Assert-Exit 'git tag'
 
