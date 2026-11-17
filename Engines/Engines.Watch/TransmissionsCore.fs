@@ -439,7 +439,11 @@ type HttpStreamDecoder private () =
         elif cl <> null then
             match Int32.TryParse cl with
             | true, clVal when clVal >= 0 ->
-                if bodyStart + clVal > stream.Length then
+                // int64 arithmetic for the bounds check: a crafted header
+                // near 2^31 overflows int, the negative sum passes the old
+                // check, and the slice/pos below then throw — one crafted
+                // header suppressed the whole direction (and its witness row)
+                if int64 bodyStart + int64 clVal > int64 stream.Length then
                     // Capture cut the body short — show what arrived.
                     body <- stream[bodyStart..]
                     pos <- stream.Length
@@ -1371,8 +1375,12 @@ type TlsDecryptor private () =
                 TlsDecryptor.DecryptDirection12(result, serverRecords, serverHalf, suite, false)
 
     static member private ExtractRandom(handshakePayload: byte[]) : byte[] =
-        // handshake header(4) + version(2) then the 32-byte random
-        Array.sub handshakePayload 6 32
+        // handshake header(4) + version(2) then the 32-byte random.
+        // HandshakeBody only bounds the DECLARED length — a short/garbled
+        // handshake record passing it could reach Array.sub here and throw,
+        // aborting decrypt for the whole flow; incomplete capture instead.
+        if handshakePayload.Length < 38 then null
+        else Array.sub handshakePayload 6 32
 
     static member private SplitKeyBlock(block: byte[], suite: SuiteInfo) : KeyHalf * KeyHalf =
         // RFC 5246 §6.3 key_block layout — grouped by kind, not per side:
@@ -1751,7 +1759,14 @@ type TlsDecryptor private () =
                     shown <- shown + 1
 
                     let contentLength = TlsDecryptor.FindContentLength lines
-                    pos <- (if contentLength >= 0 then headerEnd + 4 + contentLength else stream.Length)
+                    pos <-
+                        if contentLength >= 0 then
+                            // Clamp in int64: a crafted near-2^31
+                            // Content-Length overflows int, and the negative
+                            // pos crashed the rest of the parse.
+                            let endPos = int64 headerEnd + 4L + int64 contentLength
+                            int (min endPos (int64 stream.Length))
+                        else stream.Length
 
     static member private HeaderOfInterest(line: string) =
         [ "Host:"; "User-Agent:"; "Content-Type:"; "Content-Length:"; "Server:"; "Location:" ]

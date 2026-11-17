@@ -21,14 +21,43 @@ namespace AutoCommand.Helpers
     {
         private const string AppId = "AutoCommand.SecurityTool";
         private bool _disposed;
+        private readonly string _iconPath;
 
         // Fired when user interaction with a toast is needed (e.g. bring window forward)
         public event Action ToastActivated;
 
         public TrayNotifier(string iconPath = null)
         {
-            // No tray icon needed — WinRT toasts handle their own presentation.
-            // iconPath is accepted for API compatibility but unused.
+            // No tray icon is shown — WinRT toasts handle their own presentation —
+            // but the icon feeds the AUMID registration below.
+            _iconPath = iconPath;
+            EnsureToastIdentityRegistered();
+        }
+
+        /// <summary>
+        /// Registers the AppUserModelId the toasts are shown under. Unpackaged
+        /// desktop apps have NO toast identity until this key exists — without
+        /// it CreateToastNotifier().Show() throws on essentially every install
+        /// (the zip ships no shortcut with an AUMID), every security alert
+        /// silently no-oped into a Debug.WriteLine. HKCU under Classes is
+        /// user-scope (no elevation needed), and the toast still works if the
+        /// registration fails — it just falls into the visible fallback.
+        /// </summary>
+        private void EnsureToastIdentityRegistered()
+        {
+            try
+            {
+                using var key = Microsoft.Win32.Registry.CurrentUser.CreateSubKey(
+                    @"Software\Classes\AppUserModelId\" + AppId);
+                if (key == null) return;
+                key.SetValue("DisplayName", "AutoCommand", Microsoft.Win32.RegistryValueKind.String);
+                if (!string.IsNullOrEmpty(_iconPath) && System.IO.File.Exists(_iconPath))
+                    key.SetValue("IconUri", _iconPath, Microsoft.Win32.RegistryValueKind.String);
+            }
+            catch (Exception ex)
+            {
+                Debug.WriteLine($"TrayNotifier.EnsureToastIdentityRegistered: {ex.Message}");
+            }
         }
 
         /// <summary>
@@ -87,12 +116,23 @@ namespace AutoCommand.Helpers
         }
 
         /// <summary>
-        /// Fallback: if the WinRT toast API fails (no app registration),
-        /// writes the alert to the debug log so it's not silently lost.
+        /// Fallback when the WinRT toast API still fails: the alert goes to a
+        /// durable local log (not just Debug, which is invisible in Release
+        /// builds) so a suppressed security alert is diagnosable afterwards.
         /// </summary>
         private void FallbackAlert(string title, string message)
         {
             Debug.WriteLine($"[SECURITY ALERT] {title}: {message}");
+            try
+            {
+                string dir = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "AutoCommand");
+                System.IO.Directory.CreateDirectory(dir);
+                string line = $"{DateTime.Now:yyyy-MM-dd HH:mm:ss}\ttoast-fallback\t{title}\t{message}{Environment.NewLine}";
+                System.IO.File.AppendAllText(System.IO.Path.Combine(dir, "security-alerts.log"), line);
+            }
+            catch { /* best-effort — never let the fallback throw */ }
         }
 
         /// <summary>Updates tray tooltip — no-op for toast-only implementation.</summary>

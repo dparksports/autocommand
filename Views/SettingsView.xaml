@@ -158,6 +158,30 @@
                     </Grid>
                 </Border>
 
+                <!-- Block awareness -->
+                <Border Style="{StaticResource CardPanel}">
+                    <StackPanel>
+                        <TextBlock Text="Block notifications &amp; friendly block pages" Style="{StaticResource SectionHeader}"/>
+
+                        <TextBlock Text="When something hits one of your block rules, AutoCommand can tell you in real time — and, opt-in, put a plain-English page where the browser's raw 'internet access is blocked' error would be."
+                                   Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" TextWrapping="Wrap" Margin="0,8,0,10"/>
+
+                        <CheckBox x:Name="DenyWatchChk" FontSize="11"
+                                  Content="Notify me when a program is refused by a block rule (real-time deny watcher)"
+                                  Checked="DenyWatch_Changed" Unchecked="DenyWatch_Changed"
+                                  ToolTip="Watches the Windows Security log for kernel-level 'connection blocked' events (audit subcategory Filtering Platform Connection, enabled automatically), keeps only refusals your AutoCommand rules caused, and toasts once per program+destination per 10 minutes. Reads local logs only — nothing leaves the machine."/>
+
+                        <CheckBox x:Name="BlockProxyChk" FontSize="11" Margin="0,8,0,0"
+                                  Content="Friendly block pages — blocked requests get an explanation instead of the browser's raw error"
+                                  Checked="BlockProxy_Changed" Unchecked="BlockProxy_Changed"
+                                  ToolTip="While on, user applications (browsers) route through a local AutoCommand proxy at 127.0.0.1:7878: blocked hostnames get an explanation page (HTTPS via the Intercept CA, trusted only while this is on); everything else forwards untouched. Windows services are never routed. Settings restore on toggle-off, app exit, or crash."/>
+
+                        <TextBlock x:Name="BlockProxyStatusText" FontSize="11"
+                                   Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap"
+                                   Margin="12,4,0,0"/>
+                    </StackPanel>
+                </Border>
+
                 <!-- Instrumentation -->
                 <Border Style="{StaticResource CardPanel}">
                     <StackPanel>

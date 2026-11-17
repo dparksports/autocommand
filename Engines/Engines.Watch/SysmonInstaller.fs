@@ -59,6 +59,9 @@ module private WinTrust =
     [<Literal>]
     let WTD_STATEACTION_VERIFY = 1u
 
+    [<Literal>]
+    let WTD_STATEACTION_CLOSE = 0u
+
     [<Struct; StructLayout(LayoutKind.Sequential, CharSet = CharSet.Unicode)>]
     type WINTRUST_FILE_INFO =
         val mutable cbStruct: uint32
@@ -86,7 +89,10 @@ module private WinTrust =
     extern int WinVerifyTrust(nativeint hWnd, Guid& actionId, WINTRUST_DATA& data)
 
     /// <summary>True when the file carries a valid Authenticode signature
-    /// (digest + chain) against a root Windows trusts.</summary>
+    /// (digest + chain) against a root Windows trusts. The state wintrust
+    /// allocates for a VERIFY action is released with a second CLOSE call —
+    /// the documented contract; skipping it leaks the state handle on
+    /// every verification in this session-lifetime process.</summary>
     let verifyFile (path: string) : bool =
         try
             let mutable actionId = Guid("00AAC56B-CD44-11D0-8CC2-00C04FC295EE")
@@ -109,7 +115,10 @@ module private WinTrust =
             try
                 Marshal.StructureToPtr(fileInfo, fileInfoPtr, false)
                 data.pFile <- fileInfoPtr
-                WinVerifyTrust(IntPtr.Zero, &actionId, &data) = 0
+                let result = WinVerifyTrust(IntPtr.Zero, &actionId, &data)
+                data.dwStateAction <- WTD_STATEACTION_CLOSE
+                WinVerifyTrust(IntPtr.Zero, &actionId, &data) |> ignore
+                result = 0
             finally
                 Marshal.FreeHGlobal(fileInfoPtr)
         with _ ->
@@ -232,6 +241,43 @@ type SysmonInstallerService() =
     static let runWithDetailsAsync (fileName: string) (arguments: string) : Task<ValueTuple<string, string, int>> =
         Task.Run(fun () -> runWithDetails fileName arguments)
 
+    // Verify-then-run, pinned: the Sysmon64.exe cache lives in user-writable
+    // %TEMP% while this installer runs elevated, so verifying the signature
+    // and only later executing the path leaves a window a same-user process
+    // can win — swapping the file between verify and Process.Start gets an
+    // arbitrary binary admin execution. The pin is an exclusive read handle
+    // (FileShare.Read: no write, no delete share), which denies every
+    // write/rename/delete from the moment it opens; verify reads the pinned
+    // bytes and the child is started while the pin is still held, so the
+    // file the signature was proved over IS the file that runs.
+    static let runPinnedVerified (exePath: string) (arguments: string) : struct (string * string * int) =
+        use pin =
+            new FileStream(exePath, FileMode.Open, FileAccess.Read, FileShare.Read)
+
+        if not (verifyMicrosoftSigned exePath) then
+            failwith ($"Refused to run '{exePath}': it is not a Microsoft-signed Sysmon64.exe.")
+
+        runWithDetails exePath arguments
+
+    static let runPinnedVerifiedAsync (exePath: string) (arguments: string) : Task<ValueTuple<string, string, int>> =
+        Task.Run(fun () -> runPinnedVerified exePath arguments)
+
+    // The installed exe at the fixed path C:\Windows\Sysmon64.exe is chosen
+    // ONLY when it itself verifies as Microsoft-signed — anything planted
+    // there (by any prior admin-context writer, not just a real Sysmon
+    // install) used to be executed with -c/-u by this elevated service.
+    // Unsigned/failing paths fall back to the verified download cache.
+    static member private resolveTrustedExe () : Task<string> =
+        task {
+            let installedExe =
+                Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), SysmonExeName)
+
+            if File.Exists installedExe && verifyMicrosoftSigned installedExe then
+                return installedExe
+            else
+                return! SysmonInstallerService.ensureSysmonDownloaded ()
+        }
+
     /// <summary>
     /// The Operational channel defaults to 64 MB. On a busy dev box the
     /// app has measured ~15,000 events/hour — the default wraps in ~4
@@ -287,7 +333,7 @@ type SysmonInstallerService() =
                 SysmonInstallerService.cleanupStaleInstall exePath
 
                 let! struct (output, error, exitCode) =
-                    runWithDetailsAsync exePath $"-i \"{configPath}\" -accepteula"
+                    runPinnedVerifiedAsync exePath $"-i \"{configPath}\" -accepteula"
 
                 if exitCode = 0 then
                     SysmonInstallerService.deletePendingRepairMarker ()
@@ -326,7 +372,7 @@ type SysmonInstallerService() =
                     let! configPath = SysmonInstallerService.writeConfig ()
 
                     let! struct (output, error, exitCode) =
-                        runWithDetailsAsync exePath $"-i \"{configPath}\" -accepteula"
+                        runPinnedVerifiedAsync exePath $"-i \"{configPath}\" -accepteula"
 
                     if exitCode <> 0 then
                         return struct (false, $"Exit code: {exitCode}. Output: {output}. Error: {error}")
@@ -352,7 +398,7 @@ type SysmonInstallerService() =
 
                 // -i: Install, -accepteula: self-explanatory, -c: use config
                 let! struct (output, error, exitCode) =
-                    runWithDetailsAsync exePath $"-i \"{configPath}\" -accepteula"
+                    runPinnedVerifiedAsync exePath $"-i \"{configPath}\" -accepteula"
 
                 if exitCode = 0 then
                     SysmonInstallerService.EnsureChannelSize () |> ignore
@@ -501,19 +547,12 @@ type SysmonInstallerService() =
     member _.UpdateConfigAsync() : Task<ValueTuple<bool, string>> =
         task {
             try
-                // Prefer the installed exe; fall back to the downloaded copy
-                let installedExe =
-                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), SysmonExeName)
-
-                let! exePath =
-                    if File.Exists installedExe then
-                        Task.FromResult installedExe
-                    else
-                        SysmonInstallerService.ensureSysmonDownloaded ()
+                // Installed exe only when IT verifies; else the verified cache
+                let! exePath = SysmonInstallerService.resolveTrustedExe ()
 
                 let! configPath = SysmonInstallerService.writeConfig ()
                 let! struct (output, error, exitCode) =
-                    runWithDetailsAsync exePath $"-c \"{configPath}\" -accepteula"
+                    runPinnedVerifiedAsync exePath $"-c \"{configPath}\" -accepteula"
 
                 if exitCode = 0 then
                     return struct (true, String.Empty)
@@ -564,18 +603,15 @@ type SysmonInstallerService() =
             if not (this.IsSysmonInstalled()) then
                 return struct (true, "Sysmon is not installed - nothing to remove.")
             else
-                // Prefer the deployed binary; fall back to the verified cache.
-                let installedExe =
-                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.Windows), SysmonExeName)
-
+                // Deployed binary only when IT verifies; else the verified
+                // cache (or nothing, if even that is unavailable).
                 let! exePath =
-                    if File.Exists installedExe then
-                        Task.FromResult installedExe
-                    else
+                    task {
                         try
-                            SysmonInstallerService.ensureSysmonDownloaded ()
+                            return! SysmonInstallerService.resolveTrustedExe ()
                         with _ ->
-                            Task.FromResult null
+                            return null
+                    }
 
                 if isNull exePath then
                     return struct (false, "No trusted Sysmon64.exe available to run the uninstall.")
@@ -597,8 +633,9 @@ type SysmonInstallerService() =
     /// </summary>
     static member private cleanupStaleInstall (exePath: string) : unit =
         // Stops and removes the Sysmon64 service/driver and uninstalls the
-        // event manifest; a no-op when Sysmon is not installed
-        runWithDetails exePath "-u force" |> ignore
+        // event manifest; a no-op when Sysmon is not installed. The -u run
+        // is pinned-verified like every other execution of this exe.
+        runPinnedVerified exePath "-u force" |> ignore
 
         // Orphaned provider registration (registry view) left behind when
         // a manifest install failed midway

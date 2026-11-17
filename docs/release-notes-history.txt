@@ -17,6 +17,92 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.17.1 (2026-11-17)
+================================================================================
+
+# v2026.11.17.1 - Block pages, kernel deny telemetry, and a full-codebase security sweep
+
+**Two big things landed together: the Blocks tab can now explain a block at
+kernel level and serve a friendly block page — and a complete codebase
+review's worth of security and correctness fixes shipped.**
+
+## NEW — Block awareness (the Blocks tab)
+
+- **Kernel deny telemetry**: the app now enables the "Filtering Platform
+  Connection" audit subcategory (GUID-addressed, locale-proof,
+  failure-only) and reads the Security log's Event 5157 — kernel-level
+  ground truth for "this process tried to connect and Windows refused
+  it". Only denials that match AutoCommand's own blocked inventory are
+  kept; Windows' own policy denies are not ours to explain. One toast per
+  (process, destination) per 10 minutes; every match lands in
+  `firewall-denies.jsonl`. Sysmon-independent, unlike the block-hit feed.
+- **Friendly block pages** (opt-in): a loopback proxy on 127.0.0.1:7878
+  registered as the per-user WinINET proxy — services are never routed.
+  Blocked hostnames get a plain-HTML explanation page; HTTPS CONNECT is
+  TLS-terminated with a leaf minted from the Intercept CA, and the
+  termination is SELECTIVE: only blocked hostnames are ever decrypted,
+  everything else tunnels byte-for-byte. Journal-ahead crash contract;
+  shape-validated restores; and the listener auto-disables the feature
+  after 5 fatal failures — a system proxy pointing at a dead port is the
+  one failure this must never survive into.
+- **Domain blocks**: block a whole domain from Blocks tab → "Domain
+  blocks". A 5-minute sync fresh-resolves each domain and reconciles
+  AC-BLOCK-IP rules; rotated addresses are retired by exact rule name
+  with a marker check — a rule you also blocked by hand is disowned,
+  never deleted. Every create/remove/adopt lands in the audit ledger.
+- **Block impact probe**: before you confirm an IP block, a forward-check
+  of connectivity-critical services (Windows Update, NCSI, sign-in) against
+  the addresses it resolves to — the "shared infrastructure" warning in
+  the confirm dialog.
+- Minted leaf certificates round-trip through PFX now: Windows Schannel
+  refuses ephemeral keys for the server TLS role, and this repairs the
+  intercept MITM's handshake too.
+
+## The security sweep (full-codebase review, 56 files)
+
+- **Consent bypass fixed**: `dry_run=true` skipped the user-confirmation
+  gate on FOUR mutating bridge tools that have no dry-run implementation —
+  a model could flip firewall profiles, close doors, or change telemetry
+  opt-outs with no dialog. Only tools that genuinely support dry-run
+  (open_gate) may preview without asking; the rest refuse with guidance.
+- **Service-scoped blocks (AC-BLOCK-SVC) are first-class at last**: they
+  were invisible to the uninstall sweep ("deletes every rule this app ever
+  created" left them live forever), the drift enforcer (which re-enabled
+  blocks you had paused), the Blocks tab (permanent "no firewall rules
+  found"), and Manage-all unblock. All five paths fixed.
+- **Restore blocking on an imported block list** (say, after a Windows
+  reinstall wipes firewall rules): the button used to dead-end with "no
+  matching firewall rules found" — it now rebuilds enforcement from the
+  ledger through the same idempotent, read-back-verified add path.
+- **TLS intercept crash-safety**: the WinHTTP proxy capture parses netsh
+  output by shape instead of English labels (on localized Windows, every
+  session stop used to reset the machine's real proxy); journals are
+  written atomically; hooks whose "before" state was never captured are
+  skipped at undo instead of deleted; the startup repair no longer
+  reports "removed the intercept CA" on every launch after a clean one.
+- **Sysmon install hardening**: the fixed path C:\Windows\Sysmon64.exe is
+  executed only when it itself verifies as Microsoft-signed; every
+  execution is pin-verified under an exclusive handle, closing the
+  verify-then-execute window a user-writable %TEMP% cache leaves open;
+  wintrust state handles are released.
+- **The long tail** (each verified, the important ones regression-tested):
+  the agent proxy no longer forwards the session token through the system
+  proxy; MCP registration pins cmd.exe to System32; blocks.txt writes are
+  atomic again on the production path; a failed firewall walk no longer
+  caches as "zero rules"; hosts-file edits are atomic with a backup;
+  revert snapshots keep the true original value and its registry kind;
+  the leftover-account prune validates SID shape and re-checks the
+  enumerated rows; the security-toast channel registers its app identity
+  (it silently no-oped on every unpackaged install); submenus and check
+  marks render again; culture-safe dates on localized Windows; and some
+  twenty more resource, race, and parsing fixes across the watch,
+  firewall, and hardening engines.
+
+The full offline gate (16 self-test suites) runs in CI; the bridge suite
+gained a consent-bypass regression test and the contain suite covers the
+recreated-block path.
+
+================================================================================
 v2026.11.15.5 (2026-11-15)
 ================================================================================
 

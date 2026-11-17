@@ -32,7 +32,19 @@ namespace AutoCommand.Intercept.Core
             try
             {
                 if (InterceptProxyService.Shared.IsRunning) return repairs;
-                if (File.Exists(InterceptSystemHooks.JournalPathForRepair)) return repairs;
+                if (File.Exists(InterceptSystemHooks.JournalPathForRepair))
+                {
+                    // A READABLE journal means a session owns this state —
+                    // never touch it. An UNREADABLE one (torn write, from
+                    // before journals went atomic) is an orphan: the dead
+                    // loopback sweep is still safe here because it acts only
+                    // on the exact 127.0.0.1:<port> shape with nothing
+                    // listening behind it — the CA sweep stays skipped.
+                    if (InterceptSystemHooks.JournalReadableForRepair())
+                        return repairs;
+                    repairs.AddRange(RestoreDeadLoopbackProxy());
+                    return repairs;
+                }
 
                 repairs.AddRange(RemoveStrandedCa());
                 repairs.AddRange(RestoreDeadLoopbackProxy());
@@ -48,9 +60,12 @@ namespace AutoCommand.Intercept.Core
             var repaired = new List<string>();
 
             // (a) the CA this install persists (DPAPI-wrapped pfx), matched by
-            //     thumbprint — no CA is created by asking
+            //     thumbprint — no CA is created by asking. Tri-state on
+            //     purpose: Absent (the normal state after any clean session)
+            //     must not be reported as a removal, or every startup claims
+            //     "removed the CA" and the repair report lies.
             string persisted = InterceptCaService.TryGetPersistedThumbprint();
-            if (persisted != null && InterceptCaService.RemoveFromRoot(persisted))
+            if (persisted != null && InterceptCaService.TryRemoveFromRoot(persisted) == InterceptCaService.RootRemoveResult.Removed)
                 repaired.Add("Removed the AutoCommand intercept CA still trusted machine-wide from a previous session.");
 
             // (b) any cert with our exact subject — older installs whose pfx
@@ -68,7 +83,7 @@ namespace AutoCommand.Intercept.Core
                         thumbprints.Add(cert.Thumbprint);
                 }
                 foreach (string tp in thumbprints)
-                    if (InterceptCaService.RemoveFromRoot(tp))
+                    if (InterceptCaService.TryRemoveFromRoot(tp) == InterceptCaService.RootRemoveResult.Removed)
                         repaired.Add("Removed a leftover AutoCommand intercept CA (older install) from machine trust.");
             }
             catch { /* store unreadable — next startup retries */ }

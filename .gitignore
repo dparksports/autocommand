@@ -38,3 +38,5 @@ __pycache__/
 .citmp/
 .ciprobe/
 .zcode/
+# agent scratch root (build probes, logs, ad-hoc scripts) — same class as .citmp
+.zwork/

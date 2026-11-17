@@ -107,7 +107,6 @@ namespace AutoCommand.Contain.Core
                 uint index = 0;
                 while (SetupDiEnumDeviceInfo(hDevInfo, index, ref devInfo))
                 {
-                    bool acted = false;
                     string instanceId = GetDeviceInstanceId(hDevInfo, devInfo);
 
                     bool match = specificPattern != null
@@ -127,7 +126,6 @@ namespace AutoCommand.Contain.Core
                                 if (SetupDiCallClassInstaller(DIF_REMOVE, hDevInfo, ref devInfo))
                                 {
                                     results.Add($"Removed: {instanceId}");
-                                    acted = true;
                                 }
                                 else
                                     results.Add($"Failed to remove: {instanceId} (Error {Marshal.GetLastWin32Error()})");
@@ -161,9 +159,11 @@ namespace AutoCommand.Contain.Core
                         }
                     }
 
-                    // Only advance index if we didn't remove the device (removal shifts the list)
-                    if (remove && acted) { /* stay at same index */ }
-                    else index++;
+                    // Always advance: DIF_REMOVE marks the element deleted but
+                    // does NOT shift the local enumeration — staying at the
+                    // same index re-read the just-removed device and produced
+                    // a spurious "Failed to remove" line for every removal.
+                    index++;
                 }
             }
             finally
@@ -180,7 +180,11 @@ namespace AutoCommand.Contain.Core
             SetupDiGetDeviceInstanceId(hDevInfo, ref devInfo, null, 0, out requiredSize);
             var sb = new System.Text.StringBuilder(requiredSize);
             SetupDiGetDeviceInstanceId(hDevInfo, ref devInfo, sb, requiredSize, out requiredSize);
-            return sb.ToString().ToUpper();
+            // Invariant, not ToUpper(): the Turkish-I dotless problem — under
+            // a Turkish UI "ms_sstpminiport".ToUpper() yields "MS_SSTPMİNİPORT"
+            // (dotted İ) and no Contains check below ever matches, silently
+            // skipping every device while the pass reports success.
+            return sb.ToString().ToUpperInvariant();
         }
 
         private static bool IsSstpMiniport(string instanceId)

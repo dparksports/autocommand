@@ -522,10 +522,37 @@
             <Setter Property="Padding" Value="20,6"/>
             <Setter Property="Template">
                 <Setter.Value>
+                    <!-- Role-aware template. The previous header-only template
+                         rendered leaf items fine but had no ItemsPresenter, no
+                         PART_Popup and no Role triggers: MenuItems with CHILDREN
+                         could never display them (the rain view's glyph-set and
+                         zLift submenus were permanently unreachable) and
+                         IsCheckable items drew no glyph, so toggle state was
+                         invisible. -->
                     <ControlTemplate TargetType="MenuItem">
-                        <Border x:Name="border" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
-                            <ContentPresenter ContentSource="Header"/>
-                        </Border>
+                        <Grid>
+                            <Border x:Name="border" Background="{TemplateBinding Background}" Padding="{TemplateBinding Padding}">
+                                <StackPanel Orientation="Horizontal">
+                                    <TextBlock x:Name="checkGlyph" Text="✓" Margin="0,0,8,0" VerticalAlignment="Center"
+                                               Visibility="Collapsed"/>
+                                    <ContentPresenter ContentSource="Header" VerticalAlignment="Center"/>
+                                </StackPanel>
+                            </Border>
+                            <Popup x:Name="PART_Popup"
+                                   IsOpen="{TemplateBinding IsSubmenuOpen}"
+                                   Placement="Bottom"
+                                   AllowsTransparency="True"
+                                   Focusable="False"
+                                   PopupAnimation="None">
+                                <Border Background="{DynamicResource SurfaceAltBrush}"
+                                        BorderBrush="{DynamicResource BorderBrush}"
+                                        BorderThickness="1" CornerRadius="4" Padding="4" MinWidth="180" Margin="0,2,0,0">
+                                    <ScrollViewer MaxHeight="480" VerticalScrollBarVisibility="Auto">
+                                        <ItemsPresenter KeyboardNavigation.DirectionalNavigation="Cycle"/>
+                                    </ScrollViewer>
+                                </Border>
+                            </Popup>
+                        </Grid>
                         <ControlTemplate.Triggers>
                             <Trigger Property="IsHighlighted" Value="True">
                                 <Setter TargetName="border" Property="Background" Value="{DynamicResource AccentBlueBrush}"/>
@@ -533,6 +560,15 @@
                             </Trigger>
                             <Trigger Property="IsEnabled" Value="False">
                                 <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+                            </Trigger>
+                            <Trigger Property="IsChecked" Value="True">
+                                <Setter TargetName="checkGlyph" Property="Visibility" Value="Visible"/>
+                            </Trigger>
+                            <!-- Submenus open to the side, not downward -->
+                            <Trigger Property="Role" Value="SubmenuHeader">
+                                <Setter TargetName="PART_Popup" Property="Placement" Value="Right"/>
+                                <Setter TargetName="PART_Popup" Property="HorizontalOffset" Value="-4"/>
+                                <Setter TargetName="PART_Popup" Property="VerticalOffset" Value="-6"/>
                             </Trigger>
                         </ControlTemplate.Triggers>
                     </ControlTemplate>

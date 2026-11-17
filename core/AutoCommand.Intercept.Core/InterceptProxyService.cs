@@ -330,8 +330,8 @@ namespace AutoCommand.Intercept.Core
             }
             // Upstream: real validation, no downgrade anywhere — including
             // revocation (see ValidateUpstreamCertificate).
-            TcpClient upstream;
-            SslStream upstreamTls;
+            TcpClient upstream = null;
+            SslStream upstreamTls = null;
             try
             {
                 upstream = new TcpClient();
@@ -346,6 +346,12 @@ namespace AutoCommand.Intercept.Core
             }
             catch (Exception ex)
             {
+                // The handshake can fail at ANY stage — after ConnectAsync
+                // succeeded, a live socket + SslStream were already open and
+                // leaked here until GC finalization (unbounded across a
+                // session against flaky/revocation-checking hosts).
+                try { upstreamTls?.Dispose(); } catch { }
+                try { upstream?.Dispose(); } catch { }
                 IngestIntercepted(pid: 0, host, port, null, null,
                     $"connect failed ({ex.GetType().Name})", tlsVersion: null, cipher: null);
                 return;
@@ -418,6 +424,18 @@ namespace AutoCommand.Intercept.Core
                 foreach (var line in head.Lines)
                     if (line.StartsWith("Host:", StringComparison.OrdinalIgnoreCase))
                         host = line.Substring(5).Trim();
+                // Host header can carry its own port ("example.com:8080") —
+                // connecting to the literal string on port 80 failed and
+                // dropped the request; split it the way CONNECT targets are.
+                if (host != null)
+                {
+                    int hostColon = host.LastIndexOf(':');
+                    if (hostColon > 0 && int.TryParse(host[(hostColon + 1)..], out int hostPort))
+                    {
+                        port = hostPort;
+                        host = host[..hostColon];
+                    }
+                }
             }
             if (host == null) return;
 

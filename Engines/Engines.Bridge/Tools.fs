@@ -50,6 +50,14 @@ type IAgentTool =
     /// dialog before it may run.</summary>
     abstract Mutating: bool
 
+    /// <summary>True when this mutating tool's handler actually consumes
+    /// args["dry_run"] (resolve-and-preview: no confirmation, no change).
+    /// The bridge may skip the confirmation gate for dry_run=true ONLY on
+    /// such tools — for every other mutating tool it must refuse dry_run
+    /// outright, because an unimplemented flag would otherwise skip the
+    /// gate and execute the real mutation with no user in the loop.</summary>
+    abstract SupportsDryRun: bool
+
     /// <summary>Human text shown in the confirmation dialog for this call
     /// (e.g. "Create outbound firewall BLOCK rules for 1.2.3.4?").</summary>
     abstract ConfirmDetail: argsJson: string -> string

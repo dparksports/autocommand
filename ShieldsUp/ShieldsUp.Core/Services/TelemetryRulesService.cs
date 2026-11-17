@@ -168,6 +168,11 @@ namespace ShieldsUp.Core.Services
             public string Target { get; set; }      // file path / var name / reg key
             public string Name { get; set; }        // json key / reg value name
             public string PreviousValue { get; set; } // raw JSON token text; null-marker = was absent
+            // Registry restores need the ORIGINAL value kind: writing a
+            // REG_SZ "1" back as REG_DWORD 1 (the old hardcoded dword=true)
+            // changes the type inside a policy key. Null on records from
+            // before this field existed — those keep the old DWORD default.
+            public string PreviousKind { get; set; } // RegistryValueKind name, registry records only
             public DateTime ChangedAt { get; set; }
         }
 
@@ -394,10 +399,10 @@ namespace ShieldsUp.Core.Services
                     }
                     case "registry":
                     {
-                        string previous = ReadRegistry(rule.OptOut.RegKey, rule.OptOut.RegName);
+                        var (previous, previousKind) = ReadRegistryWithKind(rule.OptOut.RegKey, rule.OptOut.RegName);
                         WriteRegistry(rule.OptOut.RegKey, rule.OptOut.RegName, rule.OptOut.Value,
                             string.Equals(rule.OptOut.Kind, "dword", StringComparison.OrdinalIgnoreCase));
-                        RecordChange(rule.Id, "registry", rule.OptOut.RegKey, rule.OptOut.RegName, previous);
+                        RecordChange(rule.Id, "registry", rule.OptOut.RegKey, rule.OptOut.RegName, previous, previousKind);
                         return (true, $"{rule.AppName}: set {rule.OptOut.RegName} = {rule.OptOut.Value}.");
                     }
                     default:
@@ -432,7 +437,7 @@ namespace ShieldsUp.Core.Services
                         break;
                     case "registry":
                         if (record.PreviousValue == null) DeleteRegistryValue(record.Target, record.Name);
-                        else WriteRegistry(record.Target, record.Name, record.PreviousValue, true);
+                        else RestoreRegistry(record.Target, record.Name, record.PreviousValue, record.PreviousKind);
                         break;
                 }
                 _changes.Remove(record);
@@ -478,7 +483,7 @@ namespace ShieldsUp.Core.Services
                 lines.Add($"{HostsMarkerPrefix}{rule.Id}");
                 lines.AddRange(rule.Enforce.Domains.Select(d =>
                     $"{NormalizePinAddress(addressOverride ?? rule.Enforce.Address)} {d}"));
-                File.WriteAllLines(hosts, lines);
+                WriteHostsFileAtomically(hosts, lines);
 
                 RecordChange(rule.Id, "hosts", hosts, rule.Id, null);
                 await FlushDnsCacheAsync();
@@ -525,7 +530,7 @@ namespace ShieldsUp.Core.Services
                     }
                     else i++;
                 }
-                File.WriteAllLines(hosts, lines);
+                WriteHostsFileAtomically(hosts, lines);
 
                 _changes.RemoveAll(c => c.RuleId == rule.Id && c.Kind == "hosts");
                 SaveChanges();
@@ -544,6 +549,33 @@ namespace ShieldsUp.Core.Services
             if (string.IsNullOrEmpty(system))
                 system = Environment.GetEnvironmentVariable("SystemRoot") ?? @"C:\Windows\System32";
             return Path.Combine(system, "drivers", "etc", "hosts");
+        }
+
+        /// <summary>Atomic hosts write. The DNS resolver reads this file
+        /// continuously; a plain truncate-then-write torn by a crash or
+        /// power loss silently drops every pin AND any user entries, with
+        /// nothing to restore from. tmp + File.Replace swaps the content in
+        /// one API call (keeping the live file's ACLs); a rolling .bak copy
+        /// beside it preserves the previous content.</summary>
+        private static void WriteHostsFileAtomically(string hosts, List<string> lines)
+        {
+            string tmp = hosts + ".autocommand-tmp";
+            string bak = hosts + ".autocommand-bak";
+            try
+            {
+                File.WriteAllLines(tmp, lines);
+                if (File.Exists(hosts))
+                {
+                    try { File.Copy(hosts, bak, overwrite: true); } catch { /* backup is best-effort */ }
+                    File.Replace(tmp, hosts, null);
+                }
+                else
+                    File.Move(tmp, hosts);
+            }
+            finally
+            {
+                try { if (File.Exists(tmp)) File.Delete(tmp); } catch { }
+            }
         }
 
         /// <summary>
@@ -685,6 +717,52 @@ namespace ShieldsUp.Core.Services
             return key?.GetValue(name)?.ToString();
         }
 
+        /// <summary>The value AND its kind — revert must restore the type,
+        /// not just the text (a REG_SZ "1" must never come back as REG_DWORD).</summary>
+        private static (string Value, string Kind) ReadRegistryWithKind(string regKey, string name)
+        {
+            var (hive, subKey) = SplitHive(regKey);
+            using var key = hive.OpenSubKey(subKey);
+            object raw = key?.GetValue(name);
+            if (raw == null) return (null, null);
+            Microsoft.Win32.RegistryValueKind kind = Microsoft.Win32.RegistryValueKind.Unknown;
+            try { kind = key.GetValueKind(name); } catch { }
+            return (raw.ToString(), kind.ToString());
+        }
+
+        /// <summary>Revert path: writes the snapshot back with its original
+        /// value kind. Records from before the kind was captured (null kind)
+        /// keep the historic DWORD default rather than changing behavior.</summary>
+        private static void RestoreRegistry(string regKey, string name, string value, string kindName)
+        {
+            EnsureRegistryWriteAllowed(regKey);
+            var (hive, subKey) = SplitHive(regKey);
+            using var key = hive.CreateSubKey(subKey);
+            if (Enum.TryParse<Microsoft.Win32.RegistryValueKind>(kindName, ignoreCase: true, out var kind)
+                && kind != Microsoft.Win32.RegistryValueKind.Unknown)
+            {
+                switch (kind)
+                {
+                    case Microsoft.Win32.RegistryValueKind.DWord:
+                        key.SetValue(name, int.TryParse(value, out int n) ? n : 0, kind);
+                        break;
+                    case Microsoft.Win32.RegistryValueKind.QWord:
+                        key.SetValue(name, long.TryParse(value, out long q) ? q : 0L, kind);
+                        break;
+                    case Microsoft.Win32.RegistryValueKind.ExpandString:
+                        key.SetValue(name, value, Microsoft.Win32.RegistryValueKind.ExpandString);
+                        break;
+                    default:
+                        // String, Binary (text round-trip is lossy — best effort
+                        // as string is still better than silently re-typing)
+                        key.SetValue(name, value, kind);
+                        break;
+                }
+            }
+            else
+                key.SetValue(name, value, Microsoft.Win32.RegistryValueKind.DWord);
+        }
+
         // The rules file ships beside the exe — on a user-writable install
         // that means a tampered file could steer this ELEVATED writer
         // anywhere. The DNS probe (CheckRecentDnsLookupAsync) already treats
@@ -775,11 +853,25 @@ namespace ShieldsUp.Core.Services
         // Snapshot persistence (telemetry_state.json)
         // -----------------------------------------------------------------------
 
-        private void RecordChange(string ruleId, string kind, string target, string name, string previousValue)
+        private void RecordChange(string ruleId, string kind, string target, string name, string previousValue,
+            string previousKind = null)
         {
             // One snapshot per rule AND kind — a rule can hold both an opt-out
-            // revert snapshot and an active network block at the same time
-            _changes.RemoveAll(c => c.RuleId == ruleId && c.Kind == kind);
+            // revert snapshot and an active network block at the same time.
+            // An EXISTING snapshot is kept, never overwritten: the second
+            // apply's "previous value" is the first apply's opt-out value, so
+            // replacing it would make revert restore the opt-out while
+            // claiming the original setting came back (the core one-click
+            // reversibility promise). The oldest observed previous value is
+            // the true original.
+            var existing = _changes.Find(c => c.RuleId == ruleId && c.Kind == kind);
+            if (existing != null)
+            {
+                if (previousKind != null && existing.PreviousKind == null)
+                    existing.PreviousKind = previousKind;   // enrich legacy records, never widen
+                SaveChanges();
+                return;
+            }
             _changes.Add(new ChangeRecord
             {
                 RuleId = ruleId,
@@ -787,6 +879,7 @@ namespace ShieldsUp.Core.Services
                 Target = target,
                 Name = name,
                 PreviousValue = previousValue,
+                PreviousKind = previousKind,
                 ChangedAt = DateTime.Now
             });
             SaveChanges();

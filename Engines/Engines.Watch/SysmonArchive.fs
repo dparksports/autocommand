@@ -385,6 +385,11 @@ type SysmonArchiveService private () =
         try
             if not (Directory.Exists(archiveDirectory ())) then 0
             else
+                // Flush the appender FIRST: every reader path does, and a
+                // buffered day-file whose lines are still staged would be
+                // recreated by the next Flush after its Delete here — the
+                // "pruned" events resurrect and the state count drifts.
+                SysmonArchiveService.flushArchiveBuffers ()
                 let cutoff = DateTime.UtcNow.Date.AddDays(float -retainDays)
                 let st = loadState ()
                 let mutable removed = 0

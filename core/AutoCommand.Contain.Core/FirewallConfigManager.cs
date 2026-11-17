@@ -10,7 +10,10 @@ namespace AutoCommand.Contain.Core
     /// <summary>
     /// Persists firewall rule override state to JSON with reload-merge-write
     /// semantics and live singleton coherence across the host app and vendored
-    /// Shields Up surfaces.
+    /// Shields Up surfaces. All state access is serialized: SecurityEnforcer's
+    /// drift pass iterates RuleOverrides on a background thread while
+    /// SetOverride mutates it — the unlocked shape used to enumerate a
+    /// dictionary mid-write and silently skip a drift check on the rare throw.
     /// </summary>
     public class FirewallConfigManager
     {
@@ -23,7 +26,17 @@ namespace AutoCommand.Contain.Core
         private readonly string _explicitPath;
         private string ConfigPath => _explicitPath ?? DefaultConfigPath;
 
-        public Dictionary<string, string> RuleOverrides { get; set; } = new Dictionary<string, string>();
+        private readonly object _gate = new object();
+
+        private Dictionary<string, string> _overrides = new Dictionary<string, string>();
+
+        /// <summary>A snapshot copy — callers iterate this, so the live
+        /// dictionary can be mutated under the lock without racing.</summary>
+        public Dictionary<string, string> RuleOverrides
+        {
+            get { lock (_gate) return new Dictionary<string, string>(_overrides, StringComparer.Ordinal); }
+            set { lock (_gate) _overrides = value ?? new Dictionary<string, string>(); }
+        }
 
         public FirewallConfigManager(string configPath = null)
         {
@@ -33,34 +46,67 @@ namespace AutoCommand.Contain.Core
 
         public void Load()
         {
-            try
+            lock (_gate)
             {
-                string path = ConfigPath;
-                if (File.Exists(path))
+                try
                 {
-                    string json = File.ReadAllText(path);
-                    var data = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
-                    RuleOverrides = data ?? new Dictionary<string, string>();
+                    string path = ConfigPath;
+                    if (File.Exists(path))
+                    {
+                        string json = File.ReadAllText(path);
+                        var data = JsonSerializer.Deserialize<Dictionary<string, string>>(json);
+                        _overrides = data ?? new Dictionary<string, string>();
+                    }
+                    else
+                    {
+                        _overrides = new Dictionary<string, string>();
+                    }
                 }
-                else
+                catch
                 {
-                    RuleOverrides = new Dictionary<string, string>();
+                    // Corrupt (torn write) used to silently reset to empty —
+                    // every rule override vanished and the drift enforcer
+                    // stopped enforcing the user's fixed states. Keep a
+                    // sidecar so the loss is diagnosable, and keep the
+                    // previous in-memory state instead of clearing it.
+                    try
+                    {
+                        string path = ConfigPath;
+                        if (File.Exists(path))
+                            File.Copy(path, path + ".corrupt", overwrite: true);
+                    }
+                    catch { }
                 }
             }
-            catch { }
         }
 
         public void Save()
         {
-            try
+            lock (_gate)
             {
-                string path = ConfigPath;
-                var dir = Path.GetDirectoryName(path);
-                if (dir != null && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
-                string json = JsonSerializer.Serialize(RuleOverrides, new JsonSerializerOptions { WriteIndented = true });
-                File.WriteAllText(path, json);
+                try
+                {
+                    string path = ConfigPath;
+                    var dir = Path.GetDirectoryName(path);
+                    if (dir != null && !Directory.Exists(dir)) Directory.CreateDirectory(dir);
+                    string json = JsonSerializer.Serialize(_overrides, new JsonSerializerOptions { WriteIndented = true });
+                    // Atomic replace: a crash mid-WriteAllText left a truncated
+                    // config that the next Load treated as "no overrides".
+                    string tmp = path + ".tmp";
+                    File.WriteAllText(tmp, json);
+                    if (File.Exists(path)) File.Replace(tmp, path, null);
+                    else File.Move(tmp, path);
+                }
+                catch
+                {
+                    try
+                    {
+                        string tmp = ConfigPath + ".tmp";
+                        if (File.Exists(tmp)) File.Delete(tmp);
+                    }
+                    catch { }
+                }
             }
-            catch { }
         }
 
         public void SetOverride(string ruleName, bool enabled)
@@ -70,19 +116,26 @@ namespace AutoCommand.Contain.Core
             // when sharing the default path so SecurityEnforcer sees updates immediately.
             Load();
             string state = enabled ? "True" : "False";
-            RuleOverrides[ruleName] = state;
+            lock (_gate)
+            {
+                _overrides[ruleName] = state;
+            }
             Save();
 
             if (_instance != null && !ReferenceEquals(this, _instance) &&
                 string.Equals(ConfigPath, _instance.ConfigPath, StringComparison.OrdinalIgnoreCase))
             {
-                _instance.RuleOverrides[ruleName] = state;
+                lock (_instance._gate)
+                {
+                    _instance._overrides[ruleName] = state;
+                }
             }
         }
 
         public string GetOverride(string ruleName)
         {
-            return RuleOverrides.TryGetValue(ruleName, out string val) ? val : null;
+            lock (_gate)
+                return _overrides.TryGetValue(ruleName, out string val) ? val : null;
         }
     }
 }

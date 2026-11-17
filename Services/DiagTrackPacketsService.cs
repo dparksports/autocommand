@@ -184,7 +184,10 @@ namespace AutoCommand.Services
             var files = new List<string>();
             for (int d = -RetainedDays; d <= 0; d++)
             {
-                var f = Path.Combine(ArchiveDir, "sysmon-archive-" + utcToday.AddDays(d).ToString("yyyy-MM-dd") + ".jsonl");
+                // Invariant: the archive files are named invariantly, and a
+                // calendar-default culture (th-TH, ar-SA) would format a
+                // non-Gregorian year here that never matches them.
+                var f = Path.Combine(ArchiveDir, "sysmon-archive-" + utcToday.AddDays(d).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture) + ".jsonl");
                 if (File.Exists(f)) files.Add(f);
             }
 

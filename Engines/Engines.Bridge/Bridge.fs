@@ -578,17 +578,27 @@ type AgentBridgeService (identity: AppIdentity, tools: IAgentTools,
                         "from the running app's AI access settings and retry there.", true)
             else
                 // dry_run=true is the documented "resolve and preview only"
-                // contract for every mutating tool that offers it: no
-                // confirmation, no change, and no UI needs to exist at all.
-                // Checked BEFORE the confirmation branch — the field bug
-                // where dry_run crashed identically to a real call was this
-                // ordering (the UI pre-check ran first, off the UI thread).
-                let dryRunOnly =
+                // contract — but ONLY for tools whose handler actually
+                // consumes the flag (SupportsDryRun). The original check
+                // below applied the skip to EVERY mutating tool: four of
+                // them (close_gate, close_shieldsup_door, opt_out_telemetry,
+                // apply_shieldsup_preset) have no dry-run implementation, so
+                // dry_run=true skipped the confirmation gate and executed
+                // the real mutation with no user in the loop. Such calls are
+                // now refused with guidance; only a SupportsDryRun tool
+                // (open_gate) may preview without asking. Checked BEFORE the
+                // confirmation branch — the field bug where dry_run crashed
+                // identically to a real call was this ordering (the UI
+                // pre-check ran first, off the UI thread).
+                let dryRunRequested =
                     match args["dry_run"] with
                     | null -> false
                     | v -> v.ToString().Trim().Equals("true", StringComparison.OrdinalIgnoreCase)
 
-                if tool.Mutating && not dryRunOnly && not (this.SessionGranted(AgentBridgeService.GrantKey(name, args))) then
+                if tool.Mutating && dryRunRequested && not tool.SupportsDryRun then
+                    return ($"Tool '{name}' does not offer dry_run — call it without dry_run to run it for real; "
+                            + "the user will be asked to confirm each call.", true)
+                elif tool.Mutating && not dryRunRequested && not (this.SessionGranted(AgentBridgeService.GrantKey(name, args))) then
                     let allowed, note = this.RequestConfirmation(name, AgentBridgeService.GrantKey(name, args), tool.ConfirmDetail(args.ToJsonString()))
                     if not allowed then
                         return ($"User denied '{name}'" + (if note.Length > 0 then $" — {note}" else "") + ".", true)

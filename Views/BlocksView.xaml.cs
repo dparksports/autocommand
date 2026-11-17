@@ -463,8 +463,14 @@ namespace AutoCommand.Views
             var vms = new List<BlockRowVm>(records.Count);
             foreach (var r in records)
             {
-                string invKey = (r.IsIp ? "ip:" : "app:") + (r.Key ?? "").Trim().ToLowerInvariant();
-                if (!byKey.TryGetValue(invKey, out var t) && !r.IsIp && !string.IsNullOrEmpty(r.Key))
+                // The engine keys service targets as "svc:" + service name
+                // (lowercase) in its inventory — the ip/app-only join here
+                // left every service block showing "no firewall rules found"
+                // and made its Restore action a guaranteed 0-match no-op.
+                string invKey = r.Kind == "svc"
+                    ? "svc:" + (r.Key ?? "").Trim().ToLowerInvariant()
+                    : (r.IsIp ? "ip:" : "app:") + (r.Key ?? "").Trim().ToLowerInvariant();
+                if (!byKey.TryGetValue(invKey, out var t) && !r.IsIp && r.Kind != "svc" && !string.IsNullOrEmpty(r.Key))
                 {
                     string norm = AutoCommand.Engines.Firewall.FirewallService.NormalizeAppPath(r.Key);
                     if (norm.Length > 0)
@@ -1882,8 +1888,34 @@ namespace AutoCommand.Views
                 vm.Record.Kind, vm.Record.Key, expectedRules, allowFastPath, enable);
             if (snap.Matched == 0 || (snap.Changed == 0 && !string.IsNullOrEmpty(snap.FirstError)))
             {
-                ShowBulkToast($"{(enable ? "Restore blocking" : "Stop blocking")} for '{vm.Target}' did not change any rules ({snap.Changed}/{snap.Matched})" +
-                    (!string.IsNullOrEmpty(snap.FirstError) ? $" — {snap.FirstError}" : " — no matching firewall rules found"), null);
+                // Restore blocking means "re-enable the disabled rules" — when
+                // NO rule exists at all it cannot act. That is the normal
+                // state for a block ledger imported from a previous Windows
+                // install: a reinstall wipes every firewall rule while the
+                // migrated records keep saying "on". Rebuild enforcement from
+                // the record instead of reporting a dead end (guarded on a
+                // healthy walk so a transient COM failure can never trigger
+                // mass re-creation).
+                if (enable && string.IsNullOrEmpty(snap.FirstError))
+                {
+                    int created = await TryRecreateBlockRulesAsync(vm.Record);
+                    if (created > 0)
+                    {
+                        BlocksStore.SetStatus(vm.Record.Kind, vm.Record.Key, "on");
+                        BlocksStore.AppendEvent("recreated", vm.Record.Kind, vm.Record.Key,
+                            $"{created} rule(s) rebuilt from the ledger (no matching rules existed)", "blocks-tab");
+                        await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
+                        NotifyMonitorIfVisible();
+                        ShowBulkToast($"Re-created blocking for '{vm.Target}' — {created} rule(s) rebuilt " +
+                            "(the firewall had none; typical after a Windows reinstall or import).", null);
+                        await ReloadAsync();
+                        return;
+                    }
+                }
+                string noMatch = vm.Record.Kind == "proc" && !File.Exists(vm.Record.Key ?? "")
+                    ? " — the blocked program's path no longer exists on this install; re-block it from Process Monitor or remove this entry"
+                    : (!string.IsNullOrEmpty(snap.FirstError) ? $" — {snap.FirstError}" : " — no matching firewall rules found");
+                ShowBulkToast($"{(enable ? "Restore blocking" : "Stop blocking")} for '{vm.Target}' did not change any rules ({snap.Changed}/{snap.Matched})" + noMatch, null);
                 await ReloadAsync(string.IsNullOrEmpty(snap.FirstError) ? snap.Inventory : null);
                 return;
             }
@@ -1908,6 +1940,43 @@ namespace AutoCommand.Views
             {
                 await ReloadAsync(string.IsNullOrEmpty(snap.FirstError) ? snap.Inventory : null);
             }
+        }
+
+        /// <summary>Rebuilds enforcement for a ledger record whose firewall
+        /// rules no longer exist — the imported-from-a-previous-install
+        /// case. Uses the same idempotent add primitives the monitor's
+        /// Block buttons use (deterministic v2 rule names, provenance in
+        /// the description), so re-adding is safe even if a rule somehow
+        /// reappeared mid-flight. Returns the number of rules ensured;
+        /// 0 means "cannot re-create" (missing exe path, bad IP) and the
+        /// caller keeps the honest no-match message.</summary>
+        private static async Task<int> TryRecreateBlockRulesAsync(BlockRecord r)
+        {
+            string key = (r.Key ?? "").Trim();
+            if (key.Length == 0) return 0;
+            string note = "AutoCommand User Block — enforcement re-created from the migrated block ledger " +
+                          $"(blocked {r.CreatedUtc.ToLocalTime():yyyy-MM-dd HH:mm}" +
+                          (string.IsNullOrEmpty(r.ClassAtBlock) ? "" : $", {r.ClassAtBlock}") + ")";
+            try
+            {
+                if (r.Kind == "svc")
+                {
+                    string ruleName = await FirewallService.Instance.AddServiceBlockAsync(key, note);
+                    return string.IsNullOrEmpty(ruleName) ? 0 : 1;
+                }
+                if (r.IsIp && System.Net.IPAddress.TryParse(key, out _))
+                {
+                    var (created, updated, _) = await FirewallService.Instance.AddIpBlockWithRulesAsync(key, note);
+                    return created + updated;
+                }
+                if (r.Kind == "proc" && File.Exists(key))
+                {
+                    var (created, updated) = await FirewallService.Instance.AddAppBlockAsync(key, note);
+                    return created + updated;
+                }
+            }
+            catch { /* fall through — the caller keeps the honest no-match message */ }
+            return 0;
         }
 
         private async void RowRemove_Click(object sender, RoutedEventArgs e)
@@ -1940,6 +2009,13 @@ namespace AutoCommand.Views
             // ConcurrentDictionary has no one-arg Remove — TryRemove is the drop-in
             _trafficCache.TryRemove(vm.Record.Kind + vm.Record.Key, out _);
             await ReloadAsync();
+        }
+
+        private void DomainBlocksBtn_Click(object sender, RoutedEventArgs e)
+        {
+            var win = new DomainBlocksWindow { Owner = Window.GetWindow(this) };
+            win.ShowDialog();
+            _ = ReloadAsync();   // sync-created/retired rules land in this list
         }
 
         private async void RepairBtn_Click(object sender, RoutedEventArgs e)

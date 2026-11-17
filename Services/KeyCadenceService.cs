@@ -224,7 +224,10 @@ namespace AutoCommand.Services
             lock (_gate)
             {
                 var now = DateTime.Now;
-                var day = now.ToString("yyyy-MM-dd");
+                // Invariant: a calendar-default culture (th-TH etc.) keys days
+                // by a non-Gregorian year here, silently diverging from every
+                // other yyyy-MM-dd in the app's stores.
+                var day = now.ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
                 if (!_days.TryGetValue(day, out var hours))
                 {
                     hours = new int[24];
@@ -253,7 +256,7 @@ namespace AutoCommand.Services
 
         private void PruneLocked()
         {
-            var cutoff = DateTime.Now.AddDays(-RetainedDays).ToString("yyyy-MM-dd");
+            var cutoff = DateTime.Now.AddDays(-RetainedDays).ToString("yyyy-MM-dd", System.Globalization.CultureInfo.InvariantCulture);
             var stale = new List<string>();
             foreach (var key in _days.Keys)
                 if (string.CompareOrdinal(key, cutoff) < 0) stale.Add(key);

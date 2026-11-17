@@ -17,6 +17,12 @@ namespace AutoCommand.Contain.Core
     {
         public const string NewIpPrefix = "AC-BLOCK-IP ";
         public const string NewAppPrefix = "AC-BLOCK-APP ";
+        // Service-scoped blocks are the third family the engine creates
+        // (Naming.autocommand().OwnSvcPrefix); every C#-side own-rule check
+        // must know it or service blocks become invisible to undo/uninstall/
+        // baseline — the exact class of bug that hid them from the drift
+        // enforcer and the Blocks tab inventory.
+        public const string NewSvcPrefix = "AC-BLOCK-SVC ";
 
         /// <summary>The single engine instance all app code goes through.</summary>
         public static AutoCommand.Engines.Firewall.FirewallService Instance { get; } =
@@ -67,6 +73,11 @@ namespace AutoCommand.Contain.Core
             !string.IsNullOrEmpty(name) && (
                 name.StartsWith(FirewallService.NewIpPrefix, StringComparison.OrdinalIgnoreCase) ||
                 name.StartsWith(FirewallService.NewAppPrefix, StringComparison.OrdinalIgnoreCase) ||
+                // The svc family MUST be included: without it the baseline
+                // never adopts service-rule states, so the drift enforcer
+                // re-enables service blocks the user just paused, and newly
+                // created service rules raise permanent "new rule" alerts.
+                name.StartsWith(FirewallService.NewSvcPrefix, StringComparison.OrdinalIgnoreCase) ||
                 name.StartsWith("AutoCommand IP Block - ", StringComparison.OrdinalIgnoreCase) ||
                 name.StartsWith("AutoCommand Process Block - ", StringComparison.OrdinalIgnoreCase));
 

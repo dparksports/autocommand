@@ -197,7 +197,14 @@ public static class AttackSurfaceService
     public static string DecodeNetStatus(object status)
     {
         if (status == null) return "N/A";
-        return ((int)(ushort)status) switch
+        // Win32_NetworkAdapter.NetConnectionStatus is CIM uint32 → the boxed
+        // value is a boxed System.UInt32, and unboxing it as (ushort) throws
+        // InvalidCastException on the first adapter with a status — the empty
+        // catch in the callers then made every adapter inventory silently
+        // empty. Convert handles any numeric shape WMI hands over.
+        int code;
+        try { code = Convert.ToInt32(status); } catch { return status.ToString(); }
+        return code switch
         {
             0 => "Disconnected",
             1 => "Connecting",

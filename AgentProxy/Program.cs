@@ -110,7 +110,13 @@ var stdout = new StreamWriter(Console.OpenStandardOutput(), new UTF8Encoding(fal
 // decodes stdin with the OEM code page and non-ASCII tool arguments (paths,
 // hostnames, reason strings) get mangled before they are forwarded.
 try { Console.InputEncoding = Encoding.UTF8; } catch { /* detached stdin keeps default */ }
-var http = new HttpClient { Timeout = Timeout.InfiniteTimeSpan };
+// The bearer token travels in these requests' Authorization header. A
+// default HttpClient consults the system (WinINET) proxy — a same-user
+// process that set a machine proxy without a <local> bypass would then
+// RECEIVE every forwarded JSON-RPC call plus the session token. Loopback
+// traffic must never be proxied: UseProxy=false pins the transport.
+var http = new HttpClient(new System.Net.Http.SocketsHttpHandler { UseProxy = false })
+{ Timeout = Timeout.InfiniteTimeSpan };
 
 (int Port, string Token, long Pid, string Exe)? ReadSession()
 {

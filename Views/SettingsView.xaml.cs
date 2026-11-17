@@ -72,11 +72,93 @@ namespace AutoCommand.Views
             SecurityEnforcer.VerdictsUpdated -= OnVerdictsUpdated;
             SecurityEnforcer.VerdictsUpdated += OnVerdictsUpdated;
             RefreshSurfaceVerdicts();
+
+            // Block-awareness toggles (deny watcher on by default; the
+            // block-page proxy is opt-in) — the standard detach/set/attach
+            // dance so programmatic IsChecked writes do not re-fire handlers.
+            DenyWatchChk.Checked -= DenyWatch_Changed;
+            DenyWatchChk.Unchecked -= DenyWatch_Changed;
+            DenyWatchChk.IsChecked = AutoCommand.Contain.Core.FirewallDenyWatchService.Enabled;
+            DenyWatchChk.Checked += DenyWatch_Changed;
+            DenyWatchChk.Unchecked += DenyWatch_Changed;
+
+            AutoCommand.Contain.Core.BlockPageProxyService.Instance.StatusChanged -= BlockProxy_StatusChanged;
+            BlockProxyChk.Checked -= BlockProxy_Changed;
+            BlockProxyChk.Unchecked -= BlockProxy_Changed;
+            BlockProxyChk.IsChecked = AutoCommand.Contain.Core.BlockPageProxyService.Instance.IsRunning;
+            BlockProxyChk.Checked += BlockProxy_Changed;
+            BlockProxyChk.Unchecked += BlockProxy_Changed;
+            AutoCommand.Contain.Core.BlockPageProxyService.Instance.StatusChanged += BlockProxy_StatusChanged;
+            RefreshBlockProxyStatus();
         }
 
         private void UserControl_Unloaded(object sender, RoutedEventArgs e)
         {
             SecurityEnforcer.VerdictsUpdated -= OnVerdictsUpdated;
+            AutoCommand.Contain.Core.BlockPageProxyService.Instance.StatusChanged -= BlockProxy_StatusChanged;
+        }
+
+        // ── block notifications & friendly block pages ────────────────────
+
+        private void DenyWatch_Changed(object sender, RoutedEventArgs e)
+        {
+            bool on = DenyWatchChk.IsChecked == true;
+            AutoCommand.Contain.Core.FirewallDenyWatchService.Instance.SetEnabled(on);
+        }
+
+        private void BlockProxy_StatusChanged() => RefreshBlockProxyStatus();
+
+        private void RefreshBlockProxyStatus()
+        {
+            var svc = AutoCommand.Contain.Core.BlockPageProxyService.Instance;
+            string pages = svc.PagesServed > 0 ? $" · {svc.PagesServed} block page(s) served this session" : "";
+            BlockProxyStatusText.Text = svc.IsRunning
+                ? $"on — {svc.StatusDetail}{pages}"
+                : (svc.StatusDetail ?? "off — browsers show their own error for blocked requests.");
+        }
+
+        private async void BlockProxy_Changed(object sender, RoutedEventArgs e)
+        {
+            bool on = BlockProxyChk.IsChecked == true;
+            if (on)
+            {
+                // Consent first: this is the machine-touching toggle — system
+                // proxy for user apps, machine-trusted CA while on. Same
+                // honesty standard as the intercept session's consent.
+                var proceed = MessageBox.Show(
+                    "Turning friendly block pages on will:\n\n" +
+                    "  · route user applications (browsers) through a local AutoCommand proxy at 127.0.0.1:7878 while it is on — Windows services are never routed;\n" +
+                    "  · install the 'AutoCommand Intercept CA' certificate into the machine trust store while it is on, so blocked HTTPS sites can show an explanation page (only BLOCKED hostnames are decrypted — everything else tunnels untouched);\n" +
+                    "  · restore your previous proxy settings and remove the CA when you turn it off, when the app exits, or after a crash (the next start repairs it).\n\n" +
+                    "Turn it on?", "Friendly block pages",
+                    MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);
+                if (proceed != MessageBoxResult.Yes)
+                {
+                    BlockProxyChk.Checked -= BlockProxy_Changed;
+                    BlockProxyChk.Unchecked -= BlockProxy_Changed;
+                    BlockProxyChk.IsChecked = false;
+                    BlockProxyChk.Checked += BlockProxy_Changed;
+                    BlockProxyChk.Unchecked += BlockProxy_Changed;
+                    return;
+                }
+            }
+            BlockProxyChk.IsEnabled = false;
+            try
+            {
+                var svc = AutoCommand.Contain.Core.BlockPageProxyService.Instance;
+                if (on) await svc.StartAsync();
+                else await svc.StopAsync("toggle off");
+            }
+            catch (Exception ex)
+            {
+                MessageBox.Show($"The block-page proxy could not change state: {ex.Message}",
+                    "Block-page proxy", MessageBoxButton.OK, MessageBoxImage.Error);
+            }
+            finally
+            {
+                BlockProxyChk.IsEnabled = true;
+            }
+            RefreshBlockProxyStatus();
         }
 
         // ── protected surfaces (SSTP / kernel debug) ─────────────────────
@@ -310,7 +392,7 @@ namespace AutoCommand.Views
             DiskStatsText.Text =
                 $"flushed this session: {written / 1024.0:0.#} KB" +
                 (pending > 0 ? $" · buffered now: {pending / 1024.0:0.#} KB" : "") +
-                (top.Length > 0 ? "$\n{top}" : "");
+                (top.Length > 0 ? $"\n{top}" : "");
 
             // reflect the persisted thrifty calibration
             bool thrifty = InstrumentMetronome.Instance.CadenceOf("disk-flush") >= 300;

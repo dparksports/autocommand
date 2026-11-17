@@ -26,6 +26,7 @@
 
   <ItemGroup>
     <InternalsVisibleTo Include="ContainSelfTest" />
+    <InternalsVisibleTo Include="BlockPageSelfTest" />
   </ItemGroup>
 
   <ItemGroup>
@@ -43,6 +44,11 @@
          project is now a facade over Engines.Firewall, constructed with
          AutoCommand's AC-BLOCK naming policy -->
     <ProjectReference Include="..\..\Engines\Engines.Firewall\Engines.Firewall.fsproj" />
+    <!-- Block-page proxy: the CA + leaf minting (selective TLS termination
+         for blocked HTTPS hosts) live in Intercept.Core. No cycle — Intercept
+         references only NetWatch + Engines.Watch; the CA internals are
+         whitelisted back via Intercept.Core's InternalsVisibleTo. -->
+    <ProjectReference Include="..\AutoCommand.Intercept.Core\AutoCommand.Intercept.Core.csproj" />
   </ItemGroup>
 
   <ItemGroup>

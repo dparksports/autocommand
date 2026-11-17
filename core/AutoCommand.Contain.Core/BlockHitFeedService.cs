@@ -73,6 +73,13 @@ namespace AutoCommand.Contain.Core
         private Timer _refreshTimer, _saveTimer;
         private bool _running, _dirty;
 
+        /// <summary>Raised on the Sysmon watcher thread the moment a denied
+        /// attempt is recorded — the push seam the Process Monitor's
+        /// real-time denial badge joins against (the pull queries below
+        /// stay for the tab and the bridge). Subscriber exceptions are
+        /// isolated: a UI lag must never take the feed down.</summary>
+        public event Action<BlockHit> HitArrived;
+
         public DateTime LastRefreshUtc { get; private set; }
         public string LastInventoryError { get; private set; }
         public string WatcherError { get; private set; }
@@ -191,6 +198,21 @@ namespace AutoCommand.Contain.Core
                     _dirty = true;
                     PruneLocked();
                 }
+                // Raised AFTER the hit is recorded and OUTSIDE the gate, so a
+                // subscriber re-entering the pull queries cannot deadlock;
+                // per-subscriber try/catch keeps one bad handler from
+                // killing the watcher thread the feed lives on.
+                try { HitArrived?.Invoke(new BlockHit
+                {
+                    TimeUtc = e.TimeUtc,
+                    Image = e.Image,
+                    Pid = e.Pid,
+                    DestIp = e.DestIp,
+                    DestPort = e.DestPort,
+                    Protocol = e.Protocol,
+                    MatchKind = kind,
+                }); }
+                catch { /* a subscriber failing must not fail the feed */ }
             }
             catch { /* a malformed event never takes the feed down */ }
         }
@@ -281,7 +303,12 @@ namespace AutoCommand.Contain.Core
                 lock (_gate)
                 {
                     _hits.Clear();
-                    _hits.AddRange(loaded.OrderByDescending(h => h.TimeUtc).Take(MaxHits));
+                    // Keep the newest MaxHits, but store them OLDEST-FIRST:
+                    // the live list appends at the end and PruneLocked evicts
+                    // from the front, both assuming ascending time — loading
+                    // newest-first made the cap evict the freshest evidence
+                    // and keep stale hits once the feed passed MaxHits.
+                    _hits.AddRange(loaded.OrderByDescending(h => h.TimeUtc).Take(MaxHits).OrderBy(h => h.TimeUtc));
                 }
             }
             catch { /* a corrupt store starts fresh, never blocks startup */ }

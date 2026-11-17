@@ -145,6 +145,16 @@ type SvchostMonitorItem() as this =
     let mutable appBlockNote: string = null
     let mutable svcBlockNote: string = null
 
+    // Blocked transmit attempts, stamped in real time by the view from
+    // BlockHitFeedService (Sysmon EID 3 joined against the block
+    // inventory). A denied attempt crosses no socket, so the packet
+    // counters can never carry it — TX stays 0 while the process keeps
+    // retrying; these are the only counters that can say "it tried and
+    // was denied". See RecordBlockHit below.
+    let mutable blockedAttempts = 0
+    let mutable lastBlockHitUtc = DateTime.MinValue
+    let mutable lastBlockHitDest: string = null
+
     // Row creation time (UTC) — the clock the TX-only grace period runs on.
     let firstSeenUtc = DateTime.UtcNow
 
@@ -294,7 +304,7 @@ type SvchostMonitorItem() as this =
     /// Name equality that tolerates the app's two name shapes (Sysmon
     /// basenames carry ".exe", live ProcessName lookups do not).
     /// </summary>
-    static member private SameProcessName(a: string, b: string) : bool =
+    static member SameProcessName(a: string, b: string) : bool =
         // F# port: C# private static method → static private member; same
         // visibility within the class.
         if String.IsNullOrEmpty a || String.IsNullOrEmpty b then
@@ -625,6 +635,63 @@ type SvchostMonitorItem() as this =
         if this.IsTrafficBlocked then "⛔"
         elif this.HasPausedBlock then "⏸"
         else ""
+
+    // -------------------------------------------------------------------
+    // Blocked transmit attempts (the real-time "tried to transmit and
+    // was denied" signal). The view stamps these from BlockHitFeedService
+    // on the UI thread; the grid column, the row flash and the tooltips
+    // all read this one state.
+    // -------------------------------------------------------------------
+
+    /// <summary>One denied transmit attempt. destIp/port/protocol come from
+    /// the feed's Sysmon event; timeUtc from the event itself.</summary>
+    member this.RecordBlockHit(destIp: string, destPort: int, protocol: string, timeUtc: DateTime) : unit =
+        blockedAttempts <- blockedAttempts + 1
+        lastBlockHitUtc <- timeUtc
+        let proto = if String.IsNullOrEmpty protocol then "TCP" else protocol
+        lastBlockHitDest <- $"{destIp}:{destPort} ({proto})"
+        this.OnPropertyChanged("BlockedAttempts")
+        this.OnPropertyChanged("BlockedAttemptsDisplay")
+        this.OnPropertyChanged("LastBlockHitDisplay")
+        this.OnPropertyChanged("IsRecentlyDenied")
+
+    /// Denied attempts seen for this row since it existed.
+    member _.BlockedAttempts: int = blockedAttempts
+
+    /// Column cell: the count, or a dash when nothing was ever denied.
+    member this.BlockedAttemptsDisplay: string =
+        if blockedAttempts > 0 then string blockedAttempts else "—"
+
+    /// "denied 3s ago → 203.0.113.7:443 (TCP)" — the cell/row tooltip; null
+    /// when nothing was denied.
+    member _.LastBlockHitDisplay: string =
+        if lastBlockHitUtc = DateTime.MinValue then null
+        else
+            let age = DateTime.UtcNow - lastBlockHitUtc
+
+            let ageText =
+                if age.TotalSeconds < 5. then "just now"
+                elif age.TotalSeconds < 60. then $"{int age.TotalSeconds}s ago"
+                elif age.TotalMinutes < 60. then $"{int age.TotalMinutes}m ago"
+                else lastBlockHitUtc.ToLocalTime().ToString("HH:mm:ss")
+
+            $"denied {ageText} → {lastBlockHitDest}"
+
+    /// True for a few seconds after a fresh denial — the row-flash trigger.
+    /// Decays on its own; the view's refresh tick re-raises it so the flash
+    /// visually clears even with no further event.
+    member _.IsRecentlyDenied: bool =
+        blockedAttempts > 0
+        && (DateTime.UtcNow - lastBlockHitUtc).TotalSeconds < 4.
+
+    /// Re-raise the derived displays without a new event (the view's
+    /// periodic refresh calls this so age text and the flash flag stay
+    /// honest between denials).
+    member this.RefreshBlockHitDisplays() : unit =
+        if blockedAttempts > 0 then
+            this.OnPropertyChanged("BlockedAttemptsDisplay")
+            this.OnPropertyChanged("LastBlockHitDisplay")
+            this.OnPropertyChanged("IsRecentlyDenied")
 
     /// <summary>Provenance of the IP block rule (null when the IP is not blocked).</summary>
     member _.IpBlockToolTip: string =

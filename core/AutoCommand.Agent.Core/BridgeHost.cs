@@ -24,6 +24,7 @@ namespace AutoCommand.Agent.Core
 
             public string Name => _tool.Name;
             public bool Mutating => _tool.Mutating;
+            public bool SupportsDryRun => _tool.SupportsDryRun;
 
             public string ConfirmDetail(string argsJson)
             {

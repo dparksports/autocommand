@@ -201,6 +201,19 @@ try
         sThrow == 200 && throwText.Contains("no UI to confirm") && !throwText.Contains("calling thread"),
         Trunc(throwText));
 
+    // Consent-bypass regression: dry_run=true on a mutating tool WITHOUT
+    // dry-run support used to skip the confirmation gate and execute the
+    // real mutation. It must be refused instead — never a silent run.
+    var (sNoDry, bodyNoDry) = Raw(Post("{\"jsonrpc\":\"2.0\",\"id\":9,\"method\":\"tools/call\"," +
+        "\"params\":{\"name\":\"close_gate\",\"arguments\":{\"target\":\"1.2.3.4\",\"dry_run\":\"true\"}}}"));
+    var noDryResult = (JsonNode.Parse(bodyNoDry) as JsonObject)?["result"];
+    string noDryText = (noDryResult?["content"] as JsonArray)?[0]?["text"]?.GetValue<string>() ?? "";
+    Check("7d dry_run on a non-dry-run mutating tool is refused (no unconfirmed run)",
+        sNoDry == 200 && noDryText.Contains("does not offer dry_run") &&
+        ((noDryResult?["isError"]?.GetValue<bool>() ?? false) == true) &&
+        !noDryText.Contains("state"),   // the stub handler's success shape — handler must NOT have run
+        Trunc(noDryText));
+
     AutoCommand.Engines.Bridge.AgentBridgeService.Ui = null;
 }
 finally
@@ -219,9 +232,11 @@ sealed class StubTool : IAgentTool
 {
     private readonly string _name;
     private readonly bool _mutating;
-    public StubTool(string name, bool mutating) { _name = name; _mutating = mutating; }
+    public StubTool(string name, bool mutating, bool supportsDryRun = false)
+    { _name = name; _mutating = mutating; SupportsDryRun = supportsDryRun; }
     public string Name => _name;
     public bool Mutating => _mutating;
+    public bool SupportsDryRun { get; }
     public string ConfirmDetail(string argsJson) => "stub confirm: " + _name;
     public string Invoke(string argsJson) =>
         "{\"state\": \"ok\", \"note\": \"quote 'and' \\\"embedded\\\" text\"}";
@@ -229,12 +244,13 @@ sealed class StubTool : IAgentTool
 sealed class StubTools : IAgentTools
 {
     public IList<string> Names(bool allowMutating) =>
-        allowMutating ? new List<string> { "echo_state", "open_gate" } : new List<string> { "echo_state" };
+        allowMutating ? new List<string> { "echo_state", "open_gate", "close_gate" } : new List<string> { "echo_state" };
     public string ListTools(bool allowMutating) =>
         "[{\"name\":\"echo_state\",\"description\":\"stub read\"},{\"name\":\"open_gate\",\"description\":\"stub gate\"}]";
     public IAgentTool Find(string name, bool allowMutating) =>
         name == "echo_state" ? new StubTool(name, false)
-        : name == "open_gate" ? new StubTool(name, true)
+        : name == "open_gate" ? new StubTool(name, true, supportsDryRun: true)   // consumes dry_run, like the real open_gate
+        : name == "close_gate" ? new StubTool(name, true)                        // mutating, NO dry-run support
         : null;
     public string BuildMonitorSnapshot() => null;
 }

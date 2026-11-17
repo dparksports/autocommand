@@ -51,7 +51,12 @@ public static class HardeningService
                 var t = line.Trim();
                 if (string.IsNullOrWhiteSpace(t) || t.StartsWith("#")) continue;
                 activeRules++;
-                if (!t.Contains("localhost") && !t.Contains("127.0.0.1") && !t.Contains("::1"))
+                // 0.0.0.0 counts as loopback-equivalent: both this app and
+                // AutoCommand's Black Hole pin telemetry domains to 0.0.0.0
+                // (comment markers above those lines are skipped already, but
+                // the pin lines themselves are not), and treating that shape
+                // as "the shape of a hijack" flagged the app's own blocks.
+                if (!t.Contains("localhost") && !t.Contains("127.0.0.1") && !t.Contains("::1") && !t.Contains("0.0.0.0"))
                     suspicious = true;
             }
             return new HostsAudit(true, activeRules, suspicious, content);

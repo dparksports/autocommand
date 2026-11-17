@@ -71,34 +71,63 @@ type BufferedAppender private () =
 
     /// <summary>Flush one path (its append buffer and any pending rewrite).
     /// Failures are swallowed per path — one unreadable file must not stop
-    /// the others.</summary>
+    /// the others — but failed data is RE-STAGED, not discarded: a transient
+    /// lock (AV scan, a viewer holding the file) used to silently lose every
+    /// line staged for that path, beyond the documented one-flush crash
+    /// window.</summary>
     static member Flush(path: string) : unit =
-        try
-            let struct (appendText, rewriteText) =
-                lock gate (fun () ->
-                    let appendText =
-                        let mutable sb = Unchecked.defaultof<StringBuilder>
-                        if appends.TryGetValue(path, &sb) then
-                            appends.Remove(path) |> ignore
-                            sb.ToString()
-                        else null
-                    let rewriteText =
-                        let mutable r = null
-                        if rewrites.TryGetValue(path, &r) then rewrites.Remove(path) |> ignore; r
-                        else null
-                    struct (appendText, rewriteText))
+        let struct (appendText, rewriteText) =
+            lock gate (fun () ->
+                let appendText =
+                    let mutable sb = Unchecked.defaultof<StringBuilder>
+                    if appends.TryGetValue(path, &sb) then
+                        appends.Remove(path) |> ignore
+                        sb.ToString()
+                    else null
+                let rewriteText =
+                    let mutable r = null
+                    if rewrites.TryGetValue(path, &r) then rewrites.Remove(path) |> ignore; r
+                    else null
+                struct (appendText, rewriteText))
 
-            if appendText <> null then
+        let mutable appendOk = true
+        let mutable rewriteOk = true
+        if appendText <> null then
+            try
                 ensureDir path
                 File.AppendAllText(path, appendText)
                 lock gate (fun () -> account path appendText.Length)
-            if rewriteText <> null then
+            with _ -> appendOk <- false
+        if rewriteText <> null then
+            try
                 ensureDir path
-                File.WriteAllText(path, rewriteText)
+                // Atomic rewrite: tmp + replace, not a plain truncate-then-
+                // write — blocks.txt (the production deferred-save ledger)
+                // once flowed through WriteAllText here, re-introducing the
+                // truncate-on-crash its own atomic path was written against.
+                let tmp = path + ".batmp"
+                File.WriteAllText(tmp, rewriteText)
+                if File.Exists path then File.Replace(tmp, path, null) else File.Move(tmp, path)
                 lock gate (fun () ->
                     account path rewriteText.Length
                     lastWritten.[path] <- rewriteText)
-        with _ -> ()
+            with _ -> rewriteOk <- false
+
+        // Re-stage failures. Appends go back at the FRONT (older text before
+        // whatever was staged meanwhile — journal order is oldest-first).
+        // Rewrites re-stage only if no newer staging exists (last-write-wins).
+        lock gate (fun () ->
+            if not appendOk && appendText <> null then
+                let mutable sb = Unchecked.defaultof<StringBuilder>
+                if appends.TryGetValue(path, &sb) then
+                    let merged = StringBuilder(appendText.Length + sb.Length)
+                    merged.Append(appendText) |> ignore
+                    merged.Append(sb) |> ignore
+                    appends.[path] <- merged
+                else
+                    appends.[path] <- StringBuilder(appendText)
+            if not rewriteOk && rewriteText <> null && not (rewrites.ContainsKey path) then
+                rewrites.[path] <- rewriteText)
 
     static member FlushAll() : unit =
         let paths =

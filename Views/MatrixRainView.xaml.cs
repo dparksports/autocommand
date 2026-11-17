@@ -281,7 +281,10 @@ namespace AutoCommand.Views
             _diagItem.IsChecked = _diagVisible;
             _styleItem.IsChecked = _cfg.Style == "cinema";
             SyncRadios(_charsetMenu, _cfg.Charset);
-            SyncRadios(_zLiftMenu, _cfg.ZLift.ToString("0.##", System.Globalization.CultureInfo.InvariantCulture));
+            // Numeric compare, not formatted text: 1.0 formats as "1" and the
+            // "flat (1.0)" radio's tag is "1.0", so the string sync never
+            // matched and the active default never showed as selected.
+            SyncRadiosByValue(_zLiftMenu, _cfg.ZLift);
         }
 
         private void Mutate(Action<MatrixRainConfig> change)
@@ -320,6 +323,17 @@ namespace AutoCommand.Views
             foreach (var child in parent.Items)
                 if (child is MenuItem mi && mi.Tag is string tag)
                     mi.IsChecked = string.Equals(tag, active, StringComparison.OrdinalIgnoreCase);
+        }
+
+        /// <summary>Radio sync by numeric value: tags parse as doubles so
+        /// "1" (the formatted ZLift) matches tag "1.0".</summary>
+        private static void SyncRadiosByValue(MenuItem parent, double value)
+        {
+            foreach (var child in parent.Items)
+                if (child is MenuItem mi && mi.Tag is string tag
+                    && double.TryParse(tag, System.Globalization.NumberStyles.Float,
+                        System.Globalization.CultureInfo.InvariantCulture, out double v))
+                    mi.IsChecked = Math.Abs(v - value) < 0.0001;
         }
 
         private sealed class RelayCommand : System.Windows.Input.ICommand

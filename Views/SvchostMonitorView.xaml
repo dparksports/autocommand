@@ -85,11 +85,20 @@
                         </ComboBox>
                     </StackPanel>
                 </Border>
-                <!-- DNS cache counter chip -->
-                <Border Grid.Column="4" Background="{DynamicResource BadgeBlueBg}" CornerRadius="10" Padding="10,3" Margin="0,0,12,0" VerticalAlignment="Center">
-                    <TextBlock x:Name="DnsCacheChip" Text="DNS cache: 0 entries"
-                               Foreground="{DynamicResource AccentBlueBrush}" FontSize="11" FontFamily="Consolas"/>
-                </Border>
+                <!-- Denied-transmits chip (real-time, Sysmon-joined) + DNS
+                     cache counter chip -->
+                <StackPanel Grid.Column="4" Orientation="Horizontal" VerticalAlignment="Center" Margin="0,0,12,0">
+                    <Border x:Name="DeniedChipBorder" Background="#22E5534B" CornerRadius="10" Padding="10,3" Margin="0,0,8,0"
+                            Visibility="Collapsed"
+                            ToolTip="Transmit attempts your firewall blocks denied in the last 10 minutes — joined live from Sysmon. A denial crosses no socket, so these rows show zero packets sent; the Denied column says which process kept trying.">
+                        <TextBlock x:Name="DeniedChip" Text="0 denied · 10 min"
+                                   Foreground="#E5534B" FontSize="11" FontFamily="Consolas"/>
+                    </Border>
+                    <Border Background="{DynamicResource BadgeBlueBg}" CornerRadius="10" Padding="10,3">
+                        <TextBlock x:Name="DnsCacheChip" Text="DNS cache: 0 entries"
+                                   Foreground="{DynamicResource AccentBlueBrush}" FontSize="11" FontFamily="Consolas"/>
+                    </Border>
+                </StackPanel>
                 <StackPanel Grid.Column="5" Orientation="Horizontal">
                     <!-- PID inquiry lives in the row context menu and the
                          row double-click (OpenPidTrace); ignoring a process
@@ -153,6 +162,12 @@
                         <DataTrigger Binding="{Binding IsStale}" Value="True">
                             <Setter Property="Opacity" Value="0.45"/>
                         </DataTrigger>
+                        <!-- Fresh denial flash: a blocked transmit attempt just
+                             landed (self-clearing after ~4 s — IsRecentlyDenied
+                             decays and the refresh tick re-raises it). -->
+                        <DataTrigger Binding="{Binding IsRecentlyDenied}" Value="True">
+                            <Setter Property="Background" Value="#22E5534B"/>
+                        </DataTrigger>
                     </Style.Triggers>
                 </Style>
             </DataGrid.RowStyle>
@@ -181,6 +196,32 @@
                         <DataTemplate>
                             <TextBlock Text="{Binding StatusGlyph}" FontSize="13" HorizontalAlignment="Center"
                                        ToolTip="{Binding StatusToolTip}"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+                <!-- Denied: transmit attempts this row's process made and the
+                     firewall refused — joined live from Sysmon against the
+                     block inventory (a denial crosses no socket, so the Tx
+                     counters stay at zero; this is the only place the
+                     "still trying" signal exists). Red while a fresh denial
+                     is flashing; hover for the last denied destination. -->
+                <DataGridTemplateColumn Header="Denied" Width="64" CanUserResize="False" SortMemberPath="BlockedAttempts">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <TextBlock Text="{Binding BlockedAttemptsDisplay}" HorizontalAlignment="Center"
+                                       FontFamily="Consolas" ToolTip="{Binding LastBlockHitDisplay}">
+                                <TextBlock.Style>
+                                    <Style TargetType="TextBlock">
+                                        <Setter Property="Foreground" Value="{DynamicResource TextSecondaryBrush}"/>
+                                        <Style.Triggers>
+                                            <DataTrigger Binding="{Binding IsRecentlyDenied}" Value="True">
+                                                <Setter Property="Foreground" Value="#E5534B"/>
+                                                <Setter Property="FontWeight" Value="Bold"/>
+                                            </DataTrigger>
+                                        </Style.Triggers>
+                                    </Style>
+                                </TextBlock.Style>
+                            </TextBlock>
                         </DataTemplate>
                     </DataGridTemplateColumn.CellTemplate>
                 </DataGridTemplateColumn>

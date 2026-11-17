@@ -355,6 +355,7 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
         else
             let results = ResizeArray<RuleInfo>()
             let mutable legacy = 0
+            let mutable walkError: Exception = null
 
             try
                 let fwPolicy = getPolicy ()
@@ -398,12 +399,23 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
                     with _ ->
                         () // Skip rules that can't be read
             with ex ->
+                walkError <- ex
                 Debug.WriteLine($"FirewallService.LoadRules Error: {ex.Message}")
 
-            snapshotRules <- results
-            snapshotLegacyCount <- legacy
-            snapshotCapturedUtc <- DateTime.UtcNow
-            struct (ResizeArray results, legacy)
+            // A failed COM walk must NOT cache as an authoritative empty
+            // snapshot: for the TTL window the Firewall tab reported
+            // "zero rules" and CountLegacyBlocksAsync "0 legacy blocks" —
+            // an all-clear built on a transient failure. When a previous
+            // snapshot exists, serve it stale-but-honest and leave the
+            // timestamp untouched so the next call retries the walk.
+            if not (isNull walkError) && results.Count = 0
+               && snapshotRules <> null && snapshotRules.Count > 0 then
+                struct (ResizeArray snapshotRules, snapshotLegacyCount)
+            else
+                snapshotRules <- results
+                snapshotLegacyCount <- legacy
+                snapshotCapturedUtc <- DateTime.UtcNow
+                struct (ResizeArray results, legacy)
 
     /// <summary>
     /// Toggle a single rule's enabled state via COM.
@@ -666,53 +678,67 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
         )
 
     /// <summary>
-    /// DELETES every rule this app ever created (current v2 prefixes, the
-    /// legacy pre-v2 names, and the intercept QUIC blocks) — the removal
-    /// counterpart of SetAllBlocksEnabledAsync(false), for uninstall-day.
-    /// Rules created by Windows or other software are never matched.
+    /// DELETES every rule this app ever created (current v2 prefixes
+    /// including the service-scoped family, the legacy pre-v2 names, and
+    /// the intercept QUIC blocks) — the removal counterpart of
+    /// SetAllBlocksEnabledAsync(false), for uninstall-day. Rules created by
+    /// Windows or other software are never matched.
     /// </summary>
     member _.RemoveAllOwnRulesAsync() : Task<int> =
         invalidateSnapshot ()
         Task.Run(
             Func<int>(fun () ->
+                // Mutation gate: uninstall-day sweeps while a coverage add is
+                // in flight would let the add resurrect a rule after the
+                // sweep read its "mine" list.
+                appAddGate.Wait()
                 try
-                    let fwPolicy = getPolicy ()
-                    let rules = fwPolicy.Rules
+                    try
+                        let fwPolicy = getPolicy ()
+                        let rules = fwPolicy.Rules
 
-                    let ownPrefixes =
-                        [ naming.OwnIpPrefix
-                          naming.OwnAppPrefix
-                          yield! naming.LegacyIpPrefixes
-                          yield! naming.LegacyAppPrefixes
-                          // Intercept session QUIC blocks (pid-suffixed) —
-                          // engine-side literal; Intercept.Core is not
-                          // referenced here by design.
-                          "AutoCommand Intercept QUIC block" ]
+                        let ownPrefixes =
+                            [ naming.OwnIpPrefix
+                              naming.OwnAppPrefix
+                              // The service-scoped family MUST be here: without
+                              // it "removes every rule this app ever created"
+                              // leaves AC-BLOCK-SVC rules live forever after
+                              // uninstall (e.g. a blocked wuauserv keeps Windows
+                              // Update offline with no UI left to remove them).
+                              naming.OwnSvcPrefix
+                              yield! naming.LegacyIpPrefixes
+                              yield! naming.LegacyAppPrefixes
+                              // Intercept session QUIC blocks (pid-suffixed) —
+                              // engine-side literal; Intercept.Core is not
+                              // referenced here by design.
+                              "AutoCommand Intercept QUIC block" ]
 
-                    let mine =
-                        seq {
-                            for r in Com.enumRules rules do
-                                try
-                                    let n = r.Name
+                        let mine =
+                            seq {
+                                for r in Com.enumRules rules do
+                                    try
+                                        let n = r.Name
 
-                                    if not (isNull n)
-                                       && List.exists (fun p -> n.StartsWith(p, StringComparison.OrdinalIgnoreCase)) ownPrefixes then
-                                        yield n
-                                with _ -> ()
-                        }
-                        |> Seq.toList
+                                        if not (isNull n)
+                                           && List.exists (fun p -> n.StartsWith(p, StringComparison.OrdinalIgnoreCase)) ownPrefixes then
+                                            yield n
+                                    with _ -> ()
+                            }
+                            |> Seq.toList
 
-                    for name in mine do
-                        try
-                            rules.Remove(name)
-                            recordOwnRuleRemoved name
-                        with _ -> ()
+                        for name in mine do
+                            try
+                                rules.Remove(name)
+                                recordOwnRuleRemoved name
+                            with _ -> ()
 
-                    invalidateOwnRuleIndex ()
-                    mine.Length
-                with _ ->
-                    invalidateOwnRuleIndex ()
-                    0
+                        invalidateOwnRuleIndex ()
+                        mine.Length
+                    with _ ->
+                        invalidateOwnRuleIndex ()
+                        0
+                finally
+                    appAddGate.Release() |> ignore
             )
         )
 
@@ -963,37 +989,125 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
         Task.Run(fun () ->
             let mutable removed = 0
 
+            // Serialized against the fire-and-forget coverage adds
+            // (AddAppBlockCore holds the same gate): an EnsureCoveredAsync
+            // that passed its dedupe check could re-create a rule for the
+            // path being unblocked mid-removal — the block resurrected and
+            // "unblock didn't stick".
+            appAddGate.Wait()
             try
-                let fwPolicy = getPolicy ()
-                let rules = fwPolicy.Rules
-                let names = ResizeArray<string>()
+                try
+                    let fwPolicy = getPolicy ()
+                    let rules = fwPolicy.Rules
+                    let names = ResizeArray<string>()
 
-                for r in Com.enumRules rules do
-                    try
-                        let name =
-                            match r.Name with
-                            | null -> ""
-                            | n -> n
+                    for r in Com.enumRules rules do
+                        try
+                            let name =
+                                match r.Name with
+                                | null -> ""
+                                | n -> n
 
-                        let app =
-                            match r.ApplicationName with
-                            | null -> ""
-                            | a -> a
+                            let app =
+                                match r.ApplicationName with
+                                | null -> ""
+                                | a -> a
 
-                        if FirewallService.MatchesAppTarget(naming, name, app, appPath) then
-                            names.Add(name)
-                    with _ -> ()
+                            if FirewallService.MatchesAppTarget(naming, name, app, appPath) then
+                                names.Add(name)
+                        with _ -> ()
 
-                for name in names do
-                    try
-                        rules.Remove(name) |> ignore
-                        recordOwnRuleRemoved name
-                        removed <- removed + 1
-                    with _ -> ()
-            with ex ->
-                raise (Exception($"Failed to remove firewall rules: {ex.Message}", ex))
+                    for name in names do
+                        try
+                            rules.Remove(name) |> ignore
+                            recordOwnRuleRemoved name
+                            removed <- removed + 1
+                        with _ -> ()
+                with ex ->
+                    raise (Exception($"Failed to remove firewall rules: {ex.Message}", ex))
+            finally
+                appAddGate.Release() |> ignore
 
             removed
+        )
+
+    /// <summary>
+    /// Deletes OWN block rules by EXACT rule name — and only when the live
+    /// rule's Description still carries the caller's marker substring
+    /// (provenance proof of ownership). The domain DNS-sync uses this to
+    /// retire rules whose pinned IP rotated out of the domain's answers:
+    /// rule names are the engine's idempotency keys, so a manual user block
+    /// of the same IP shares the exact name with a sync-created rule — the
+    /// marker check is what keeps the sync from deleting a rule the user
+    /// re-created by hand (a re-block rewrites the description, so the
+    /// marker is gone). Marker-less copies sharing the name are PRESERVED
+    /// under a quarantine rename that keeps the own-family prefix (blocking
+    /// untouched, baseline classification intact — the same dance the
+    /// duplicate cleanup does), because INetFwRules.Remove matches by name
+    /// and would otherwise take the user's rule with the sync's. Returns
+    /// the number of marker-carrying rules removed.
+    /// </summary>
+    member this.RemoveOwnRuleByNameAsync(ruleName: string, descriptionMarker: string) : Task<int> =
+        invalidateSnapshot ()
+        Task.Run(fun () ->
+            appAddGate.Wait()
+            try
+                try
+                    let fwPolicy = getPolicy ()
+                    let rules = fwPolicy.Rules
+                    let stamp = DateTime.UtcNow.ToString("yyyyMMdd-HHmmss")
+
+                    // One enumeration pass: collect marker-carriers and
+                    // marker-less siblings (rule + quarantine name) —
+                    // deleting during COM enumeration is unreliable (same
+                    // shape as RemoveRulesByNamePrefixes).
+                    let marked = ResizeArray<INetFwRule>()
+                    let unmarked = ResizeArray<INetFwRule * string>()
+                    let mutable i = 0
+                    for r in Com.enumRules rules do
+                        try
+                            let name =
+                                match r.Name with
+                                | null -> ""
+                                | n -> n
+
+                            if String.Equals(name, ruleName, StringComparison.OrdinalIgnoreCase) then
+                                let description =
+                                    try
+                                        match r.Description with
+                                        | null -> ""
+                                        | d -> d
+                                    with _ -> ""
+
+                                if (not (isNull descriptionMarker))
+                                   && description.Contains(descriptionMarker, StringComparison.OrdinalIgnoreCase) then
+                                    marked.Add r
+                                else
+                                    i <- i + 1
+                                    unmarked.Add((r, $"{ruleName} · sync-kept-{stamp}-{i}"))
+                        with _ -> ()
+
+                    // Preserve the user's copies under a name that still
+                    // starts with the own prefix, so wf.msc filtering and
+                    // the baseline both keep classifying them as ours.
+                    for (r, quarantine) in unmarked do
+                        try r.Name <- quarantine with _ -> ()
+
+                    let mutable removed = 0
+                    if marked.Count > 0 then
+                        try
+                            // Remove-by-name can take multiple duplicates at
+                            // once — count what we proved to be ours.
+                            rules.Remove(ruleName) |> ignore
+                            removed <- marked.Count
+                            recordOwnRuleRemoved ruleName
+                        with _ -> ()
+
+                    removed
+                with ex ->
+                    raise (Exception($"Failed to remove own block rule: {ex.Message}", ex))
+            finally
+                appAddGate.Release() |> ignore
         )
 
     member private _.RemoveRulesByNamePrefixes(namePrefixes: string list) : int =
@@ -1692,50 +1806,56 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
             let mutable targets = 0
             let mutable retired = 0
 
+            // Same mutation gate as the other removals — a coverage add
+            // recreating a rule mid-sweep would strand it half-retired.
+            appAddGate.Wait()
             try
-                let fwPolicy = getPolicy ()
-                let rules = fwPolicy.Rules
-                // Single COM pass: classify (ruleName, isDead) while enumerating
-                // instead of re-enumerating fwPolicy.Rules once per blocked exe.
-                let byExe = Dictionary<string, ResizeArray<string * bool>>(StringComparer.OrdinalIgnoreCase)
+                try
+                    let fwPolicy = getPolicy ()
+                    let rules = fwPolicy.Rules
+                    // Single COM pass: classify (ruleName, isDead) while enumerating
+                    // instead of re-enumerating fwPolicy.Rules once per blocked exe.
+                    let byExe = Dictionary<string, ResizeArray<string * bool>>(StringComparer.OrdinalIgnoreCase)
 
-                for r in Com.enumRules rules do
-                    try
-                        let name = (if isNull r.Name then "" else r.Name)
+                    for r in Com.enumRules rules do
+                        try
+                            let name = (if isNull r.Name then "" else r.Name)
 
-                        if name.StartsWith(naming.OwnAppPrefix, StringComparison.OrdinalIgnoreCase) then
-                            let app = (if isNull r.ApplicationName then "" else r.ApplicationName)
+                            if name.StartsWith(naming.OwnAppPrefix, StringComparison.OrdinalIgnoreCase) then
+                                let app = (if isNull r.ApplicationName then "" else r.ApplicationName)
 
-                            if app.Length > 0 then
-                                let exe = Path.GetFileName(app)
-                                let isDead = not (File.Exists(app))
-                                let mutable list = Unchecked.defaultof<ResizeArray<string * bool>>
+                                if app.Length > 0 then
+                                    let exe = Path.GetFileName(app)
+                                    let isDead = not (File.Exists(app))
+                                    let mutable list = Unchecked.defaultof<ResizeArray<string * bool>>
 
-                                if not (byExe.TryGetValue(exe, &list)) then
-                                    list <- ResizeArray<string * bool>()
-                                    byExe.[exe] <- list
+                                    if not (byExe.TryGetValue(exe, &list)) then
+                                        list <- ResizeArray<string * bool>()
+                                        byExe.[exe] <- list
 
-                                list.Add((name, isDead))
-                    with _ -> ()
+                                    list.Add((name, isDead))
+                        with _ -> ()
 
-                for KeyValue(_, entries) in byExe do
-                    targets <- targets + 1
-                    let mutable hasLive = false
-                    let dead = ResizeArray<string>()
+                    for KeyValue(_, entries) in byExe do
+                        targets <- targets + 1
+                        let mutable hasLive = false
+                        let dead = ResizeArray<string>()
 
-                    for (name, isDead) in entries do
-                        if isDead then dead.Add(name)
-                        else hasLive <- true
+                        for (name, isDead) in entries do
+                            if isDead then dead.Add(name)
+                            else hasLive <- true
 
-                    if hasLive then // never the last rule of a target
-                        for name in dead do
-                            try
-                                rules.Remove(name)
-                                recordOwnRuleRemoved name
-                                retired <- retired + 1
-                            with _ -> ()
-            with _ ->
-                (* sweep is best-effort; the next pass retries *) ()
+                        if hasLive then // never the last rule of a target
+                            for name in dead do
+                                try
+                                    rules.Remove(name)
+                                    recordOwnRuleRemoved name
+                                    retired <- retired + 1
+                                with _ -> ()
+                with _ ->
+                    (* sweep is best-effort; the next pass retries *) ()
+            finally
+                appAddGate.Release() |> ignore
 
             struct (targets, retired))
 
@@ -2335,115 +2455,125 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
             let mutable removed = 0
             let mutable migrated = 0
 
-            try
-                let fwPolicy = getPolicy ()
-                let rules = fwPolicy.Rules
-                let legacy = ResizeArray<string * INetFwRule * string>()
-                let legacyApps = ResizeArray<string * INetFwRule * string>()
+            // Mutation gate: this consolidates ADDS v2 rules while removing
+            // legacy ones — serialize against coverage adds like every
+            // other mutating member.
+            let step () =
+                try
+                    let fwPolicy = getPolicy ()
+                    let rules = fwPolicy.Rules
+                    let legacy = ResizeArray<string * INetFwRule * string>()
+                    let legacyApps = ResizeArray<string * INetFwRule * string>()
 
-                // Single COM enumeration collects both legacy IP and legacy app rules
-                for r in Com.enumRules rules do
-                    try
-                        if int r.Action = 0 then
-                            let name =
-                                match r.Name with
-                                | null -> ""
-                                | n -> n
-
-                            if startsWithAny naming.LegacyIpPrefixes name then
-                                legacy.Add((name, r, FirewallService.ParseIpTarget(naming, name)))
-                            elif startsWithAny naming.LegacyAppPrefixes name then
-                                let app =
-                                    match r.ApplicationName with
+                    // Single COM enumeration collects both legacy IP and legacy app rules
+                    for r in Com.enumRules rules do
+                        try
+                            if int r.Action = 0 then
+                                let name =
+                                    match r.Name with
                                     | null -> ""
-                                    | a -> a
+                                    | n -> n
 
-                                if app.Length > 0 then
-                                    legacyApps.Add((name, r, app))
-                    with _ -> ()
+                                if startsWithAny naming.LegacyIpPrefixes name then
+                                    legacy.Add((name, r, FirewallService.ParseIpTarget(naming, name)))
+                                elif startsWithAny naming.LegacyAppPrefixes name then
+                                    let app =
+                                        match r.ApplicationName with
+                                        | null -> ""
+                                        | a -> a
 
-                // F# port: group keys lowercased — Seq.groupBy has no
-                // comparer overload; C# grouped apps OrdinalIgnoreCase.
-                for ipGroup in legacy |> Seq.groupBy (fun (_, _, ip) -> ip.ToLowerInvariant()) do
-                    targets <- targets + 1
+                                    if app.Length > 0 then
+                                        legacyApps.Add((name, r, app))
+                        with _ -> ()
 
-                    for (name, rule, ip) in snd ipGroup do
-                        if name.Contains("Inbound") then
-                            try
-                                rules.Remove(name) |> ignore
-                                recordOwnRuleRemoved name
-                                removed <- removed + 1
-                            with _ -> ()
-                        else
-                            // rewrite under v2 name: copy-create-remove (COM rename is unreliable)
-                            try
-                                let proto = if name.Contains("UDP") then "UDP" else "TCP"
-                                let newName = $"{naming.OwnIpPrefix}{ip} ({proto} Out)"
-                                let wasEnabled = try rule.Enabled with _ -> true
+                    // F# port: group keys lowercased — Seq.groupBy has no
+                    // comparer overload; C# grouped apps OrdinalIgnoreCase.
+                    for ipGroup in legacy |> Seq.groupBy (fun (_, _, ip) -> ip.ToLowerInvariant()) do
+                        targets <- targets + 1
 
-                                if isNull (this.FindOwnRule(rules, newName)) then
-                                    let nr = makeRule ()
-                                    nr.Action <- FwAction.Block
-                                    nr.Direction <- FwRuleDirection.Out
-                                    nr.Enabled <- wasEnabled
-                                    nr.InterfaceTypes <- "All"
-                                    nr.Name <- newName
-                                    nr.RemoteAddresses <- ip
-                                    nr.Protocol <- (if name.Contains("UDP") then int FwProtocol.Udp else int FwProtocol.Tcp)
+                        for (name, rule, ip) in snd ipGroup do
+                            if name.Contains("Inbound") then
+                                try
+                                    rules.Remove(name) |> ignore
+                                    recordOwnRuleRemoved name
+                                    removed <- removed + 1
+                                with _ -> ()
+                            else
+                                // rewrite under v2 name: copy-create-remove (COM rename is unreliable)
+                                try
+                                    let proto = if name.Contains("UDP") then "UDP" else "TCP"
+                                    let newName = $"{naming.OwnIpPrefix}{ip} ({proto} Out)"
+                                    let wasEnabled = try rule.Enabled with _ -> true
 
-                                    nr.Description <-
-                                        (match rule.Description with
-                                         | null -> ""
-                                         | d -> d)
-                                        + " [migrated from legacy rule]"
+                                    if isNull (this.FindOwnRule(rules, newName)) then
+                                        let nr = makeRule ()
+                                        nr.Action <- FwAction.Block
+                                        nr.Direction <- FwRuleDirection.Out
+                                        nr.Enabled <- wasEnabled
+                                        nr.InterfaceTypes <- "All"
+                                        nr.Name <- newName
+                                        nr.RemoteAddresses <- ip
+                                        nr.Protocol <- (if name.Contains("UDP") then int FwProtocol.Udp else int FwProtocol.Tcp)
 
-                                    rules.Add(nr)
-                                    recordOwnRuleAdded newName
+                                        nr.Description <-
+                                            (match rule.Description with
+                                             | null -> ""
+                                             | d -> d)
+                                            + " [migrated from legacy rule]"
 
-                                rules.Remove(name) |> ignore
-                                recordOwnRuleRemoved name
-                                migrated <- migrated + 1
-                            with _ -> ()
+                                        rules.Add(nr)
+                                        recordOwnRuleAdded newName
 
-                // ── legacy app blocks: 2 rules → 1 outbound v2 rule ──
-                for appGroup in legacyApps |> Seq.groupBy (fun (_, _, app) -> app.ToLowerInvariant()) do
-                    targets <- targets + 1
+                                    rules.Remove(name) |> ignore
+                                    recordOwnRuleRemoved name
+                                    migrated <- migrated + 1
+                                with _ -> ()
 
-                    for (name, rule, app) in snd appGroup do
-                        if name.Contains("Inbound") then
-                            try
-                                rules.Remove(name) |> ignore
-                                recordOwnRuleRemoved name
-                                removed <- removed + 1
-                            with _ -> ()
-                        else
-                            try
-                                let newName = $"{naming.OwnAppPrefix}{Path.GetFileName(app)} (Out)"
-                                let wasEnabled = try rule.Enabled with _ -> true
+                    // ── legacy app blocks: 2 rules → 1 outbound v2 rule ──
+                    for appGroup in legacyApps |> Seq.groupBy (fun (_, _, app) -> app.ToLowerInvariant()) do
+                        targets <- targets + 1
 
-                                if isNull (this.FindOwnRule(rules, newName)) then
-                                    let nr = makeRule ()
-                                    nr.Action <- FwAction.Block
-                                    nr.Direction <- FwRuleDirection.Out
-                                    nr.Enabled <- wasEnabled
-                                    nr.InterfaceTypes <- "All"
-                                    nr.Name <- newName
-                                    nr.ApplicationName <- app
+                        for (name, rule, app) in snd appGroup do
+                            if name.Contains("Inbound") then
+                                try
+                                    rules.Remove(name) |> ignore
+                                    recordOwnRuleRemoved name
+                                    removed <- removed + 1
+                                with _ -> ()
+                            else
+                                try
+                                    let newName = $"{naming.OwnAppPrefix}{Path.GetFileName(app)} (Out)"
+                                    let wasEnabled = try rule.Enabled with _ -> true
 
-                                    nr.Description <-
-                                        (match rule.Description with
-                                         | null -> ""
-                                         | d -> d)
-                                        + " [migrated from legacy rule]"
+                                    if isNull (this.FindOwnRule(rules, newName)) then
+                                        let nr = makeRule ()
+                                        nr.Action <- FwAction.Block
+                                        nr.Direction <- FwRuleDirection.Out
+                                        nr.Enabled <- wasEnabled
+                                        nr.InterfaceTypes <- "All"
+                                        nr.Name <- newName
+                                        nr.ApplicationName <- app
 
-                                    rules.Add(nr)
-                                    recordOwnRuleAdded newName
+                                        nr.Description <-
+                                            (match rule.Description with
+                                             | null -> ""
+                                             | d -> d)
+                                            + " [migrated from legacy rule]"
 
-                                rules.Remove(name) |> ignore
-                                recordOwnRuleRemoved name
-                                migrated <- migrated + 1
-                            with _ -> ()
-            with _ -> ()
+                                        rules.Add(nr)
+                                        recordOwnRuleAdded newName
+
+                                    rules.Remove(name) |> ignore
+                                    recordOwnRuleRemoved name
+                                    migrated <- migrated + 1
+                                with _ -> ()
+                with _ -> ()
+
+            appAddGate.Wait()
+            try
+                step ()
+            finally
+                appAddGate.Release() |> ignore
 
             struct (targets, removed, migrated)
         )
@@ -2575,12 +2705,15 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
             if not (File.Exists marker) then
                 let err = if FirewallService.FirewallDropLoggingOn () then null else FirewallService.SetDropLogging true
 
-                Directory.CreateDirectory(Path.GetDirectoryName(marker)) |> ignore
-
-                let suffix = if isNull err then "" else $" (netsh failed: {err})"
-                let stamp = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm")
-
-                File.WriteAllText(marker, $"{stamp} ensured{suffix}")
+                // The marker records "runs at most once EVER" — writing it
+                // even when the netsh call failed turned a recoverable error
+                // (blocked at first launch, not elevated yet) into a
+                // permanent disable. Only a success (or already-on) writes it.
+                if not (isNull err) then ()
+                else
+                    Directory.CreateDirectory(Path.GetDirectoryName(marker)) |> ignore
+                    let stamp = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm", Globalization.CultureInfo.InvariantCulture)
+                    File.WriteAllText(marker, $"{stamp} ensured")
         with _ -> ()
 
     /// <summary>
@@ -2607,11 +2740,23 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
 
             use p = Process.Start(psi)
 
-            let output = (p.StandardOutput.ReadToEnd() + " " + p.StandardError.ReadToEnd()).Trim()
+            // Drain BOTH pipes concurrently: reading stdout to EOF before
+            // touching stderr deadlocks against a child that fills its
+            // stderr pipe (the 10 s timeout below never runs — it is only
+            // checked after both reads complete). Timeout result is checked
+            // too: ExitCode on a still-running child throws.
+            let errorTask = p.StandardError.ReadToEndAsync()
+            let output = p.StandardOutput.ReadToEnd()
+            let exited = p.WaitForExit(10000)
+            if not exited then
+                try p.Kill() with _ -> ()
+                p.WaitForExit()
 
-            p.WaitForExit(10000) |> ignore
+            let error = errorTask.Result
 
-            if p.ExitCode = 0 then null else $"netsh exit {p.ExitCode}: {output}"
+            if not exited then "netsh timed out after 10s"
+            elif p.ExitCode = 0 then null
+            else $"netsh exit {p.ExitCode}: {output} {error}".Trim()
         with ex ->
             ex.Message
 
@@ -2630,7 +2775,11 @@ type FirewallService(naming: FirewallNaming, policyFactory: Func<INetFwPolicy2>,
                     DateTime.TryParseExact(
                         s.Substring(0, j).Replace(" UTC", ""),
                         "yyyy-MM-dd HH:mm",
-                        null,
+                        // Invariant: a null provider means CurrentCulture, and
+                        // the ':' pattern must then match the culture's own
+                        // time separator (fi-FI "14.22" never parses → an
+                        // empty Created column on those machines).
+                        Globalization.CultureInfo.InvariantCulture,
                         Globalization.DateTimeStyles.AssumeUniversal
                     )
                 with

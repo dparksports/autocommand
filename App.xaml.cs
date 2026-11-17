@@ -111,6 +111,10 @@ namespace AutoCommand
             // journal on disk still describes the hooks it installed — undo
             // them (proxy, firewall rule, CA) before anything else runs.
             AutoCommand.Intercept.Core.InterceptSystemHooks.RecoverAfterCrash();
+            // The block-page proxy keeps its own journal for its WinINET-only
+            // hooks — same crash contract, restored before anything reads
+            // proxy state.
+            AutoCommand.Contain.Core.BlockPageProxyHooks.RecoverAfterCrash();
 
             // Unjournaled stragglers (a crash between trust/proxy changes that
             // the journal did not cover): stranded machine-trusted CA, dead
@@ -119,6 +123,9 @@ namespace AutoCommand
             try
             {
                 var repairs = AutoCommand.Intercept.Core.InterceptStartupRepair.RepairIfNeeded();
+                // same sweep for the block-page proxy's per-user proxy value
+                repairs.AddRange(AutoCommand.Contain.Core.BlockPageProxyHooks.RepairIfNeeded(
+                    AutoCommand.Contain.Core.BlockPageProxyService.DefaultPort));
                 foreach (string repair in repairs)
                 {
                     System.Diagnostics.Debug.WriteLine($"startup repair: {repair}");
@@ -182,7 +189,10 @@ namespace AutoCommand
             {
                 LogCrash(args.Exception, "Dispatcher");
                 args.Handled = true; // Prevent app from closing
-                MessageBox.Show($"A UI error occurred: {args.Exception.Message}\n\nDetails saved to crash.log.", 
+                string crashLogPath = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "AutoCommand", "crash.log");
+                MessageBox.Show($"A UI error occurred: {args.Exception.Message}\n\nDetails saved to {crashLogPath}.",
                     "AutoCommand Error", MessageBoxButton.OK, MessageBoxImage.Error);
             };
 
@@ -287,6 +297,39 @@ namespace AutoCommand
                 MinSeconds = 5,
                 MaxSeconds = 60,
                 Callback = () => Agent.Core.BlockGateService.Instance.CloseExpiredAsync(),
+            });
+
+            // Domain blocks: a cadence for the DNS reconcile DomainBlockSyncService
+            // kicked off at startup — new CDN addresses get rules, rotated ones get
+            // retired, and the create/remove trail lands in the audit ledger.
+            AutoCommand.Contain.Core.DomainBlockSyncService.Instance.RulesCreated += ruleNames =>
+            {
+                if (ruleNames != null && ruleNames.Length > 0)
+                    _ = Helpers.FirewallBaselineManager.AdoptRuleStatesAsync(ruleNames.Select(n => (n, true)));
+                Dispatcher.BeginInvoke(new System.Action(() =>
+                {
+                    if (Views.BlocksView.Current != null) _ = Views.BlocksView.Current.RefreshIfLoadedAsync();
+                }));
+            };
+            AutoCommand.Contain.Core.DomainBlockSyncService.Instance.BlocksChanged += () =>
+            {
+                Dispatcher.BeginInvoke(new System.Action(() =>
+                {
+                    if (Views.BlocksView.Current != null) _ = Views.BlocksView.Current.RefreshIfLoadedAsync();
+                }));
+            };
+            InstrumentMetronome.Instance.Register(new InstrumentSpec
+            {
+                Id = "domain-dns-sync",
+                Name = "Domain block DNS sync",
+                Description = "Re-resolves every blocked domain and reconciles its IP rules: " +
+                              "new CDN addresses are blocked, addresses that rotated away have their " +
+                              "sync-created rules retired (hand-made rules are never touched).",
+                Cost = InstrumentCost.Light,
+                DefaultSeconds = 300,
+                MinSeconds = 60,
+                MaxSeconds = 3600,
+                Callback = () => AutoCommand.Contain.Core.DomainBlockSyncService.Instance.SyncAllAsync(),
             });
 
             SinkholeService.Instance.EnsureRunningForCurrentPins();
@@ -397,6 +440,26 @@ namespace AutoCommand
                     .GetAwaiter().GetResult();
             }
             catch { /* timeout/first-chance failure: startup reconcile re-arms */ }
+
+            // The per-user proxy must never outlive the app: full teardown
+            // (listener → hooks restored → CA lifted) with a hard cap, then a
+            // synchronous hooks undo as the belt-and-braces backstop. A crash
+            // has its own recovery (BlockPageProxyHooks.RecoverAfterCrash) at
+            // next startup.
+            try
+            {
+                System.Threading.Tasks.Task.Run(() =>
+                    AutoCommand.Contain.Core.BlockPageProxyService.Instance.StopAsync("app exit"))
+                    .WaitAsync(TimeSpan.FromSeconds(3))
+                    .GetAwaiter().GetResult();
+            }
+            catch
+            {
+                try { AutoCommand.Contain.Core.BlockPageProxyHooks.Undo(); } catch { }
+            }
+            // deny watcher: stop following the Security log before shutdown
+            try { AutoCommand.Contain.Core.FirewallDenyWatchService.Instance.Stop(); } catch { }
+
             BufferedAppender.FlushAll();
             BlocksStore.FlushPending();
             InstrumentMetronome.Instance.Stop();
@@ -463,6 +526,17 @@ namespace AutoCommand
                     // rules whose path an update deleted. Runs without Sysmon too
                     // (startup sweep + retire pass need no event channel).
                     AppBlockCoverageService.Instance.Start();
+
+                    // kernel-level deny telemetry: flips the "Filtering Platform
+                    // Connection" failure audit on (idempotent), follows Security
+                    // log 5157, and feeds the blocked-connection toast. Sysmon-
+                    // independent — this is the ground-truth denial signal.
+                    FirewallDenyWatchService.Instance.Start();
+
+                    // domain blocks kept current across CDN rotations: startup
+                    // reconcile (the metronome's domain-dns-sync pass registered
+                    // below continues it on a cadence). Sysmon-independent.
+                    DomainBlockSyncService.Instance.Start();
 
                     // MCP self-heal (only with the Be My Guest auto-register
                     // consent): re-point client registrations whose proxy moved
@@ -569,7 +643,15 @@ namespace AutoCommand
         {
             try
             {
-                string logPath = System.IO.Path.Combine(System.AppDomain.CurrentDomain.BaseDirectory, "crash.log");
+                // %LOCALAPPDATA%\AutoCommand — every other state file lives
+                // there. BaseDirectory fails for Program-Files-style installs
+                // (user-writable is not guaranteed there), while the dialog
+                // above still tells the user "saved to crash.log" — a promise
+                // the write silently broke.
+                string dir = System.IO.Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "AutoCommand");
+                System.IO.Directory.CreateDirectory(dir);
+                string logPath = System.IO.Path.Combine(dir, "crash.log");
                 string logEntry = $"\n[{System.DateTime.Now:yyyy-MM-dd HH:mm:ss}] [{source}]\n{ex.ToString()}\n";
                 System.IO.File.AppendAllText(logPath, logEntry);
             }

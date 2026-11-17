@@ -79,11 +79,12 @@ public static class QuickScanService
                                 }
                                 catch { }
 
-                                bool debugOn = false;
-                                string bcd = ProcessRunner.Run("bcdedit", "/enum {current}");
-                                if (!string.IsNullOrEmpty(bcd))
-                                    debugOn = bcd.IndexOf("debug", StringComparison.OrdinalIgnoreCase) >= 0
-                                           && bcd.IndexOf("yes", StringComparison.OrdinalIgnoreCase) >= 0;
+                                // The old substring heuristic here ("contains
+                                // 'debug' and 'Yes'") matched `recoveryenabled
+                                // Yes` on a machine with debug actually OFF —
+                                // a permanent false positive that failed every
+                                // clean system. Use the fixed check instead.
+                                bool debugOn = AttackSurfaceService.IsKernelDebugOn();
 
                                 if (present == 0 && !debugOn)
                                     return (true, "no WAN Miniport / KDNIC devices present; kernel debug off");
@@ -204,15 +205,18 @@ public static class QuickScanService
                     {
                         Id = "bloatware",
                         Title = "Bloatware: remove",
-                        Description = "Uninstalls the apps on the bloatware list (Outlook, Xbox, Teams, Copilot, OneDrive, … — user-configurable; included in the master confirmation).",
+                        Description = "Uninstalls the apps on the bloatware list (Outlook, Xbox, Teams, Copilot, OneDrive, … — user-configurable). Requires a confirmation callback for this run; without one the step refuses rather than uninstalling unconfirmed.",
                         Apply = async progress =>
                         {
-                            var (matched, removed, failed) = await AppManagerService.Instance.RemoveBloatwareAsync(progress);
-                            if (matched.Count == 0)
-                                return (true, "no bloatware packages found");
-                            return (failed.Count == 0,
-                                $"removed {removed}/{matched.Count} package(s)" +
-                                (failed.Count > 0 ? "; failed: " + string.Join(", ", failed) : ""));
+                            // RemoveBloatwareAsync treats confirm:null as
+                            // "skip the prompt", and no master confirmation
+                            // exists in this headless step chain — running it
+                            // bare used to uninstall every matched package
+                            // (patterns include WindowsTerminal/Calculator/
+                            // Camera) with zero consent. Refuse instead; the
+                            // removal stays available from the app UI, which
+                            // always confirms.
+                            return (false, "bloatware removal needs per-run confirmation — run it from the OS Hardening page (which asks first), or wire a confirm callback into this step");
                         },
                         Verify = async () =>
                         {

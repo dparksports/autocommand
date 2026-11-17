@@ -33,7 +33,7 @@
 
   <ItemGroup>
     <!-- NetWatch core (phase 1 of the AutoCommand II extraction, see
-         REWRITE.md): kernel TCP table, IP classification, DNS/RDAP, and the
+         docs/history/REWRITE.md): kernel TCP table, IP classification, DNS/RDAP, and the
          Sysmon engine family, physically moved out of this project into
          core\AutoCommand.NetWatch.Core (namespaces unchanged, so views and
          services compile without edits). The self-test harnesses consume
@@ -54,7 +54,7 @@
          watcher/sniffer, so the grid and the rain are one source of truth. -->
     <ProjectReference Include="MatrixRain\AutoCommand.MatrixRain.Core\AutoCommand.MatrixRain.Core.csproj" />
     <!-- Contain core (phase 3 of the AutoCommand II extraction, see
-         REWRITE.md): firewall + blocks-store undo ledger, telemetry opt-out
+         docs/history/REWRITE.md): firewall + blocks-store undo ledger, telemetry opt-out
          rules and hosts pins, sinkhole receipts, Defender engines, update
          freeze. Built test-first — ContainSelfTest proved the safety path
          offline before the move. -->
@@ -62,16 +62,16 @@
     <ProjectReference Include="Engines\Engines.Firewall\Engines.Firewall.fsproj" />
     <ProjectReference Include="Engines\Engines.Diagnosis\Engines.Diagnosis.fsproj" />
     <!-- Forensics core (phase 4 of the AutoCommand II extraction, see
-         REWRITE.md): provenance, task attribution + scheduling, spawn
+         docs/history/REWRITE.md): provenance, task attribution + scheduling, spawn
          watching, trace metrics, BITS watcher, Python instrumentation.
          The top of the core layering — it references all three other cores. -->
     <ProjectReference Include="core\AutoCommand.Forensics.Core\AutoCommand.Forensics.Core.csproj" />
-    <!-- Sitedoctor core (phase 5, REWRITE.md): the "why is this site slow?"
+    <!-- Sitedoctor core (phase 5, docs/history/REWRITE.md): the "why is this site slow?"
          pipeline - fingerprint, probes, verdicts, dependency blocks, outage
          map. Its Live half moved too: the archive/block-feed blockers
          dissolved when Intercept and Contain extracted. -->
     <ProjectReference Include="core\AutoCommand.Sitedoctor.Core\AutoCommand.Sitedoctor.Core.csproj" />
-    <!-- Agent core (phase 6, REWRITE.md): the Be My Guest MCP bridge, tool
+    <!-- Agent core (phase 6, docs/history/REWRITE.md): the Be My Guest MCP bridge, tool
          registry, and client registration. The confirmation seam is
          inverted through Sdk\IAgentInteraction - this app installs
          Services\WpfAgentInteraction at startup; headless hosts install
@@ -140,13 +140,16 @@
          too (duplicate types in the WPF _wpftmp pass) -->
     <Compile Remove="AgentProxy\**" />
     <!-- Contain self-test: the blocking/safety path — built test-first,
-         before the phase 3 extraction (REWRITE.md); own Main() -->
+         before the phase 3 extraction (docs/history/REWRITE.md); own Main() -->
     <Compile Remove="tests\ContainSelfTest\**" />
+    <!-- Block-page self-test: deny watcher, impact probe, proxy hooks,
+         domain sync, and the block-page proxy E2E (hooks off, temp dirs) -->
+    <Compile Remove="tests\BlockPageSelfTest\**" />
     <!-- Vendored OneSettingsCadence.Core: compiled through its own ProjectReference -->
     <Compile Remove="OneSettingsCadence\**" />
     <!-- F# engine sources live in their own fsproj graph -->
     <Compile Remove="Engines\**" />
-    <!-- Extracted core engines (AutoCommand II phases, REWRITE.md): built
+    <!-- Extracted core engines (AutoCommand II phases, docs/history/REWRITE.md): built
          through their own ProjectReferences — same glob reason as
          svchost-watch; without this exclusion the default glob pulls the
          core sources into the app assembly too, and the WPF _wpftmp pass

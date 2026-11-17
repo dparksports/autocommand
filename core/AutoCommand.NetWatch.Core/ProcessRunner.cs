@@ -53,7 +53,7 @@ namespace AutoCommand.NetWatch.Core
         public static string Run(string fileName, string arguments, Encoding outputEncoding)
         {
             fileName = ResolveTool(fileName);
-            var proc = new Process
+            using var proc = new Process
             {
                 StartInfo = new ProcessStartInfo
                 {
@@ -75,7 +75,10 @@ namespace AutoCommand.NetWatch.Core
             string output = proc.StandardOutput.ReadToEnd();
             if (!proc.WaitForExit(ExitTimeoutMs))
             {
-                try { proc.Kill(); } catch { }
+                // Kill the whole tree: the direct child dying does not stop
+                // grandchildren it spawned (wsl.exe relays especially — they
+                // used to outlive every timed-out call).
+                try { proc.Kill(entireProcessTree: true); } catch { }
                 proc.WaitForExit();
             }
             return StripNullChars(output);
@@ -84,7 +87,7 @@ namespace AutoCommand.NetWatch.Core
         public static (string Output, string Error, int ExitCode) RunWithDetails(string fileName, string arguments)
         {
             fileName = ResolveTool(fileName);
-            var proc = new Process
+            using var proc = new Process
             {
                 StartInfo = new ProcessStartInfo
                 {
@@ -102,7 +105,7 @@ namespace AutoCommand.NetWatch.Core
             string output = proc.StandardOutput.ReadToEnd();
             if (!proc.WaitForExit(ExitTimeoutMs))
             {
-                try { proc.Kill(); } catch { }
+                try { proc.Kill(entireProcessTree: true); } catch { }
                 proc.WaitForExit();
             }
             string error = stderrTask.Result;

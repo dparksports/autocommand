@@ -25,11 +25,22 @@ namespace AutoCommand.Views
             InitializeComponent();
         }
 
+        // Sync guard for the Load-time checkbox state sets: the Checked/
+        // Unchecked XAML handlers carry the consent dialogs, and a
+        // programmatic false→true transition fires them — re-prompting a
+        // user whose pref file already says "on", and cascading one
+        // accidental "No" into silently unchecking (writing "off") their
+        // standing grant. SettingsView's detach-set-reattach and
+        // CadenceView's flag pattern are the house fixes; the flag is the
+        // least invasive here.
+        private bool _syncingToggles;
+
         private void UserControl_Loaded(object sender, RoutedEventArgs e)
         {
             // AI access: mutating + autostart + wake preferences + live session status
             try
             {
+                _syncingToggles = true;
                 AgentAutostartCheck.IsChecked = PrefOn(AutostartPrefPath);
                 AgentWakeCheck.IsChecked = PrefOn(WakePrefPath);
             }
@@ -37,6 +48,10 @@ namespace AutoCommand.Views
             {
                 AgentAutostartCheck.IsChecked = false;
                 AgentWakeCheck.IsChecked = false;
+            }
+            finally
+            {
+                _syncingToggles = false;
             }
             PopulateClientButtons();
             StartAgentRefresh();
@@ -229,6 +244,7 @@ namespace AutoCommand.Views
 
         private void AgentAutostartCheck_Changed(object sender, RoutedEventArgs e)
         {
+            if (_syncingToggles) return;   // Load-time state restore, not a user decision
             bool on = AgentAutostartCheck.IsChecked == true;
             if (on)
             {
@@ -257,6 +273,7 @@ namespace AutoCommand.Views
 
         private void AgentWakeCheck_Changed(object sender, RoutedEventArgs e)
         {
+            if (_syncingToggles) return;   // Load-time state restore, not a user decision
             bool on = AgentWakeCheck.IsChecked == true;
             if (on)
             {
@@ -468,8 +485,12 @@ namespace AutoCommand.Views
 
         private void CopyAgentConfigBtn_Click(object sender, RoutedEventArgs e)
         {
+            // Fallback path must be a REAL path: MCP clients spawn the command
+            // verbatim, and a literal "%LOCALAPPDATA%\..." never resolves.
             string proxy = McpClientCatalog.ResolveAndInstallProxy().Item1
-                ?? "%LOCALAPPDATA%\\AutoCommand\\tools\\AutoCommand.AgentProxy.exe";
+                ?? Path.Combine(
+                    Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
+                    "AutoCommand", "tools", "AutoCommand.AgentProxy.exe");
             string config =
                 "{\n  \"mcp\": {\n    \"servers\": {\n      \"autocommand\": {\n" +
                 "        \"command\": \"" + proxy.Replace("\\", "\\\\") + "\",\n" +

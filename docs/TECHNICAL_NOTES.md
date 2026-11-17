@@ -140,6 +140,17 @@ Process Monitor, where it can be blocked like any other destination.
 | Profiles & drift | Baseline of every rule's enabled state stored as JSON in `C:\ProgramData\AutoCommand`; re-scanned to report drift |
 | 1-click blocks | Inbound + outbound rules per executable or remote address, created over the same COM interface |
 
+### Block awareness (deny telemetry · friendly block pages · domain blocks)
+| Concern | Technology |
+|---|---|
+| Kernel deny telemetry | `FirewallDenyWatchService` (`Contain.Core`): idempotently enables the "Filtering Platform Connection" audit subcategory via `auditpol /set /subcategory:{0CCE9226-69AE-11D9-BED3-505054503030} /failure:enable` (GUID-addressed — locale-proof; failure-only keeps the 5156 allowed-connection noise off), then follows the Security log with `EventLogWatcher` for Event **5157** ("connection blocked"). Only denials whose destination is in the blocked inventory (`BlockHitFeedService.BlockedIp`) are kept — Windows' own policy denies are not ours to explain |
+| Deny notifications | One toast per (process, destination) per 10 minutes (`TrayNotifier`, activation lands on the Blocks tab); every matched denial persists to `%LOCALAPPDATA%\AutoCommand\firewall-denies.jsonl`. This is kernel-level ground truth — Sysmon-independent, unlike the block-hit feed's inference |
+| Friendly block pages | **Opt-in** (`BlockPageProxyService` + `BlockPageProxyHooks`): a loopback proxy on `127.0.0.1:7878` registered as the per-user **WinINET** proxy (services never routed; `ProxyOverride=127.0.0.1;localhost;<local>`). Blocked hostnames (resolved fresh, 60 s cache) get a plain-HTML explanation page — plain HTTP directly; HTTPS via CONNECT answered + TLS-terminated with a leaf minted from the Intercept CA (**selective termination: only blocked hostnames are ever decrypted, everything else tunnels byte-for-byte**) |
+| Hook crash safety | Journal-ahead contract: captured `ProxyEnable`/`ProxyServer`/`ProxyOverride` go to `blockproxy-active.json` **before** the first registry write; restore values are shape-validated against the capture regexes (a forged journal degrades to clearing, never to attacker-chosen proxy settings). `RecoverAfterCrash()` at startup; `RepairIfNeeded()` sweeps an unjournaled `127.0.0.1:<port>` proxy with nothing listening; listener restarts with backoff and **auto-disables the feature** after 5 fatal failures — a system proxy pointing at a dead port is the one failure this must never survive into |
+| Domain blocks | `DomainBlockSyncService`: user list in `%LOCALAPPDATA%\AutoCommand\domain-blocks.jsonl` (managed from the Blocks tab → 🌐 Domain blocks). A sync pass (metronome instrument `domain-dns-sync`, 5 min default, plus a startup reconcile) fresh-resolves each domain and reconciles `AC-BLOCK-IP` rules: new addresses get 2-rule blocks; rotated addresses are retired by **exact rule name** via the engine's marker-checked `RemoveOwnRuleByNameAsync` — a rule the user ALSO blocked by hand shares the name (the engine's idempotency key), and the marker check disowns it instead of deleting it. An IP already blocked by a foreign rule is adopted as covered, never re-created (creation would overwrite its provenance). Ownership map: `domain-ip-map.json`; every create/remove/adopt/disown is an audit-ledger event under origin `domain-sync` |
+| Block impact probe | `BlockImpactProbe`: forward-checks a curated list of connectivity-critical services (Windows Update, NCSI, sign-in, dev hosts) against the addresses the target resolves to — the "shared infrastructure: these addresses also serve…" warning in the IP-block confirm dialog (streamed in while the dialog is open) and the domain-add window. Best-effort PTR + 10-min answer cache; resolver injectable for offline tests |
+| Leaf key fix | Minted leaves are round-tripped through PFX (`UserKeySet|Exportable|PersistKeySet`) — an in-memory (`CopyWithPrivateKey`) key is **ephemeral**, and Windows Schannel refuses it for the server TLS role ("platform does not support ephemeral keys"). Observed via `BlockPageSelfTest` 2026-11-17; repairs the intercept MITM's handshake too |
+
 ### Security Enforcer
 | Concern | Technology |
 |---|---|
@@ -196,6 +207,11 @@ Process Monitor, where it can be blocked like any other destination.
 | `C:\ProgramData\AutoCommand\dns_cache.json` + `geo_prefix_cache.json` + `dns_forward_cache.json` | Hostname, org-prefix and forward-DNS caches (machine-wide; a legacy beside-the-exe copy is migrated on first run). Forward cache: 60 min TTL, 10 min negative TTL |
 | `%LOCALAPPDATA%\AutoCommand\pytrace\` | Python Spawns tab state — see below |
 | `%LOCALAPPDATA%\AutoCommand\bits\` | BITS Transfers tab state — see below |
+| `%LOCALAPPDATA%\AutoCommand\firewall-denies.jsonl` | Kernel-level firewall denials that matched AutoCommand's blocked inventory (Event 5157, deny watcher) — the "why did my download fail" receipt |
+| `%LOCALAPPDATA%\AutoCommand\deny-watch.txt` | Deny-watcher on/off preference (default on) |
+| `%LOCALAPPDATA%\AutoCommand\domain-blocks.jsonl` + `domain-ip-map.json` | Blocked domains and the exact rules the DNS sync currently holds per domain (authoritative ownership) |
+| `%LOCALAPPDATA%\AutoCommand\blockproxy-active.json` | Block-page proxy crash journal — describes the live per-user proxy hooks, deleted on clean stop, replayed at startup after a crash |
+| `%LOCALAPPDATA%\AutoCommand\blockproxy.txt` | Block-page proxy on/off preference (default off; enabling asks) |
 
 ### BITS Transfers tab (`%LOCALAPPDATA%\AutoCommand\bits\`)
 

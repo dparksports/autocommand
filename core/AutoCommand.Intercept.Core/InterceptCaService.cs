@@ -267,13 +267,26 @@ namespace AutoCommand.Intercept.Core
         }
 
         /// <summary>
+        /// What RemoveFromRoot actually did — callers that report to the
+        /// user ("removed the CA") must distinguish a real removal from
+        /// nothing-to-do, or every startup after a clean session claims a
+        /// removal that never happened.
+        /// </summary>
+        internal enum RootRemoveResult { Removed, Absent, Failed }
+
         /// Removes exactly our CA (by thumbprint) — never a blanket store
         /// cleanup. Returns true when no cert with that thumbprint remains in
         /// the store (including "was never installed"); false means the
         /// removal must be retried — callers keep the undo journal so the
         /// next app start's RecoverAfterCrash tries again.
         /// </summary>
-        internal static bool RemoveFromRoot(string thumbprint = null)
+        internal static bool RemoveFromRoot(string thumbprint = null) =>
+            TryRemoveFromRoot(thumbprint) != RootRemoveResult.Failed;
+
+        /// <summary>Tri-state variant for surfaces that report what they
+        /// did (startup repair): Removed = a cert left the store; Absent =
+        /// nothing to do; Failed = retry later.</summary>
+        internal static RootRemoveResult TryRemoveFromRoot(string thumbprint = null)
         {
             string tp = thumbprint ?? GetOrCreateCa().Thumbprint;
             try
@@ -282,16 +295,18 @@ namespace AutoCommand.Intercept.Core
                 {
                     ro.Open(OpenFlags.ReadOnly);
                     if (ro.Certificates.Find(X509FindType.FindByThumbprint, tp, validOnly: false).Count == 0)
-                        return true;
+                        return RootRemoveResult.Absent;
                 }
                 using var store = new X509Store(StoreName.Root, StoreLocation.LocalMachine);
                 store.Open(OpenFlags.ReadWrite);
                 var matches = store.Certificates.Find(X509FindType.FindByThumbprint, tp, validOnly: false);
                 foreach (var cert in matches)
                     store.Remove(cert);
-                return store.Certificates.Find(X509FindType.FindByThumbprint, tp, validOnly: false).Count == 0;
+                return store.Certificates.Find(X509FindType.FindByThumbprint, tp, validOnly: false).Count == 0
+                    ? RootRemoveResult.Removed
+                    : RootRemoveResult.Failed;
             }
-            catch { return false; /* RecoverAfterCrash retries at next app start */ }
+            catch { return RootRemoveResult.Failed; /* RecoverAfterCrash retries at next app start */ }
         }
 
         // ── leaf minting ──────────────────────────────────────────────────
@@ -335,6 +350,17 @@ namespace AutoCommand.Intercept.Core
                 // CopyWithPrivateKey returns the cert WITH its private key —
                 // the chain to the CA is built by clients via the Root store.
                 var leafWithKey = leaf.CopyWithPrivateKey(rsa);
+                // Observed 2026-11-17 (BlockPageSelfTest, SslStream server role):
+                // a key held only in memory (RSA.Create + CopyWithPrivateKey)
+                // is EPHEMERAL, and Windows Schannel refuses it —
+                // "Authentication failed because the platform does not support
+                // ephemeral keys". Round-trip through PFX so the key lands in
+                // a persisted key container the TLS server path can use. This
+                // is the same leaf the intercept MITM serves, so the fix
+                // repairs that handshake too.
+                var ephemeralPfx = leafWithKey.Export(X509ContentType.Pkcs12);
+                leafWithKey = new X509Certificate2(ephemeralPfx, (string)null,
+                    X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.Exportable | X509KeyStorageFlags.PersistKeySet);
 
                 _leafCache[host] = (leafWithKey, DateTime.UtcNow);
                 return leafWithKey;

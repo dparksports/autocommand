@@ -311,6 +311,26 @@ namespace AutoCommand
             _enforcer.OnAdapterAlert = (title, message) =>
                 Dispatcher.Invoke(() => _trayNotifier.ShowSecurityAlert(title, message));
 
+            // Kernel-level deny telemetry (Security log 5157 joined against the
+            // blocked inventory) → toast: the "your download keeps failing and
+            // here is why" moment, one per (process, destination) per 10 min.
+            // Toast activation lands on the Blocks tab, where the rule lives.
+            AutoCommand.Contain.Core.FirewallDenyWatchService.Instance.OnDenyToast =
+                (title, message, onActivated) =>
+                    Dispatcher.Invoke(() => _trayNotifier.ShowSecurityAlert(title, message, 12000, () =>
+                    {
+                        BringWindowToForeground();
+                        BlocksNavItem.IsSelected = true;
+                        onActivated?.Invoke();
+                    }));
+
+            // Block-page proxy fail-safe: the service disabled itself (its
+            // listener died fatally) — the user must know their proxy went
+            // away, and that normal settings are back.
+            AutoCommand.Contain.Core.BlockPageProxyService.Instance.AutoDisabled += msg =>
+                Dispatcher.Invoke(() => _trayNotifier.ShowSecurityAlert(
+                    "Block-page proxy stopped itself", msg, 12000, null));
+
             _enforcer.Start();
         }
 
@@ -496,7 +516,15 @@ namespace AutoCommand
                         };
                         using var p = System.Diagnostics.Process.Start(psi);
                         p.StandardOutput.ReadToEnd();
-                        return p.WaitForExit(5000) ? p.ExitCode : -1;
+                        if (!p.WaitForExit(5000))
+                        {
+                            // Timed out: kill the (elevated) child instead of
+                            // leaving it running while reporting failure.
+                            try { p.Kill(entireProcessTree: true); } catch { }
+                            p.WaitForExit();
+                            return -1;
+                        }
+                        return p.ExitCode;
                     });
                     dnsNote = flush == 0
                         ? "The DNS cache was flushed automatically — no further steps needed."

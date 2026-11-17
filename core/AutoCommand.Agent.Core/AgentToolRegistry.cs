@@ -37,7 +37,15 @@ namespace AutoCommand.Agent.Core
             JsonObject Schema,
             bool Mutating,
             Func<JsonObject, string> Handler,
-            Func<JsonObject, string> ConfirmDetail = null);
+            Func<JsonObject, string> ConfirmDetail = null,
+            // True ONLY when the handler actually consumes args["dry_run"]
+            // (resolve-and-preview without acting). The bridge skips the
+            // confirmation gate for dry_run=true on these tools alone; on
+            // every other mutating tool it refuses the flag instead — an
+            // unimplemented dry_run used to skip the gate and execute the
+            // real mutation unconfirmed. Keep this false unless the handler
+            // genuinely branches on dry_run.
+            bool SupportsDryRun = false);
 
         // ── registry access ───────────────────────────────────────────────
 
@@ -333,7 +341,8 @@ namespace AutoCommand.Agent.Core
                        ("dry_run", "true = resolve and preview only, no confirmation, no change", false)),
                 true,
                 a => OpenGate(a),
-                a => OpenGateConfirmText(a)),
+                a => OpenGateConfirmText(a),
+                SupportsDryRun: true),   // the ONLY mutating tool whose handler consumes dry_run
 
             new Tool(
                 "close_gate",

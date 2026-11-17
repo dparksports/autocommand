@@ -56,12 +56,16 @@ namespace AutoCommand.Services
         private static readonly object _stateLock = new();
         private static WslState _cached;
         private static DateTime _cachedAtUtc = DateTime.MinValue;
+        private static bool _probing;
         private static readonly TimeSpan CacheLifetime = TimeSpan.FromSeconds(60);
 
         /// <summary>
         /// Current WSL state (installed / VM running / distros / networking
         /// mode), cached ~60s so the monitor's 10-second enrichment tick
-        /// never spawns wsl.exe per pass. Never starts the VM.
+        /// never spawns wsl.exe per pass. Never starts the VM. The probe
+        /// runs OUTSIDE the lock — a hung wsl.exe held it for minutes and
+        /// blocked every caller; concurrent probes collapse onto the cached
+        /// value instead.
         /// </summary>
         public static WslState GetState()
         {
@@ -69,9 +73,23 @@ namespace AutoCommand.Services
             {
                 if (_cached != null && DateTime.UtcNow - _cachedAtUtc < CacheLifetime)
                     return _cached;
-                _cached = ProbeState();
-                _cachedAtUtc = DateTime.UtcNow;
-                return _cached;
+                if (_probing)
+                    return _cached;
+                _probing = true;
+            }
+            try
+            {
+                var fresh = ProbeState();
+                lock (_stateLock)
+                {
+                    _cached = fresh;
+                    _cachedAtUtc = DateTime.UtcNow;
+                }
+                return fresh;
+            }
+            finally
+            {
+                lock (_stateLock) { _probing = false; }
             }
         }
 

@@ -68,10 +68,12 @@ Real example from this app's own development machine: *"svchost.exe is uploading
 
 A security tool you're afraid to touch is a security tool you won't use:
 
-- A **pre-block brief** says exactly what the rule will do before you confirm (and a duplicate check keeps one block per target).
+- A **pre-block brief** says exactly what the rule will do before you confirm (and a duplicate check keeps one block per target). The same dialog now probes shared infrastructure: if the addresses you're about to block also serve Windows Update or the connectivity check, it says so before you click — and again in the rule's provenance afterwards.
 - Every block **reverses in one click** and lands in the Audit ledger with the reason you gave.
 - **Gates** open a blocked target for 1, 10, 30 or 60 minutes and re-arm themselves.
-- Blocks don't just *look* stopped: attempts (Sysmon) are joined against live sockets and the TLS archive to prove **contained · stale flow · leak** — silent means silent.
+- Blocks don't just *look* stopped: attempts (Sysmon) are joined against live sockets and the TLS archive to prove **contained · stale flow · leak** — silent means silent. When something *does* hit a rule, the **deny watcher** (Windows' kernel-level "connection blocked" telemetry, enabled automatically) toasts you within a second: what tried, where, and that it will keep failing until you decide — no more mysterious "your internet access is blocked" browser pages with no explanation.
+- **Block domains, not just IPs** (🌐 Domain blocks on the Blocks tab): CDNs rotate their addresses by the minute, so a pinned-IP blocklist misses tomorrow. Name a hostname instead and AutoCommand re-resolves it on a cadence — new addresses get blocked, rotated addresses get retired, and a rule you blocked by hand is never touched (ownership is proven by the rule's own provenance marker, not a guess).
+- **Friendly block pages** (opt-in in Settings): while enabled, a request your own firewall rules refuse gets a plain-English page — what was blocked, why, and how to undo it — instead of the browser's raw error. Only blocked hostnames are ever inspected; everything else forwards untouched. The proxy settings and the local CA it uses exist *only* while the toggle is on, are journaled so a crash can't strand them, and restore themselves on toggle-off, app exit, or crash.
 - If it all goes wrong, the 🚑 **Restore Internet** button undoes every block the app ever made. Even the nuclear option — *restore defaults + lockdown* — photographs every firewall rule first, and **Restore snapshot** brings them back.
 
 ## Shields Up
@@ -114,7 +116,7 @@ No installer, no account, no lock-in. Everything it records stays in readable lo
 
 ![SystemMonitor, the precursor, to AutoCommand II and III, to AutoCommand today](Assets/infographics/lineage.svg)
 
-This started as **SystemMonitor** — a firmware, UEFI/DBX and Defender forensics dashboard. The core engines were rebuilt in F# and shipped as AutoCommand II and III; today everything lives in this one repository. The precursor's **complete source tree and commit history** are preserved under [`systemmonitor/`](systemmonitor/README.md), and its classic v3.x releases remain on the [old Releases page](https://github.com/dparksports/SystemMonitor/releases). One repo, the whole family tree.
+This started as **SystemMonitor** — a firmware, UEFI/DBX and Defender forensics dashboard. The core engines were rebuilt in F# and shipped as AutoCommand II and III; today everything lives in this one repository. The precursor's history and its classic v3.x releases remain on the [old Releases page](https://github.com/dparksports/SystemMonitor/releases). One repo, the whole family tree.
 
 ## For developers and tinkerers
 

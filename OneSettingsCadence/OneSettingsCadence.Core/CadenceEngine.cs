@@ -373,15 +373,33 @@ namespace AutoCommand.OneSettingsCadence
             public DateTime? LastEnforcedUtc { get; set; }
         }
 
-        public static DesiredState LoadState() =>
-            File.Exists(StateFile)
-                ? JsonSerializer.Deserialize<DesiredState>(File.ReadAllText(StateFile))
-                : null;
+        public static DesiredState LoadState()
+        {
+            // A corrupt state file returns null (fresh start) instead of
+            // throwing: this runs in the unattended watchdog task, and one
+            // torn write used to kill every future run before it could
+            // audit or re-assert the cadence.
+            try
+            {
+                if (!File.Exists(StateFile)) return null;
+                return JsonSerializer.Deserialize<DesiredState>(File.ReadAllText(StateFile));
+            }
+            catch
+            {
+                try { File.Move(StateFile, StateFile + ".corrupt", overwrite: true); } catch { }
+                return null;
+            }
+        }
 
         public static void SaveState(DesiredState s)
         {
             Directory.CreateDirectory(StateDir);
-            File.WriteAllText(StateFile, JsonSerializer.Serialize(s, new JsonSerializerOptions { WriteIndented = true }), NoBom);
+            // Atomic replace: a crash mid-write is what corrupts the state
+            // file LoadState above then has to eat.
+            string tmp = StateFile + ".tmp";
+            File.WriteAllText(tmp, JsonSerializer.Serialize(s, new JsonSerializerOptions { WriteIndented = true }), NoBom);
+            if (File.Exists(StateFile)) File.Replace(tmp, StateFile, null);
+            else File.Move(tmp, StateFile);
         }
 
         public static void ClearState()

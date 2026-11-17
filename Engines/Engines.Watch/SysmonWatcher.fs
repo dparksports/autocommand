@@ -83,6 +83,12 @@ type SysmonWatcherService(trackedIps: ConcurrentDictionary<string, SvchostMonito
     // image file name (e.g. "chrome.exe"), case-insensitively.
     let ignoredProcesses = ConcurrentBag<string>()
 
+    // Mutations serialize on this lock: removal is drain-and-refill (the
+    // bag has no conditional removal), and an Add landing between another
+    // mutator's enumeration and its drain used to be drained and never
+    // refilled — the user's ignore entry silently vanished.
+    let ignoreListLock = obj ()
+
     // ── static helpers (C# private statics) ───────────────────────────
 
     // Same regex from monitor_ultimate.py
@@ -322,17 +328,24 @@ type SysmonWatcherService(trackedIps: ConcurrentDictionary<string, SvchostMonito
         let normalized = normalizeProcessName processName
 
         if normalized.Length = 0 then ()
-        elif
-            ignoredProcesses
-            |> Seq.exists (fun p -> String.Equals(p, normalized, StringComparison.OrdinalIgnoreCase))
-        then ()
         else
-            ignoredProcesses.Add normalized
-            let persisted = saveIgnoredProcesses ()
+            // Check-and-add under the mutation lock (double-adds would leak
+            // duplicate lines into the persisted file through the drain/
+            // refill paths otherwise).
+            let added = lock ignoreListLock (fun () ->
+                if
+                    ignoredProcesses
+                    |> Seq.exists (fun p -> String.Equals(p, normalized, StringComparison.OrdinalIgnoreCase))
+                then false
+                else
+                    ignoredProcesses.Add normalized
+                    true)
+            if added then
+                let persisted = saveIgnoredProcesses ()
 
-            if record then
-                appendIgnoreEvent "ignored" normalized
-                    (if persisted then "persisted" else "memory-only") origin
+                if record then
+                    appendIgnoreEvent "ignored" normalized
+                        (if persisted then "persisted" else "memory-only") origin
 
     // ── hand-edit reconciliation ─────────────────────────────────────
     //
@@ -360,47 +373,50 @@ type SysmonWatcherService(trackedIps: ConcurrentDictionary<string, SvchostMonito
     let mutable debounceTimer: System.Threading.Timer = null
 
     let applyIgnoredFileEdit (fileSet: HashSet<string>) =
-        let additions =
-            fileSet
-            |> Seq.filter (fun n ->
-                not (
-                    ignoredProcesses
-                    |> Seq.exists (fun p -> String.Equals(p, n, StringComparison.OrdinalIgnoreCase))
-                ))
-            |> Array.ofSeq
-
-        let removals =
-            ignoredProcesses
-            |> Seq.filter (fun p -> not (fileSet.Contains p))
-            |> Array.ofSeq
-
-        if additions.Length > 0 then
-            for n in additions do
-                ignoredProcesses.Add n
-            let persisted = saveIgnoredProcesses ()
-            for n in additions do
-                appendIgnoreEvent "ignored" n
-                    (if persisted then "persisted" else "memory-only") "file-edit"
-
-        if removals.Length > 0 then
-            // mirror RemoveIgnoredProcess's drain/refill (no save — the file
-            // already reflects the removal; it is what triggered this pass)
-            let remaining =
-                ignoredProcesses
-                |> Seq.filter (fun p ->
-                    removals
-                    |> Array.exists (fun r -> String.Equals(p, r, StringComparison.OrdinalIgnoreCase))
-                    |> not)
+        // Same mutation lock as Add/RemoveIgnoredProcess — the drain/refill
+        // below must not swallow an Add that lands mid-pass.
+        lock ignoreListLock (fun () ->
+            let additions =
+                fileSet
+                |> Seq.filter (fun n ->
+                    not (
+                        ignoredProcesses
+                        |> Seq.exists (fun p -> String.Equals(p, n, StringComparison.OrdinalIgnoreCase))
+                    ))
                 |> Array.ofSeq
 
-            let mutable taken = Unchecked.defaultof<string>
-            while ignoredProcesses.TryTake(&taken) do ()
+            let removals =
+                ignoredProcesses
+                |> Seq.filter (fun p -> not (fileSet.Contains p))
+                |> Array.ofSeq
 
-            for p in remaining do
-                ignoredProcesses.Add p
+            if additions.Length > 0 then
+                for n in additions do
+                    ignoredProcesses.Add n
+                let persisted = saveIgnoredProcesses ()
+                for n in additions do
+                    appendIgnoreEvent "ignored" n
+                        (if persisted then "persisted" else "memory-only") "file-edit"
 
-            for n in removals do
-                appendIgnoreEvent "unignored" n "file edit" "file-edit"
+            if removals.Length > 0 then
+                // mirror RemoveIgnoredProcess's drain/refill (no save — the file
+                // already reflects the removal; it is what triggered this pass)
+                let remaining =
+                    ignoredProcesses
+                    |> Seq.filter (fun p ->
+                        removals
+                        |> Array.exists (fun r -> String.Equals(p, r, StringComparison.OrdinalIgnoreCase))
+                        |> not)
+                    |> Array.ofSeq
+
+                let mutable taken = Unchecked.defaultof<string>
+                while ignoredProcesses.TryTake(&taken) do ()
+
+                for p in remaining do
+                    ignoredProcesses.Add p
+
+                for n in removals do
+                    appendIgnoreEvent "unignored" n "file edit" "file-edit")
 
     let readIgnoredFileSet () =
         try
@@ -572,26 +588,32 @@ type SysmonWatcherService(trackedIps: ConcurrentDictionary<string, SvchostMonito
         let normalized = normalizeProcessName processName
         if normalized.Length = 0 then ()
         else
-            let remaining = ResizeArray<string>()
-            let mutable total = 0
+            // Whole read-decide-drain-refill under the mutation lock, so a
+            // concurrent Add cannot fall into the drain window.
+            let changed = lock ignoreListLock (fun () ->
+                let remaining = ResizeArray<string>()
+                let mutable total = 0
 
-            for p in ignoredProcesses do
-                total <- total + 1
+                for p in ignoredProcesses do
+                    total <- total + 1
 
-                if not (String.Equals(p, normalized, StringComparison.OrdinalIgnoreCase)) then
-                    remaining.Add p
+                    if not (String.Equals(p, normalized, StringComparison.OrdinalIgnoreCase)) then
+                        remaining.Add p
 
-            if remaining.Count = total then ()
-            else
-                // ConcurrentBag has no conditional removal — drain it and refill
-                let mutable taken = Unchecked.defaultof<string>
+                if remaining.Count = total then false
+                else
+                    // ConcurrentBag has no conditional removal — drain it and refill
+                    let mutable taken = Unchecked.defaultof<string>
 
-                while ignoredProcesses.TryTake(&taken) do
-                    ()
+                    while ignoredProcesses.TryTake(&taken) do
+                        ()
 
-                for p in remaining do
-                    ignoredProcesses.Add p
+                    for p in remaining do
+                        ignoredProcesses.Add p
 
+                    true)
+
+            if changed then
                 let persisted = saveIgnoredProcesses ()
 
                 appendIgnoreEvent "unignored" normalized

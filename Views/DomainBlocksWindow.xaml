@@ -1,0 +1,61 @@
+<Window x:Class="AutoCommand.Views.DomainBlocksWindow"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Domain blocks — DNS-synced blocking"
+        WindowStartupLocation="CenterOwner" Width="660" Height="480"
+        MinWidth="560" MinHeight="380" ShowInTaskbar="False"
+        Background="{DynamicResource BackgroundBrush}"
+        Foreground="{DynamicResource TextPrimaryBrush}">
+    <DockPanel Margin="16" LastChildFill="True">
+        <TextBlock DockPanel.Dock="Top" FontSize="14" FontWeight="SemiBold"
+                   Text="Block a domain — AutoCommand keeps its IP rules current"
+                   TextWrapping="Wrap" Margin="0,0,0,4"/>
+        <TextBlock DockPanel.Dock="Top" FontSize="11" TextWrapping="Wrap"
+                   Foreground="{DynamicResource MutedTextBrush}" Margin="0,0,0,10"
+                   Text="Windows Firewall rules address IPs, but CDNs rotate them by the minute. Each domain here is re-resolved on a cadence: new addresses get AC-BLOCK rules, addresses that rotate away are retired — and a rule you blocked by hand is never touched."/>
+
+        <StackPanel DockPanel.Dock="Top" Orientation="Horizontal" Margin="0,0,0,10">
+            <TextBox x:Name="DomainBox" Width="300" FontSize="12" Padding="6,4"
+                     VerticalContentAlignment="Center"
+                     KeyDown="DomainBox_KeyDown"/>
+            <Button x:Name="AddBtn" Content="Block domain" Click="AddBtn_Click"
+                    Padding="14,4" FontSize="12" Margin="8,0,0,0"
+                    Style="{StaticResource PrimaryButton}"/>
+            <Button x:Name="SyncNowBtn" Content="↻ Sync now" Click="SyncNowBtn_Click"
+                    Padding="14,4" FontSize="12" Margin="8,0,0,0"/>
+        </StackPanel>
+
+        <TextBlock DockPanel.Dock="Top" x:Name="StatusText" FontSize="11"
+                   Foreground="{DynamicResource MutedTextBrush}"
+                   TextWrapping="Wrap" Margin="0,0,0,8"/>
+
+        <StackPanel DockPanel.Dock="Bottom" Orientation="Horizontal" HorizontalAlignment="Right" Margin="0,10,0,0">
+            <Button x:Name="CloseBtn" Content="Close" Click="CloseBtn_Click"
+                    Padding="14,4" FontSize="12"/>
+        </StackPanel>
+
+        <Border BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="3">
+            <ListView x:Name="BlocksLv" FontSize="12" SelectionMode="Single"
+                      ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+                <ListView.View>
+                    <GridView>
+                        <GridViewColumn Header="Domain" Width="220"
+                                        DisplayMemberBinding="{Binding Domain}"/>
+                        <GridViewColumn Header="Added" Width="120"
+                                        DisplayMemberBinding="{Binding AddedDisplay}"/>
+                        <GridViewColumn Header="Holding" Width="130"
+                                        DisplayMemberBinding="{Binding HoldingDisplay}"/>
+                        <GridViewColumn Header="" Width="90">
+                            <GridViewColumn.CellTemplate>
+                                <DataTemplate>
+                                    <Button Content="Remove" FontSize="11" Padding="8,2"
+                                            Click="RemoveRow_Click"/>
+                                </DataTemplate>
+                            </GridViewColumn.CellTemplate>
+                        </GridViewColumn>
+                    </GridView>
+                </ListView.View>
+            </ListView>
+        </Border>
+    </DockPanel>
+</Window>

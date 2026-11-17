@@ -297,7 +297,12 @@ namespace AutoCommand.Contain.Core
 
         private BlockRecord FromV2(string[] p)
         {
-            if (!DateTime.TryParse(p[3], out DateTime ts)) ts = DateTime.UtcNow;
+            // Invariant first, then machine culture: ledgers migrate across
+            // machines (the whole point of an import), so the writing
+            // culture is not necessarily the reading one.
+            if (!DateTime.TryParse(p[3], System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.None, out DateTime ts)
+                && !DateTime.TryParse(p[3], out ts)) ts = DateTime.UtcNow;
             var r = new BlockRecord
             {
                 Kind = p[0], Key = p[1], ProcessName = p[2],
@@ -316,7 +321,9 @@ namespace AutoCommand.Contain.Core
             if (!field0IsIp && !field2IsIp) return null; // e.g. proc|Default Policy|ts — no target to manage
             string ip = field0IsIp ? p[0] : p[2];
             string proc = field0IsIp ? p[1] : p[0];
-            if (!DateTime.TryParse(field0IsIp ? p[2] : p[1], out DateTime ts)) ts = DateTime.UtcNow;
+            if (!DateTime.TryParse(field0IsIp ? p[2] : p[1], System.Globalization.CultureInfo.InvariantCulture,
+                    System.Globalization.DateTimeStyles.None, out DateTime ts)
+                && !DateTime.TryParse(field0IsIp ? p[2] : p[1], out ts)) ts = DateTime.UtcNow;
             var r = new BlockRecord
             {
                 Kind = "ip", Key = ip, ProcessName = proc,

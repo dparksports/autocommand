@@ -35,6 +35,7 @@ namespace AutoCommand.Services
         private static readonly object _lock = new();
         private static GuestSnapshot _cached;
         private static DateTime _cachedAtUtc = DateTime.MinValue;
+        private static bool _probing;
         private static readonly TimeSpan CacheLifetime = TimeSpan.FromSeconds(30);
 
         public static GuestSnapshot Probe()
@@ -43,9 +44,30 @@ namespace AutoCommand.Services
             {
                 if (_cached != null && DateTime.UtcNow - _cachedAtUtc < CacheLifetime)
                     return _cached;
-                _cached = ProbeNow();
-                _cachedAtUtc = DateTime.UtcNow;
-                return _cached;
+                if (_probing)
+                {
+                    // Another thread is mid-probe — and a probe can hold the
+                    // child-process run for up to two minutes per distro. The
+                    // old lock-held-over-probe shape blocked every caller
+                    // (enrichment tick, bridge, all UI reads) behind it for
+                    // minutes; a possibly-stale snapshot beats that.
+                    return _cached ?? GuestSnapshot.NotRunning;
+                }
+                _probing = true;
+            }
+            try
+            {
+                var fresh = ProbeNow();
+                lock (_lock)
+                {
+                    _cached = fresh;
+                    _cachedAtUtc = DateTime.UtcNow;
+                }
+                return fresh;
+            }
+            finally
+            {
+                lock (_lock) { _probing = false; }
             }
         }
 

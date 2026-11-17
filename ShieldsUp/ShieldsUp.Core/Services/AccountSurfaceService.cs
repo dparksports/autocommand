@@ -215,6 +215,17 @@ public static class AccountSurfaceService
             return failures;
         }
 
+        // Format gate BEFORE any WQL use: the SID is interpolated into WQL
+        // strings below, and this is the elevated delete-everything primitive.
+        // A well-formed Windows SID contains only "S-1-" and digits/dashes, so
+        // anything else — quotes, comments, an injected OR clause — is refused
+        // here rather than shaped into a query.
+        if (!System.Text.RegularExpressions.Regex.IsMatch(sid, @"^S-1-\d+(-\d+){1,15}$"))
+        {
+            failures.Add($"'{sid}' is not a well-formed Windows SID — refusing");
+            return failures;
+        }
+
         string currentUserSid = null;
         try { currentUserSid = System.Security.Principal.WindowsIdentity.GetCurrent().User?.Value; }
         catch { }
@@ -229,6 +240,10 @@ public static class AccountSurfaceService
                 $"SELECT Name, SID, Disabled FROM Win32_UserAccount WHERE LocalAccount = True AND SID = '{sid}'");
             foreach (var o in searcher.Get())
             {
+                // Trust the ROW's own SID, not just the query filter — the
+                // guard below must never validate one string and delete
+                // another row.
+                if (!string.Equals(o["SID"]?.ToString(), sid, StringComparison.OrdinalIgnoreCase)) continue;
                 accountExists = true;
                 accountName = o["Name"]?.ToString();
                 accountEnabled = !BoolOf(o["Disabled"]);
@@ -283,6 +298,14 @@ public static class AccountSurfaceService
             failures.Add($"guard refused {sid} (current user or protected)");
             return failures;
         }
+        // The account name goes into a `net user "…" /delete` command line:
+        // a name carrying quotes or control characters is refused before it
+        // can shape that command.
+        if (accountName != null && (accountName.Contains('"') || accountName.Any(char.IsControl)))
+        {
+            failures.Add($"account name '{accountName}' contains characters that are never valid — refusing");
+            return failures;
+        }
 
         // snapshot before deleting (reporting only — deletion is not reversible)
         try
@@ -318,7 +341,12 @@ public static class AccountSurfaceService
                 using var searcher = new ManagementObjectSearcher(
                     $"SELECT SID FROM Win32_UserProfile WHERE SID = '{sid}'");
                 foreach (var o in searcher.Get().Cast<ManagementObject>())
+                {
+                    // Same row-trust rule: delete only a row whose own SID is
+                    // exactly the validated target.
+                    if (!string.Equals(o["SID"]?.ToString(), sid, StringComparison.OrdinalIgnoreCase)) continue;
                     o.Delete();
+                }
             }
             catch (Exception ex)
             {

@@ -60,6 +60,7 @@ namespace AutoCommand.Views
 
         private readonly ObservableCollection<Row> _rows = new();
         private readonly DispatcherTimer _hitsTimer = new() { Interval = TimeSpan.FromSeconds(15) };
+        private DispatcherTimer _hitPushDebounce;
         private string _migrationNote = "";
         private string _feedStatus = "live feed starting…";
 
@@ -75,7 +76,24 @@ namespace AutoCommand.Views
             // shows the state from the moment it was opened
             _hitsTimer.Tick += async (_, _) => await RefreshHitsAsync();
             _hitsTimer.Start();
-            Closed += (_, _) => _hitsTimer.Stop();
+            // Push path: a fresh denied attempt refreshes within a second of
+            // landing, not at the next 15 s tick (which stays as the
+            // reconcile for older hits). Debounced so a retry storm refreshes
+            // once, not per event.
+            _hitPushDebounce = new System.Windows.Threading.DispatcherTimer { Interval = TimeSpan.FromMilliseconds(800) };
+            _hitPushDebounce.Tick += async (_, _) =>
+            {
+                _hitPushDebounce.Stop();
+                try { await RefreshHitsAsync(); }
+                catch (Exception ex) { StatusText.Text = $"live feed refresh failed: {ex.Message}"; }
+            };
+            BlockHitFeedService.Instance.HitArrived += OnHitArrivedPush;
+            Closed += (_, _) =>
+            {
+                _hitsTimer.Stop();
+                _hitPushDebounce.Stop();
+                BlockHitFeedService.Instance.HitArrived -= OnHitArrivedPush;
+            };
             Loaded += async (_, _) =>
             {
                 // async-void — an unhandled throw here takes the app down;
@@ -147,8 +165,18 @@ namespace AutoCommand.Views
         }
 
         /// <summary>Refreshes both hit surfaces without rebuilding the rules grid.</summary>
-        private async Task RefreshHitsAsync()
+        /// <summary>Feed thread → UI: a denied attempt just landed; start the
+        /// debounced refresh (skipped while the window is not active — the
+        /// 15 s tick covers it when the user comes back).</summary>
+        private void OnHitArrivedPush(BlockHitFeedService.BlockHit hit)
         {
+            Dispatcher.BeginInvoke(new Action(() =>
+            {
+                if (IsActive && !_hitPushDebounce.IsEnabled) _hitPushDebounce.Start();
+            }));
+        }
+
+        private async Task RefreshHitsAsync()        {
             // the 15 s tick lands here — one service hiccup must never become
             // a recurring modal dialog, so failures surface in the status
             // line only
@@ -287,6 +315,15 @@ namespace AutoCommand.Views
                     BlocksStore.Remove("ip", r.Ip, "manage-all");
                     BlockGateService.Instance.ForgetTarget("ip", r.Ip);
                 }
+                else if (r.Kind == "svc")
+                {
+                    // Service rows carry the service key in Ip and a null
+                    // AppPath — routing them through the app-path branch
+                    // used to match nothing and silently no-op the unblock.
+                    if (await FirewallService.Instance.RemoveServiceBlockAsync(r.Ip)) removed++;
+                    BlocksStore.Remove("svc", (r.Ip ?? "").ToLowerInvariant(), "manage-all");
+                    BlockGateService.Instance.ForgetTarget("svc", r.Ip);
+                }
                 else
                 {
                     removed += await FirewallService.Instance.RemoveBlockRulesForAppAsync(r.AppPath);
@@ -321,6 +358,14 @@ namespace AutoCommand.Views
                     removed += await FirewallService.Instance.RemoveBlockRulesForIpAsync(r.Ip);
                     BlocksStore.Remove("ip", r.Ip, "manage-all");
                     BlockGateService.Instance.ForgetTarget("ip", r.Ip);
+                }
+                else if (r.Kind == "svc")
+                {
+                    // same svc routing as UnblockSelectedBtn — service rows
+                    // have a null AppPath, the app branch cannot match them
+                    if (await FirewallService.Instance.RemoveServiceBlockAsync(r.Ip)) removed++;
+                    BlocksStore.Remove("svc", (r.Ip ?? "").ToLowerInvariant(), "manage-all");
+                    BlockGateService.Instance.ForgetTarget("svc", r.Ip);
                 }
                 else
                 {
@@ -450,7 +495,9 @@ namespace AutoCommand.Views
                 FileName = $"blocked-rules-{DateTime.Now:yyyyMMdd-HHmm}.csv"
             };
             if (dlg.ShowDialog() != true) return;
-            var lines = new List<string> { "Target,Kind,Class,Rules,Enabled,Created,Hits10m,Description" };
+            // The Hits column carries last-hour counts (CollectHitsLastHour) —
+            // the header used to say 10m, misstating its own window 6×.
+            var lines = new List<string> { "Target,Kind,Class,Rules,Enabled,Created,Hits60m,Description" };
             foreach (var r in _rows)
                 lines.Add($"{CsvEscape(r.Target)},{CsvEscape(r.Kind)},{CsvEscape(r.Class)},{r.Rules},{r.EnabledRules}," +
                           $"{CsvEscape(r.CreatedDisplay)},{r.Hits},{CsvEscape(r.Description ?? "")}");

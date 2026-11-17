@@ -34,6 +34,13 @@
     <!-- White-box access for the intercept harness: journal + CA-dir test
          seams are internal on purpose (they can rename system state). -->
     <InternalsVisibleTo Include="InterceptSelfTest" />
+    <!-- BlockPageSelfTest redirects the CA dir to temp so the block-page
+         proxy's TLS path runs offline (same seam InterceptSelfTest uses). -->
+    <InternalsVisibleTo Include="BlockPageSelfTest" />
+    <!-- Block-page proxy (Contain.Core) reuses the CA + leaf minting for
+         selective TLS termination of blocked HTTPS hosts — same internals,
+         same consent-gated surfaces, friendlier purpose. -->
+    <InternalsVisibleTo Include="AutoCommand.Contain.Core" />
   </ItemGroup>
 
 </Project>

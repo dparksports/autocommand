@@ -105,14 +105,27 @@ module TcpConnectionTable =
         then
             rows
         else
-            let buffer = Marshal.AllocHGlobal size
+            // Connection churn between the size probe and the read makes the
+            // read fail with ERROR_INSUFFICIENT_BUFFER again; a single
+            // attempt returned an empty snapshot (the Sysmon seeder then
+            // reported "nothing to seed"). Retry with a reallocated buffer.
+            let mutable bufSize = size
+            let mutable buffer = Marshal.AllocHGlobal bufSize
+            let mutable ok = false
 
             try
-                if
-                    Interop.GetExtendedTcpTable(buffer, &size, false, afInet, tcpTableOwnerPidAll, 0u)
-                    <> 0u
-                then
-                    rows
+                let mutable attempt = 0
+                while not ok && attempt < 3 do
+                    let rc = Interop.GetExtendedTcpTable(buffer, &bufSize, false, afInet, tcpTableOwnerPidAll, 0u)
+                    if rc = 0u then ok <- true
+                    elif rc = errorInsufficientBuffer && attempt < 2 then
+                        Marshal.FreeHGlobal buffer
+                        buffer <- Marshal.AllocHGlobal bufSize
+                        attempt <- attempt + 1
+                    else
+                        attempt <- 3 // non-retryable failure
+
+                if not ok then rows
                 else
                     let count = Marshal.ReadInt32 buffer
                     let rowSize = Marshal.SizeOf<Interop.MIB_TCPROW_OWNER_PID>()
@@ -153,14 +166,24 @@ module TcpConnectionTable =
         then
             rows
         else
-            let buffer = Marshal.AllocHGlobal size
+            // Same retry-on-churn as the v4 path above.
+            let mutable bufSize = size
+            let mutable buffer = Marshal.AllocHGlobal bufSize
+            let mutable ok = false
 
             try
-                if
-                    Interop.GetExtendedTcpTable(buffer, &size, false, afInet6, tcpTableOwnerPidAll, 0u)
-                    <> 0u
-                then
-                    rows
+                let mutable attempt = 0
+                while not ok && attempt < 3 do
+                    let rc = Interop.GetExtendedTcpTable(buffer, &bufSize, false, afInet6, tcpTableOwnerPidAll, 0u)
+                    if rc = 0u then ok <- true
+                    elif rc = errorInsufficientBuffer && attempt < 2 then
+                        Marshal.FreeHGlobal buffer
+                        buffer <- Marshal.AllocHGlobal bufSize
+                        attempt <- attempt + 1
+                    else
+                        attempt <- 3 // non-retryable failure
+
+                if not ok then rows
                 else
                     let count = Marshal.ReadInt32 buffer
                     let rowSize = Marshal.SizeOf<Interop.MIB_TCP6ROW_OWNER_PID>()
@@ -214,6 +237,11 @@ module TcpConnectionTable =
             let stringChecks () =
                 if ip.StartsWith "127." then true
                 elif ip.StartsWith "192.168." || ip.StartsWith "10." then true
+                // IPv4 link-local (APIPA / direct-attach links) — its doc
+                // claims it and Dns.fs's IsGloballyRoutable already covers
+                // it; rows for 169.254.x used to flow into resolution.
+                elif ip.StartsWith "169.254." then true
+                elif ip.StartsWith "0." then true
                 elif ip = "255.255.255.255" then true
                 else
                     let parts = ip.Split('.')

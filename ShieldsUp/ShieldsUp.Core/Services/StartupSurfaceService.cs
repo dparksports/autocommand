@@ -72,7 +72,10 @@ public static class StartupSurfaceService
         return state["logon"]?[location]?[name] is JsonObject;
     }
 
-    /// <summary>Snapshots the value, then removes it. Empty list = clean.</summary>
+    /// <summary>Snapshots the value (including its kind — Run entries are
+    /// commonly REG_EXPAND_SZ holding %ProgramFiles%\… paths, and restoring
+    /// them as REG_SZ changes how the value expands), then removes it.
+    /// Empty list = clean.</summary>
     public static List<string> DisableRegistryLogon(string location, string name)
     {
         var failures = new List<string>();
@@ -82,11 +85,13 @@ public static class StartupSurfaceService
             using (var key = hive.OpenSubKey(path, writable: true))
             {
                 if (key?.GetValue(name) is not string value) { failures.Add($"no '{name}' in {location}"); return failures; }
+                string kind;
+                try { kind = key.GetValueKind(name).ToString(); } catch { kind = "String"; }
                 var state = LoadState();
                 var logon = state["logon"] as JsonObject ?? new JsonObject();
                 state.Remove("logon");
                 logon[location] ??= new JsonObject();
-                logon[location][name] = new JsonObject { ["value"] = value, ["path"] = path, ["disabledUtc"] = DateTime.UtcNow.ToString("o") };
+                logon[location][name] = new JsonObject { ["value"] = value, ["kind"] = kind, ["path"] = path, ["disabledUtc"] = DateTime.UtcNow.ToString("o") };
                 state["logon"] = logon;
                 SaveState(state);
                 key.DeleteValue(name);
@@ -96,8 +101,8 @@ public static class StartupSurfaceService
         return failures;
     }
 
-    /// <summary>Restores the snapshotted value exactly; refuses honestly
-    /// when no snapshot exists.</summary>
+    /// <summary>Restores the snapshotted value exactly (kind included);
+    /// refuses honestly when no snapshot exists.</summary>
     public static List<string> EnableRegistryLogon(string location, string name)
     {
         var failures = new List<string>();
@@ -108,7 +113,12 @@ public static class StartupSurfaceService
             if (snap == null) { failures.Add("no snapshot — this item was not disabled by AutoCommand"); return failures; }
             var (hive, _) = HiveOf(location);
             using (var key = hive.CreateSubKey(snap["path"]?.GetValue<string>() ?? @"Software\Microsoft\Windows\CurrentVersion\Run"))
-                key.SetValue(name, snap["value"]?.GetValue<string>() ?? "", Microsoft.Win32.RegistryValueKind.String);
+            {
+                var kind = Enum.TryParse<Microsoft.Win32.RegistryValueKind>(snap["kind"]?.GetValue<string>(), out var k)
+                    && k != Microsoft.Win32.RegistryValueKind.Unknown
+                    ? k : Microsoft.Win32.RegistryValueKind.String;
+                key.SetValue(name, snap["value"]?.GetValue<string>() ?? "", kind);
+            }
             (state["logon"]?[location] as JsonObject)?.Remove(name);
             SaveState(state);
         }

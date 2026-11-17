@@ -325,7 +325,6 @@ type FlowPeekService private (scope: PeekScope) as this =
     let mutable queue = new BlockingCollection<TcpFlowRecord>(boundedCapacity = 64)
     let mutable running = 0
     let mutable entries = 0L
-    let savedIdleTimeout = capture.IdleTimeout
 
     let onEntry = DelegateEvent<Action<PeekEntry>>()
     let onError = DelegateEvent<Action<string>>()
@@ -334,8 +333,14 @@ type FlowPeekService private (scope: PeekScope) as this =
     let onFlowFinalizedHandler = Action<TcpFlowRecord>(fun flow -> this.OnFlowFinalized flow)
 
     // Peek windows can overlap; only the first shortens the sweep and the
-    // last departure restores it.
+    // last departure restores it. The original timeout is captured AT the
+    // 0→1 transition, not at construction: a second peek constructed while
+    // the first had already shortened the capture used to save the
+    // SHORTENED value as "original", and when it was the last to stop the
+    // shared capture stayed at the 10 s sweep for the whole session.
     static let mutable activePeeks = 0
+    // Overwritten at every 0→1 transition before any restore can read it.
+    static let mutable savedIdleTimeout = Unchecked.defaultof<TimeSpan>
 
     // C#-friendly construction — no DU syntax leaks into the views/tests.
     static member ForIp(ip: string) = FlowPeekService(RemoteIpScope ip)
@@ -371,6 +376,7 @@ type FlowPeekService private (scope: PeekScope) as this =
                 try TlsKeylogService.EnsureHygiene() with _ -> ()
 
             if Interlocked.Increment(&activePeeks) = 1 then
+                savedIdleTimeout <- capture.IdleTimeout
                 capture.IdleTimeout <- TimeSpan.FromSeconds 10.0
 
             connectWatcher <- new SysmonConnectWatcherService()

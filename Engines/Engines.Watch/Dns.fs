@@ -189,6 +189,21 @@ type DnsResolutionService() as this =
             saveTimer <-
                 new Timer(
                     (fun _ ->
+                        // pendingIps reconcile: the queue is DropOldest, so a
+                        // saturated queue silently evicts a lookup whose
+                        // pending marker no worker will ever remove — the IP
+                        // then reports "resolving — queued" forever. Re-deliver
+                        // still-pending addresses (idempotent: the worker
+                        // removes the marker when it processes one) and drop
+                        // markers whose answer already arrived.
+                        for kv in pendingIps.ToArray() do
+                            let mutable entry = Unchecked.defaultof<CacheEntry>
+                            let resolved =
+                                cache.TryGetValue(kv.Key, &entry)
+                                && not (DnsResolutionService.IsUnresolvedHostname entry.Hostname)
+                            if resolved then pendingIps.TryRemove kv.Key |> ignore
+                            else queue.Writer.TryWrite(AdHocResolve kv.Key) |> ignore
+
                         this.SaveCacheToDisk()
                         this.SaveGeoCacheToDisk()),
                     null,
@@ -257,9 +272,12 @@ type DnsResolutionService() as this =
                 if not (DnsResolutionService.IsUnresolvedHostname effective) then
                     false
                 else
-                    pendingIps.[ip] <- 1uy
-                    queue.Writer.TryWrite(AdHocResolve ip) |> ignore
-                    true
+                    // Pending marker ONLY when the lookup is actually
+                    // delivered — a false TryWrite (saturated queue) that
+                    // still registered the marker leaked it forever.
+                    let queued = queue.Writer.TryWrite(AdHocResolve ip)
+                    if queued then pendingIps.[ip] <- 1uy
+                    queued
 
     /// <summary>
     /// The "Retry unresolved" bulk action: forget every negative geo
@@ -287,8 +305,8 @@ type DnsResolutionService() as this =
 
         for ip in source do
             if not (String.IsNullOrEmpty ip) && fst (IPAddress.TryParse ip) then
-                pendingIps.[ip] <- 1uy
-                queue.Writer.TryWrite(AdHocResolve ip) |> ignore
+                let queued = queue.Writer.TryWrite(AdHocResolve ip)
+                if queued then pendingIps.[ip] <- 1uy
                 queuedCount <- queuedCount + 1
 
         queuedCount
@@ -425,8 +443,8 @@ type DnsResolutionService() as this =
                     else
                         idleAttempts.[ip] <- tries + 1
                         cache.TryRemove(ip) |> ignore // placeholder out — the pipeline must re-ask
-                        pendingIps.[ip] <- 1uy
-                        queue.Writer.TryWrite(AdHocResolve ip) |> ignore
+                        let queued = queue.Writer.TryWrite(AdHocResolve ip)
+                        if queued then pendingIps.[ip] <- 1uy
                         queuedCount <- queuedCount + 1
 
         queuedCount

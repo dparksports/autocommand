@@ -491,7 +491,16 @@ type ImageSpawnWatcherService(imageFilter: Func<string, bool>, xmlKeyword: strin
                     else
                         DateTime.MinValue
 
-                records.Add((stamp, evt))
+                // Hold ONLY the records the replay consumes (1 = create,
+                // 5 = exit): each EventRecord wraps a live COM handle, and
+                // Sysmon EID 1/5 are a small minority of the channel —
+                // accumulating every record of the window materialized
+                // hundreds of thousands of RCWs on a busy box before the
+                // filters ever ran.
+                let eid = evt.Id
+                if eid = 1 || eid = 5 then records.Add((stamp, evt))
+                else evt.Dispose()
+
                 evt <- reader.ReadEvent()
 
             // Newest-first for the cap, oldest-first for the replay

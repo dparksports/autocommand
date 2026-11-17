@@ -46,6 +46,13 @@ namespace AutoCommand.Intercept.Core
         {
             public string WinHttpProxyBefore { get; set; }   // null = direct (netsh reset proxy restores this)
             public string WinHttpBypassBefore { get; set; }  // null = no bypass list; restored alongside the proxy
+            // Captured sentinels — the journal-ahead contract means the file
+            // can exist before the "before" values are captured (a crash in
+            // that gap used to restore by deleting settings the session
+            // never changed). A hook is undone ONLY when its capture is
+            // recorded; null without the sentinel means "never captured".
+            public bool WinHttpCaptured { get; set; }
+            public bool WininetCaptured { get; set; }
             public int? WininetEnableBefore { get; set; }
             public string WininetServerBefore { get; set; }
             public string CaThumbprint { get; set; }
@@ -58,8 +65,16 @@ namespace AutoCommand.Intercept.Core
         private static void WriteJournal(Journal journal)
         {
             Directory.CreateDirectory(InterceptCaService.Dir);
-            File.WriteAllText(JournalPath, System.Text.Json.JsonSerializer.Serialize(journal,
+            // Atomic replace: the journal is the ONLY undo record for live
+            // hooks. A plain truncate-then-write torn by a crash left a
+            // file RecoverAfterCrash cannot parse while the repair sweep
+            // refuses to act on any existing file — mutually stranding a
+            // broken proxy. tmp + rename gives every observer either the
+            // complete old journal or the complete new one.
+            string tmp = JournalPath + ".tmp";
+            File.WriteAllText(tmp, System.Text.Json.JsonSerializer.Serialize(journal,
                 new System.Text.Json.JsonSerializerOptions { WriteIndented = true }));
+            File.Move(tmp, JournalPath, overwrite: true);
         }
 
         private static Journal ReadJournal()
@@ -136,40 +151,62 @@ namespace AutoCommand.Intercept.Core
             return colon > 0 && int.TryParse(hostPort[(colon + 1)..], out int port) && port is > 0 and <= 65535;
         }
 
-        /// <summary>The proxy line and bypass list netsh reports, plus
-        /// whether a proxy is set at all.</summary>
-        private static (string Proxy, bool IsDirect, string Bypass) CurrentWinHttpProxy()
+        /// Whether the netsh "winhttp show proxy" dump could be read at
+        /// all — Unknown means netsh produced no recognizable settings
+        /// shape (failed, or output the parser cannot trust), and callers
+        /// must neither treat it as direct nor offer a restore for it.
+        /// </summary>
+        internal enum WinHttpParseState { Unknown, Direct, Proxy }
+
+        /// <summary>The proxy line and bypass list netsh reports — parsed
+        /// by OUTPUT SHAPE, not English labels. netsh prints "Label : value"
+        /// lines under a settings header that itself ends in a colon; the
+        /// labels localize ("Proxyserver", "Proxy Server(s)") but the shapes
+        /// do not: zero value lines + a header line means direct, one or
+        /// two value lines means (proxy, bypass). The old parser matched
+        /// the English label text, so on localized Windows every capture
+        /// read as "direct" and every restore reset the real proxy.</summary>
+        private static (WinHttpParseState State, string Proxy, string Bypass) CurrentWinHttpProxy()
         {
             string show = RunNetsh("winhttp", "show", "proxy");
             string proxy = null;
             string bypass = null;
+            bool sawHeader = false;
+            int valuePairs = 0;
             foreach (var line in show.Split('\n'))
             {
                 string trimmed = line.Trim();
-                if (trimmed.StartsWith("Proxy Server(s)", StringComparison.OrdinalIgnoreCase))
-                {
-                    string value = trimmed.Substring(trimmed.IndexOf(':') + 1).Trim();
-                    if (value.Length > 0 && !value.Equals("direct", StringComparison.OrdinalIgnoreCase) &&
-                        !value.Contains("directly accessing", StringComparison.OrdinalIgnoreCase))
-                        proxy = value;
-                }
-                else if (trimmed.StartsWith("Bypass List", StringComparison.OrdinalIgnoreCase))
-                {
-                    string value = trimmed.Substring(trimmed.IndexOf(':') + 1).Trim();
-                    if (value.Length > 0)
-                        bypass = value;
-                }
+                if (trimmed.Length == 0) continue;
+                if (trimmed.EndsWith(":")) { sawHeader = true; continue; }   // the settings header (any language)
+                int colon = trimmed.IndexOf(':');
+                if (colon <= 0) continue;
+                string value = trimmed[(colon + 1)..].Trim();
+                if (value.Length == 0) continue;
+                valuePairs++;
+                if (valuePairs == 1) proxy = value;
+                else if (valuePairs == 2) bypass = value;
             }
-            return (proxy, proxy == null, bypass);
+            if (valuePairs == 0)
+                // A settings dump with no value lines is a direct machine;
+                // no header at all means netsh said something else entirely.
+                return (sawHeader ? WinHttpParseState.Direct : WinHttpParseState.Unknown, null, null);
+            if (WinHttpProxyShape.IsMatch(proxy ?? "") && IsPortInRange(proxy))
+                return (WinHttpParseState.Proxy, proxy, bypass);
+            // A value line that is not host:port is the localized
+            // direct-access phrase — still a genuine dump, still direct.
+            return (WinHttpParseState.Direct, null, null);
         }
 
         /// <summary>Snapshot of the WinHTTP state to restore afterwards:
         /// the proxy line (null = direct) AND the bypass list — a user with
-        /// a custom bypass must not lose it to every intercept session.</summary>
-        internal static (string Proxy, string Bypass) CaptureWinHttpProxy()
+        /// a custom bypass must not lose it to every intercept session.
+        /// Captured=false means the dump could not be trusted (netsh
+        /// failure); the caller must journal "not captured" and leave the
+        /// machine's proxy untouched at undo time.</summary>
+        internal static (string Proxy, string Bypass, bool Captured) CaptureWinHttpProxy()
         {
-            var (before, wasDirect, bypass) = CurrentWinHttpProxy();
-            return (wasDirect ? null : before, bypass);
+            var (state, proxy, bypass) = CurrentWinHttpProxy();
+            return (proxy, bypass, state != WinHttpParseState.Unknown);
         }
 
         private static void ApplyWinHttpProxy(int port) =>
@@ -332,6 +369,12 @@ namespace AutoCommand.Intercept.Core
         /// no live session = nothing owns today's trust/proxy state).</summary>
         internal static string JournalPathForRepair => JournalPath;
 
+        /// <summary>True when the on-disk journal parses — a live session's
+        /// undo record. False covers "no file" AND "file present but
+        /// unreadable"; the repair sweep uses the file-existence check to
+        /// decide ownership, this one to distinguish owned from orphaned.</summary>
+        internal static bool JournalReadableForRepair() => ReadJournal() != null;
+
         // ── session open/close + crash recovery ───────────────────────────
 
         /// <summary>
@@ -358,12 +401,14 @@ namespace AutoCommand.Intercept.Core
             var (wininetEnable, wininetServer) = CaptureWininetProxy();
             journal.WininetEnableBefore = wininetEnable;
             journal.WininetServerBefore = wininetServer;
+            journal.WininetCaptured = true;
             WriteJournal(journal);
             ApplyWininetProxy(port);
 
-            var (winHttpProxy, winHttpBypass) = CaptureWinHttpProxy();
+            var (winHttpProxy, winHttpBypass, winHttpCaptured) = CaptureWinHttpProxy();
             journal.WinHttpProxyBefore = winHttpProxy;
             journal.WinHttpBypassBefore = winHttpBypass;
+            journal.WinHttpCaptured = winHttpCaptured;
             WriteJournal(journal);
             ApplyWinHttpProxy(port);
 
@@ -387,8 +432,16 @@ namespace AutoCommand.Intercept.Core
             if (journal == null) return;
             foreach (var rule in journal.FirewallRules ?? Array.Empty<string>())
                 RemoveRule(rule);
-            RestoreWinHttpProxy(journal.WinHttpProxyBefore, journal.WinHttpBypassBefore);
-            RestoreWininetProxy(journal.WininetEnableBefore, journal.WininetServerBefore);
+            // A hook is restored ONLY when its "before" state was actually
+            // captured: the journal-ahead contract means the file can exist
+            // before capture completes, and a null restore value used to
+            // mean "was direct" — deleting proxy settings the session never
+            // captured (and possibly never changed). null WITH the captured
+            // sentinel legitimately means direct and still resets.
+            if (journal.WinHttpCaptured)
+                RestoreWinHttpProxy(journal.WinHttpProxyBefore, journal.WinHttpBypassBefore);
+            if (journal.WininetCaptured)
+                RestoreWininetProxy(journal.WininetEnableBefore, journal.WininetServerBefore);
 
             bool caClean = true;
             if (removeCa && !string.IsNullOrEmpty(journal.CaThumbprint))

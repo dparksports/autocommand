@@ -234,7 +234,14 @@ type McpClientCatalog (identity: AppIdentity, mcpId: string, proxyExeName: strin
                         else removed <- false
                     if not removed then false
                     else
-                        let psi = ProcessStartInfo("cmd.exe",
+                        // Pinned to System32 like every other inbox tool here:
+                        // CreateProcess with a bare name searches the app
+                        // directory and CWD BEFORE System32, and this app runs
+                        // elevated from a portable (user-writable) folder — a
+                        // planted cmd.exe would execute during junction setup
+                        // with admin rights.
+                        let cmd = Path.Combine(Environment.SystemDirectory, "cmd.exe")
+                        let psi = ProcessStartInfo(cmd,
                             "/c mklink /J \"" + link + "\" \"" + targetDir + "\"")
                         psi.CreateNoWindow <- true
                         psi.UseShellExecute <- false
@@ -675,16 +682,22 @@ type McpClientCatalog (identity: AppIdentity, mcpId: string, proxyExeName: strin
             p.StandardInput.Flush()
 
             // read lines until a response (a result or an error) shows up;
-            // notifications carry no "id" and are skipped
+            // notifications carry no "id" and are skipped. ONE pending
+            // ReadLineAsync at a time — starting a fresh read per loop
+            // iteration left overlapping reads on one stream (undefined
+            // behavior; the abandoned task could consume the response line
+            // itself and flakily fail healthy proxies).
             let deadline = Task.Delay(TimeSpan.FromSeconds 10.0)
             let mutable found: string = null
             let mutable doneReading = false
+            let mutable lineTask: Task<string> = null
             while isNull found && not doneReading && not deadline.IsCompleted do
-                let lineTask = p.StandardOutput.ReadLineAsync()
+                if isNull lineTask then lineTask <- p.StandardOutput.ReadLineAsync()
                 if Task.WhenAny(lineTask :> Task, Task.Delay 1000).Result <> (lineTask :> Task) then
                     () // keep waiting — same shape as the C# `continue`
                 else
                     let line = lineTask.Result
+                    lineTask <- null
                     if isNull line then doneReading <- true
                     elif line.Contains("\"result\"") || line.Contains("\"error\"") then found <- line
             if not (isNull found) then

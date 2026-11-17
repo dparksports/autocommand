@@ -119,15 +119,54 @@ type ProfilePresets(fw: FirewallService) =
         | null -> ()
         | p -> p.Report(msg)
 
+    // Locale-independent group matching. COM's INetFwRule.Grouping returns
+    // the RAW indirect string ("@FirewallAPI.dll,-32752") verbatim on every
+    // OS language; the display name resolves through the OS UI language.
+    // Matching the English display name only — the old behavior — silently
+    // toggled nothing on localized Windows while the preset reported
+    // success. Candidates are tried in order until one matches, so a token
+    // drift on some future build falls back to the display name instead of
+    // breaking. Tokens verified live against Windows 10/11 resource IDs.
+    static let WellKnownGroups =
+        dict [
+            "File and Printer Sharing", ("File and Printer Sharing", [ "@FirewallAPI.dll,-28502" ])
+            "Network Discovery", ("Network Discovery", [ "@FirewallAPI.dll,-32752" ])
+            "Remote Desktop", ("Remote Desktop", [ "@FirewallAPI.dll,-28752" ])
+            "Cast to Device functionality", ("Cast to Device functionality", [ "@FirewallAPI.dll,-36001" ])
+        ]
+
     let toggle (acc: ProfileApplyResult) (progress: IProgress<string>) (group: string) (enable: bool) : Task<unit> =
         task {
-            report progress (if enable then $"Enabling group '{group}'…" else $"Disabling group '{group}'…")
-            let! r = fw.ToggleGroupAsync(group, enable)
-            acc.Groups.Add(r)
-            acc.TotalMatched <- acc.TotalMatched + r.Matched
-            acc.TotalChanged <- acc.TotalChanged + r.Changed
-            acc.TotalFailed <- acc.TotalFailed + r.Failed
-            if not (isNull r.FirstError) && isNull acc.FirstError then acc.FirstError <- r.FirstError
+            let display, rawTokens =
+                match WellKnownGroups.TryGetValue group with
+                | true, (d, tokens) -> (d, tokens)
+                | _ -> (group, [])
+
+            report progress (if enable then $"Enabling group '{display}'…" else $"Disabling group '{display}'…")
+
+            // Try the raw token(s) first, then the display name; stop at the
+            // first candidate that actually matched rules (running further
+            // candidates would re-toggle the same rules — Matched>0 but no
+            // additional Changed).
+            let mutable chosen: GroupToggleResult option = None
+            let mutable idx = 0
+            let candidates = rawTokens @ [ display ]
+            while idx < candidates.Length do
+                let! r = fw.ToggleGroupAsync(candidates.[idx], enable)
+                if r.Matched > 0 || not (isNull r.FirstError) then
+                    chosen <- Some r
+                    idx <- candidates.Length // stop
+                else
+                    idx <- idx + 1
+
+            match chosen with
+            | Some r ->
+                acc.Groups.Add(r)
+                acc.TotalMatched <- acc.TotalMatched + r.Matched
+                acc.TotalChanged <- acc.TotalChanged + r.Changed
+                acc.TotalFailed <- acc.TotalFailed + r.Failed
+                if not (isNull r.FirstError) && isNull acc.FirstError then acc.FirstError <- r.FirstError
+            | None -> () // nothing anywhere matched — result carries the zero totals
         }
 
     let applyShieldsUpMdns () : Task<GroupToggleResult> =

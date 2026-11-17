@@ -179,6 +179,19 @@ namespace AutoCommand.Views
             _sysmonService.OnError += ShowError;
             _sysmonService.OnNewConnectionTracked += AddToUi;
 
+            // Real-time denied-transmit feed: BlockHitFeedService joins
+            // Sysmon EID 3 connects against the block inventory and pushes
+            // each denial here — the "tried to transmit and was refused"
+            // signal no packet counter can carry. Rows join it in
+            // ApplyBlockHit; the toolbar chip aggregates the last 10 min.
+            // (Idempotent Start — the app already runs the feed at startup.)
+            try
+            {
+                BlockHitFeedService.Instance.Start();
+                BlockHitFeedService.Instance.HitArrived += OnBlockHitArrived;
+            }
+            catch { /* Sysmon absent / feed unavailable — column stays dash-only */ }
+
             _snifferService.OnError += ShowError;
 
             // Attribution errors are non-fatal (rows just lack task info)
@@ -249,8 +262,15 @@ namespace AutoCommand.Views
                 foreach (var item in _uiCollection)
                     EnrichWithRevealedName(item);
 
+                // Denied-attempt age text + flash flag decay between events,
+                // plus reconciliation of hits that raced their row's creation
+                ReconcilePendingHits();
+                foreach (var item in _uiCollection)
+                    item.RefreshBlockHitDisplays();
+
                 DnsCacheChip.Text = $"DNS cache: {_dnsService.CacheCount} entries";
                 UpdateHighTxChip();
+                UpdateDeniedChip();
             };
             _lastSeenRefreshTimer.Start();
 
@@ -546,6 +566,109 @@ namespace AutoCommand.Views
                 ApplyBlockState(item);
                 _uiCollection.Add(item);
             });
+        }
+
+        // ── real-time denied-transmit surfacing ──────────────────────────
+        // BlockHitFeedService raises one event per denied attempt (Sysmon
+        // EID 3 joined against the block inventory). The packet counters can
+        // never carry a denial — a refused connect crosses no socket — so
+        // this join is the only thing that lets a row say "it tried again
+        // just now and was refused".
+
+        /// <summary>Hits a denied attempt landed on (pid/ip) whose row did
+        /// not exist yet — the feed's EID 3 event races the row creator's
+        /// copy of the same event. Reconciled on the 10 s tick; capped and
+        /// expired so a missed join can never accumulate.</summary>
+        private readonly List<BlockHitFeedService.BlockHit> _pendingHits = new();
+        private const int MaxPendingHits = 50;
+
+        private void OnBlockHitArrived(BlockHitFeedService.BlockHit hit)
+        {
+            // Feed thread → UI thread (same discipline as AddToUi)
+            Dispatcher.BeginInvoke(new Action(() => ApplyBlockHit(hit)));
+        }
+
+        private void ApplyBlockHit(BlockHitFeedService.BlockHit hit)
+        {
+            if (hit == null || string.IsNullOrEmpty(hit.DestIp)) return;
+            var target = FindRowForHit(hit);
+            if (target == null)
+            {
+                _pendingHits.Add(hit);
+                if (_pendingHits.Count > MaxPendingHits) _pendingHits.RemoveAt(0);
+                return;
+            }
+            target.RecordBlockHit(hit.DestIp, hit.DestPort, hit.Protocol, hit.TimeUtc);
+            UpdateDeniedChip();
+        }
+
+        /// <summary>Reconciles hits that raced their row's creation; also
+        /// expires stale pendings. Called from the 10 s refresh tick.</summary>
+        private void ReconcilePendingHits()
+        {
+            if (_pendingHits.Count == 0) return;
+            DateTime cutoff = DateTime.UtcNow.AddSeconds(-15);
+            for (int i = _pendingHits.Count - 1; i >= 0; i--)
+            {
+                var hit = _pendingHits[i];
+                if (hit.TimeUtc < cutoff) { _pendingHits.RemoveAt(i); continue; }
+                var target = FindRowForHit(hit);
+                if (target != null)
+                {
+                    target.RecordBlockHit(hit.DestIp, hit.DestPort, hit.Protocol, hit.TimeUtc);
+                    _pendingHits.RemoveAt(i);
+                }
+            }
+            UpdateDeniedChip();
+        }
+
+        /// <summary>IP-kind hits join the row keyed by the destination IP;
+        /// app-kind hits join by process identity (any destination row of
+        /// that process — preferring the hit's own destination). PID is the
+        /// primary identity; the Sysmon image name is the fallback, since
+        /// the row's PID field can lag a recycled PID one enrichment pass.</summary>
+        private SvchostMonitorItem FindRowForHit(BlockHitFeedService.BlockHit hit)
+        {
+            string hitImage = System.IO.Path.GetFileName(hit.Image ?? "");
+            bool PidMatches(SvchostMonitorItem row) =>
+                row.ProcessId == hit.Pid
+                || (!string.IsNullOrEmpty(hitImage)
+                    && SvchostMonitorItem.SameProcessName(row.ProcessName, hitImage));
+
+            if (hit.MatchKind == "ip")
+            {
+                if (_trackedIps.TryGetValue(hit.DestIp, out var byIp) && PidMatches(byIp)) return byIp;
+                // IP-keyed table can hold a casing/stale variant — scan as fallback
+                return _uiCollection.FirstOrDefault(r =>
+                    string.Equals(r.RemoteIp, hit.DestIp, StringComparison.OrdinalIgnoreCase) && PidMatches(r));
+            }
+
+            // app-kind: the process block denies EVERY destination — prefer
+            // the hit's own destination row, else the most recent row of
+            // that process (one attempt must raise one row, not all of them)
+            var candidates = _uiCollection.Where(PidMatches).ToList();
+            if (candidates.Count == 0) return null;
+            return candidates.FirstOrDefault(r => string.Equals(r.RemoteIp, hit.DestIp, StringComparison.OrdinalIgnoreCase))
+                ?? candidates.OrderByDescending(r => r.LastSeen).First();
+        }
+
+        /// <summary>Toolbar chip: attempts denied in the last 10 minutes
+        /// (ground truth straight from the feed, not a running sum — the
+        /// 10-minute window decays on its own).</summary>
+        private void UpdateDeniedChip()
+        {
+            try
+            {
+                int recent = BlockHitFeedService.Instance.Recent(10).Count;
+                if (recent == 0)
+                {
+                    DeniedChipBorder.Visibility = Visibility.Collapsed;
+                    return;
+                }
+                DeniedChip.Text = $"{recent} denied · 10 min";
+                DeniedChipBorder.Visibility = Visibility.Visible;
+            }
+            catch { /* feed unavailable — chip stays hidden */ }
         }
 
         /// <summary>
@@ -1250,6 +1373,11 @@ namespace AutoCommand.Views
                 ConfirmPrefs.IsSuppressed(ConfirmPrefs.ConfirmIp) &&
                 (!msApplies || ConfirmPrefs.IsSuppressed(ConfirmPrefs.WarnMsInfra));
 
+            // Shared-infrastructure probe result (filled while the confirm
+            // dialog streams its detail; null when the dialog was suppressed
+            // or the probe found nothing) — rides into the provenance below.
+            BlockImpactProbe.ImpactResult impact = null;
+
             if (!confirmSuppressed)
             {
                 string warning = msApplies && !ConfirmPrefs.IsSuppressed(ConfirmPrefs.WarnMsInfra)
@@ -1269,17 +1397,40 @@ namespace AutoCommand.Views
                     string brief = AutoCommand.Forensics.Core.BlockFeedbackService.Brief(procName, ip);
                     return $"Contacted by '{procName}'.\n\n" + brief + (brief.Length > 0 ? "\n" : "") + footer;
                 });
+                // The impact probe rides the same streaming slot: shared-infrastructure
+                // warnings ("these addresses also serve Windows Update") appear as they
+                // resolve, and on confirm they ride into the rule's provenance so the
+                // co-block is auditable in wf.msc later.
+                var enrichedTask = briefTask.ContinueWith(async t =>
+                {
+                    string brief = t.Result;
+                    try
+                    {
+                        impact = await BlockImpactProbe.ProbeAsync(ip);
+                        string line = impact.WarningLine();
+                        if (line.Length > 0)
+                            brief += "\n" + line +
+                                (string.IsNullOrEmpty(impact.PtrHostname)
+                                    ? ""
+                                    : $"\n(reverse DNS: {impact.PtrHostname})");
+                    }
+                    catch { /* a probe failing must never break the confirm dialog */ }
+                    return brief;
+                }, TaskScheduler.Default).Unwrap();
                 // The checkbox silences the highest-severity thing on screen:
                 // the infra warning when present, otherwise the plain confirm.
                 string key = warning.Length > 0 ? ConfirmPrefs.WarnMsInfra : ConfirmPrefs.ConfirmIp;
                 string label = warning.Length > 0
                     ? "Don't warn me about Microsoft-infrastructure IPs — I know what I'm doing"
                     : "Don't ask again before blocking remote IPs";
-                if (!ConfirmBlockWithDialog($"Block all outbound traffic to remote IP {ip}?", warning, initialDetail, key, label, briefTask))
+                if (!ConfirmBlockWithDialog($"Block all outbound traffic to remote IP {ip}?", warning, initialDetail, key, label, enrichedTask))
                     return;
             }
 
-            string note = BuildProvenance(item, $"→ {ip}", confirmSuppressed);
+            string note = BuildProvenance(item, $"→ {ip}", confirmSuppressed,
+                impact != null && impact.Affected.Count > 0
+                    ? $"shared-edge ({impact.Affected.Count} known services)"
+                    : null);
             bool wasActive = _activeIps.Contains(ip);
             bool wasPaused = _pausedIps.Contains(ip);
             bool hadPrevNote = _blockNotes.TryGetValue("ip:" + ip, out string prevNote);
@@ -1328,8 +1479,12 @@ namespace AutoCommand.Views
 
         /// <summary>The shared service-block flow for both entry points
         /// (row menu + picker): honest state check, consequence-aware
-        /// confirm, rule create, baseline adoption, audit.</summary>
-        private async Task BlockServiceByUserAsync(string svcKey, string provenance)
+        /// confirm, rule create, baseline adoption, audit. Returns true
+        /// ONLY when the rule was actually created — callers must treat
+        /// decline/failure as "nothing enforced" (the ledger record is
+        /// written here on success alone, so the Blocks tab never shows a
+        /// block that does not exist).</summary>
+        private async Task<bool> BlockServiceByUserAsync(string svcKey, string provenance, SvchostMonitorItem item = null)
         {
             string lower = svcKey.ToLowerInvariant();
             string display = ServiceCatalog.TryGet(lower, out var info) ? info.DisplayName : svcKey;
@@ -1345,12 +1500,12 @@ namespace AutoCommand.Views
             if (state == BlockRuleState.Active)
             {
                 ShowToast($"⛔ Service {svcKey} is already blocked — every destination, present and future.");
-                return;
+                return false;
             }
             if (state == BlockRuleState.Paused)
             {
                 ShowToast($"⏸ A service block for {svcKey} exists but is paused. Re-enable it from the Firewall tab (AC-BLOCK-SVC rules).");
-                return;
+                return false;
             }
 
             if (MessageBox.Show(
@@ -1364,21 +1519,23 @@ namespace AutoCommand.Views
                     "  want exceptions, use per-IP blocks instead.\n" +
                     "• Manage or remove it from the Firewall tab (AC-BLOCK-SVC rules)." +
                     impactLine,
-                    "Block service", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return;
+                    "Block service", MessageBoxButton.YesNo, MessageBoxImage.Warning) != MessageBoxResult.Yes) return false;
 
             ShowToast($"⛔ Blocking service {svcKey} — all destinations, future included…");
             try
             {
                 string ruleName = await FirewallService.Instance.AddServiceBlockAsync(svcKey, provenance);
                 _ = FirewallBaselineManager.AdoptRuleStatesAsync(new[] { (ruleName, true) });
-                RecordBlockedEntry(null, "svc", svcKey);
+                RecordBlockedEntry(item, "svc", svcKey);
                 BlocksStore.AppendEvent("service-blocked", "svc", lower, provenance, "monitor");
                 ShowToast($"⛔ Service {svcKey} blocked — every destination, present and future.");
+                return true;
             }
             catch (Exception ex)
             {
                 MessageBox.Show($"Failed to block service {svcKey}: {ex.Message}", "Error",
                     MessageBoxButton.OK, MessageBoxImage.Error);
+                return false;
             }
         }
 
@@ -1466,8 +1623,11 @@ namespace AutoCommand.Views
                 return;
             }
 
-            await BlockServiceByUserAsync(svcKey, BuildProvenance(item, $"service {svcKey}", false));
-            RecordBlockedEntry(item, "svc", svcKey);
+            // The ledger record is written inside BlockServiceByUserAsync on
+            // its success path alone — recording here too used to duplicate
+            // the record on success and persist a phantom "blocked" record
+            // when the user declined or the rule creation failed.
+            await BlockServiceByUserAsync(svcKey, BuildProvenance(item, $"service {svcKey}", false), item);
         }
 
         private async void BlockProcess_Click(object sender, RoutedEventArgs e)
@@ -2428,13 +2588,25 @@ namespace AutoCommand.Views
 
                 foreach (var item in snap)
                 {
-                    writer.WriteLine($"{ts},{item.ProcessId},{item.ProcessName},{item.RemoteIp},{item.Hostname},{item.RxPackets},{item.TxPackets},{item.RxBytes},{item.TxBytes},{item.LastSeen:u}");
+                    writer.WriteLine($"{ts},{item.ProcessId},{CsvField(item.ProcessName)},{CsvField(item.RemoteIp)},{CsvField(item.Hostname)},{item.RxPackets},{item.TxPackets},{item.RxBytes},{item.TxBytes},{item.LastSeen:u}");
                 }
             }
             catch (Exception ex)
             {
-                Dispatcher.Invoke(() => MessageBox.Show($"Failed to save CSV: {ex.Message}"));
+                // Non-modal: this runs hourly — a modal here (file locked by
+                // Excel, etc.) used to interrupt the user every tick.
+                ShowToast($"⚠ CSV save failed: {ex.Message}");
             }
+        }
+
+        /// <summary>Quoting per RFC 4180 — ProcessName can be a full Sysmon
+        /// image path and Hostname a DNS answer; any comma/quote silently
+        /// shifted every following column before this.</summary>
+        private static string CsvField(string value)
+        {
+            if (string.IsNullOrEmpty(value)) return "";
+            bool quote = value.Contains(',') || value.Contains('"') || value.Contains('\n') || value.Contains('\r');
+            return quote ? "\"" + value.Replace("\"", "\"\"") + "\"" : value;
         }
     }
 }

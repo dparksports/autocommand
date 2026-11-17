@@ -218,9 +218,42 @@ namespace AutoCommand.Matrix
                     fallbacks.Add(f);
         }
 
+        /// <summary>Parses a #RRGGBB / #AARRGGBB string WITHOUT throwing —
+        /// this runs on the dispatcher thread from ConfigWatcher's hot
+        /// reload, and one typo in matrix_rain.json used to kill the
+        /// overlay via ColorConverter's FormatException.</summary>
+        private static bool TryColor(string hex, out Color color)
+        {
+            color = default;
+            if (string.IsNullOrWhiteSpace(hex)) return false;
+            string s = hex.Trim();
+            if (s[0] == '#') s = s[1..];
+            if (s.Length != 6 && s.Length != 8) return false;
+            byte a = 255, r, g, b;
+            try
+            {
+                if (s.Length == 8)
+                {
+                    a = Convert.ToByte(s.Substring(0, 2), 16);
+                    s = s.Substring(2);
+                }
+                r = Convert.ToByte(s.Substring(0, 2), 16);
+                g = Convert.ToByte(s.Substring(2, 2), 16);
+                b = Convert.ToByte(s.Substring(4, 2), 16);
+            }
+            catch { return false; }
+            color = Color.FromArgb(a, r, g, b);
+            return true;
+        }
+
         private static Brush Solid(string hex, byte alpha = 255)
         {
-            var opaque = (Color)ColorConverter.ConvertFromString(hex);
+            // Invalid config value → the role default rather than a crash;
+            // MatrixRainConfig.Normalize() clamps numbers but never validated
+            // hex strings.
+            var opaque = TryColor(hex, out var parsed)
+                ? parsed
+                : Color.FromRgb(0x2E, 0xE5, 0x53); // a rain-green that reads as intentional
             var c = alpha >= 255 ? opaque : Color.FromArgb(alpha, opaque.R, opaque.G, opaque.B);
             var b = new SolidColorBrush(c);
             b.Freeze();
@@ -232,7 +265,9 @@ namespace AutoCommand.Matrix
         /// halo cells; the GPU shades the ellipse where it stands.</summary>
         private static Brush Halo(string hex)
         {
-            var c = (Color)ColorConverter.ConvertFromString(hex);
+            var c = TryColor(hex, out var parsed)
+                ? parsed
+                : Color.FromRgb(0x2E, 0xE5, 0x53);
             var g = new RadialGradientBrush
             {
                 GradientStops =
