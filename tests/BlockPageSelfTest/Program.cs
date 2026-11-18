@@ -249,6 +249,10 @@ bool tlsKeyStoreUsable = true;
     BlockPageProxyService.TlsInterceptEnabled = false;
     BlockPageProxyService.PortOverride = 0;   // ephemeral
     BlockPageProxyService.AuditSink = _ => { };
+    // S6 predates scoping: pin "all apps" so these requests (made by this
+    // non-browser test process) keep reaching the contained paths. The
+    // scope-specific behavior is S6b below.
+    ProxyScope.ModeOverride = ProxyScope.ModeAllApps;
     BlockPageProxyService.Decision = host =>
         Task.FromResult((host.Equals("blocked.test", StringComparison.OrdinalIgnoreCase),
                          host.Equals("blocked.test", StringComparison.OrdinalIgnoreCase) ? "Test CDN" : ""));
@@ -401,9 +405,161 @@ bool tlsKeyStoreUsable = true;
         BlockPageProxyService.InstallHooks = true;
         BlockPageProxyService.UpstreamResolver = null;
         BlockPageProxyService.Decision = null;
+        ProxyScope.ModeOverride = null;
     }
 
     try { origin.Stop(); } catch { }
+}
+
+// ── S6b: proxy scope — browsers-only routing (hooks off, local origin) ──
+// The client here is this test process, so the image seam decides who is
+// "calling": each scenario pins one image and asserts what that client gets.
+{
+    BlockPageProxyService.InstallHooks = false;
+    BlockPageProxyService.TlsInterceptEnabled = false;
+    BlockPageProxyService.PortOverride = 0;
+    BlockPageProxyService.AuditSink = _ => { };
+    BlockPageProxyService.Decision = host =>
+        Task.FromResult((host.Equals("blocked.test", StringComparison.OrdinalIgnoreCase),
+                         host.Equals("blocked.test", StringComparison.OrdinalIgnoreCase) ? "Test CDN" : ""));
+    BlockPageProxyService.UpstreamResolver = _ => Task.FromResult(new[] { IPAddress.Loopback });
+
+    ProxyScope.ModeOverride = ProxyScope.ModeBrowsersOnly;
+    ProxyScope.IncludeWebView2Override = false;
+    ProxyScope.ClientImageResolver = _ => null;   // replaced per scenario
+
+    var origin = new TcpListener(IPAddress.Loopback, 0);
+    origin.Start();
+    int originPort = ((IPEndPoint)origin.LocalEndpoint).Port;
+    _ = Task.Run(async () =>
+    {
+        while (true)
+        {
+            Socket client;
+            try { client = await origin.AcceptSocketAsync(); }
+            catch { break; }
+            _ = Task.Run(() =>
+            {
+                try
+                {
+                    var buf = new byte[8192];
+                    int total = 0;
+                    do { int n = client.Receive(buf); if (n <= 0) break; total += n; }
+                    while (total < buf.Length && !Encoding.ASCII.GetString(buf, 0, total).Contains("\r\n\r\n"));
+                    byte[] answer = Encoding.ASCII.GetBytes(
+                        "HTTP/1.1 200 OK\r\nConnection: close\r\nContent-Length: 11\r\n\r\norigin-body");
+                    client.Send(answer);
+                }
+                catch { }
+                finally { try { client.Close(); } catch { } }
+            });
+        }
+    });
+
+    bool started = await BlockPageProxyService.Instance.StartAsync();
+    Check(started, "S6b: proxy starts (browsers-only scope)");
+    int proxyPort = BlockPageProxyService.Instance.Port;
+    Check(BlockPageProxyService.Instance.StatusDetail.Contains("browsers only"),
+        $"S6b: status line states the scope ({BlockPageProxyService.Instance.StatusDetail})");
+
+    // One proxied plain-HTTP request as a given client image. Blocked host
+    // + contained client → friendly page; anything tunneled → origin-body.
+    async Task<string> FetchAsync(string pinnedImage, string host, int port)
+    {
+        ProxyScope.ClientImageResolver = _ => pinnedImage;
+        var req = (HttpWebRequest)WebRequest.Create($"http://{host}:{port}/x");
+        req.Proxy = new WebProxy($"http://127.0.0.1:{proxyPort}");
+        req.Timeout = 15000;
+        try
+        {
+            using var resp = (HttpWebResponse)req.GetResponse();
+            return new StreamReader(resp.GetResponseStream()).ReadToEnd();
+        }
+        catch (WebException ex)
+        {
+            if (ex.Response == null) throw;
+            using var resp = (HttpWebResponse)ex.Response;
+            return new StreamReader(resp.GetResponseStream()).ReadToEnd();
+        }
+    }
+
+    try
+    {
+        // a) pinned browser + blocked host → the friendly page
+        string page = await FetchAsync("chrome.exe", "blocked.test", originPort);
+        Check(page.Contains("This address is blocked by AutoCommand"),
+            "S6b: browser image still gets the block page");
+
+        // b) pinned non-browser + the SAME blocked host → tunneled to origin
+        string body = await FetchAsync("everything.exe", "blocked.test", originPort);
+        Check(body == "origin-body",
+            $"S6b: non-browser tunnels through a blocked host untouched (got: {body[..Math.Min(60, body.Length)]})");
+
+        // c) lookup miss (null image) → tunnel too — fail-open, never fail-closed
+        string miss = await FetchAsync(null, "blocked.test", originPort);
+        Check(miss == "origin-body", "S6b: unknown client tunnels (fail-open)");
+
+        // d) WebView2 gated by its own flag, off by default
+        string wvOff = await FetchAsync("msedgewebview2.exe", "blocked.test", originPort);
+        Check(wvOff == "origin-body", "S6b: WebView2 excluded by default (tunnels)");
+        ProxyScope.IncludeWebView2Override = true;
+        string wvOn = await FetchAsync("msedgewebview2.exe", "blocked.test", originPort);
+        Check(wvOn.Contains("This address is blocked by AutoCommand"),
+            "S6b: WebView2 included when the user opts in (block page)");
+        ProxyScope.IncludeWebView2Override = false;
+
+        // e) mode "all" restores the every-client behavior
+        ProxyScope.ModeOverride = ProxyScope.ModeAllApps;
+        string all = await FetchAsync("everything.exe", "blocked.test", originPort);
+        Check(all.Contains("This address is blocked by AutoCommand"),
+            "S6b: mode all contains every client");
+        ProxyScope.ModeOverride = ProxyScope.ModeBrowsersOnly;
+
+        // f) CONNECT tunnel from a non-browser → passes to the origin too
+        ProxyScope.ClientImageResolver = _ => "everything.exe";
+        string reply = await TunnelAndRequestAsync(proxyPort, "blocked.test", originPort, originPort);
+        Check(reply.Contains("200 Connection established") && reply.Contains("origin-body"),
+            "S6b: CONNECT tunnel from a non-browser passes through a blocked host");
+
+        // g) scope list logic, pinned away from machine state
+        ProxyScope.BrowserListOverride = new[] { "chrome.exe" };
+        Check(ProxyScope.ShouldContain(@"C:\Browsers\Chrome\Application\chrome.exe"),
+            "S6b: full-path image matched by name");
+        Check(!ProxyScope.ShouldContain(@"C:\Windows\System32\cmd.exe"),
+            "S6b: non-browser image out of scope");
+        Check(!ProxyScope.ShouldContain(null), "S6b: null image out of scope");
+        Check(!ProxyScope.ShouldContain("msedgewebview2.exe"), "S6b: WebView2 out by default");
+        ProxyScope.IncludeWebView2Override = true;
+        Check(ProxyScope.ShouldContain("msedgewebview2.exe"), "S6b: WebView2 in when opted in");
+        ProxyScope.IncludeWebView2Override = false;
+        ProxyScope.BrowserListOverride = new[] { "chrome.exe", "msedgewebview2.exe" };
+        Check(!ProxyScope.ShouldContain("msedgewebview2.exe"),
+            "S6b: the WebView2 flag stays authoritative even over a custom list");
+        ProxyScope.IncludeWebView2Override = true;
+        Check(ProxyScope.ShouldContain("msedgewebview2.exe"),
+            "S6b: flag on includes WebView2 over a custom list too");
+        ProxyScope.IncludeWebView2Override = false;
+        ProxyScope.BrowserListOverride = null;
+        ProxyScope.ModeOverride = ProxyScope.ModeAllApps;
+        Check(ProxyScope.ShouldContain(@"C:\anything.exe"), "S6b: mode all contains everyone");
+        ProxyScope.ModeOverride = ProxyScope.ModeBrowsersOnly;
+        Check(ProxyScope.ModeText == "browsers only", "S6b: mode text plain");
+    }
+    catch (Exception ex)
+    {
+        Check(false, $"S6b: scope scenarios ({ex.GetType().Name}: {ex.Message}) (proxy status: {BlockPageProxyService.Instance.StatusDetail})");
+    }
+    finally
+    {
+        await BlockPageProxyService.Instance.StopAsync("S6b end");
+        ProxyScope.ModeOverride = null;
+        ProxyScope.IncludeWebView2Override = null;
+        ProxyScope.ClientImageResolver = null;
+        ProxyScope.BrowserListOverride = null;
+        BlockPageProxyService.UpstreamResolver = null;
+        BlockPageProxyService.Decision = null;
+        try { origin.Stop(); } catch { }
+    }
 }
 
 // ── S7: standalone leaf handshake (server role) — isolates TLS plumbing ──

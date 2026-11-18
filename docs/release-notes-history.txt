@@ -17,6 +17,43 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.17.2 (2026-11-17)
+================================================================================
+
+# v2026.11.17.2 - Browser-scoped block pages
+
+**The friendly-block-pages proxy now contains web browsers, not the whole
+machine — "proxy only the browsers" is the default, and embedded WebView2
+sits behind its own opt-in.**
+
+## NEW — Proxy scope for the block-page proxy
+
+- The WinINET system proxy is machine-wide — Windows has no per-app proxy
+  setting for desktop apps — so the scoping happens inside the proxy: every
+  accepted connection is attributed to its client process through the kernel
+  TCP table (the same iphlpapi attribution the sinkhole and the intercept
+  session use, run while the client socket is still open), and only in-scope
+  images reach the block decision at all.
+- **Browsers only by default** (Settings → Block awareness): Edge, Chrome,
+  Brave, Firefox, Opera, Vivaldi — extendable via
+  %LOCALAPPDATA%\AutoCommand\browsers.txt. Everyone else tunnels untouched:
+  no block decision, no block page, no decryption. Their containment stays
+  where it already lives — the kernel firewall layer.
+- **Embedded WebView2 (msedgewebview2.exe) is excluded unless you opt in**:
+  it is an embedded component hosted by arbitrary desktop apps (Teams,
+  Widgets, Outlook, …), not a browser the user opened, and those host
+  processes are not necessarily trustworthy. The new checkbox is
+  authoritative in both directions — it also decides msedgewebview2.exe
+  when a hand-edited browsers.txt lists it.
+- Fail-open on purpose: a lookup that misses (client already closed, process
+  exited) tunnels — a missed attribution degrades to "go direct", never to
+  "the internet stopped". Kernel firewall blocks still cover every process
+  regardless of scope.
+- Scope changes apply to the next request — no listener restart. The proxy
+  status line and the audit ledger state the active scope.
+- Mode "all" restores the previous every-app behavior for anyone who wants it.
+
+================================================================================
 v2026.11.17.1 (2026-11-17)
 ================================================================================
 

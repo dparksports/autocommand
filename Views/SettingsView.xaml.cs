@@ -89,6 +89,22 @@ namespace AutoCommand.Views
             BlockProxyChk.Checked += BlockProxy_Changed;
             BlockProxyChk.Unchecked += BlockProxy_Changed;
             AutoCommand.Contain.Core.BlockPageProxyService.Instance.StatusChanged += BlockProxy_StatusChanged;
+
+            // Proxy scope (browsers-only by default; WebView2 opt-in) — same
+            // detach/set/attach dance; applies to the next request, so there
+            // is no start/stop to wait on.
+            ProxyScopeChk.Checked -= ProxyScope_Changed;
+            ProxyScopeChk.Unchecked -= ProxyScope_Changed;
+            ProxyScopeChk.IsChecked = AutoCommand.Contain.Core.ProxyScope.Mode == AutoCommand.Contain.Core.ProxyScope.ModeBrowsersOnly;
+            ProxyScopeChk.Checked += ProxyScope_Changed;
+            ProxyScopeChk.Unchecked += ProxyScope_Changed;
+            WebView2ScopeChk.Checked -= WebView2Scope_Changed;
+            WebView2ScopeChk.Unchecked -= WebView2Scope_Changed;
+            WebView2ScopeChk.IsChecked = AutoCommand.Contain.Core.ProxyScope.IncludeWebView2;
+            WebView2ScopeChk.IsEnabled = ProxyScopeChk.IsChecked == true;
+            WebView2ScopeChk.Checked += WebView2Scope_Changed;
+            WebView2ScopeChk.Unchecked += WebView2Scope_Changed;
+
             RefreshBlockProxyStatus();
         }
 
@@ -117,6 +133,22 @@ namespace AutoCommand.Views
                 : (svc.StatusDetail ?? "off — browsers show their own error for blocked requests.");
         }
 
+        private void ProxyScope_Changed(object sender, RoutedEventArgs e)
+        {
+            bool browsersOnly = ProxyScopeChk.IsChecked == true;
+            AutoCommand.Contain.Core.ProxyScope.SetMode(browsersOnly
+                ? AutoCommand.Contain.Core.ProxyScope.ModeBrowsersOnly
+                : AutoCommand.Contain.Core.ProxyScope.ModeAllApps);
+            WebView2ScopeChk.IsEnabled = browsersOnly;
+            RefreshBlockProxyStatus();
+        }
+
+        private void WebView2Scope_Changed(object sender, RoutedEventArgs e)
+        {
+            AutoCommand.Contain.Core.ProxyScope.SetIncludeWebView2(WebView2ScopeChk.IsChecked == true);
+            RefreshBlockProxyStatus();
+        }
+
         private async void BlockProxy_Changed(object sender, RoutedEventArgs e)
         {
             bool on = BlockProxyChk.IsChecked == true;
@@ -127,7 +159,7 @@ namespace AutoCommand.Views
                 // honesty standard as the intercept session's consent.
                 var proceed = MessageBox.Show(
                     "Turning friendly block pages on will:\n\n" +
-                    "  · route user applications (browsers) through a local AutoCommand proxy at 127.0.0.1:7878 while it is on — Windows services are never routed;\n" +
+                    "  · route user applications through a local AutoCommand proxy at 127.0.0.1:7878 while it is on — by default only web browsers are checked against your blocks, other apps tunnel untouched (scope options below); Windows services are never routed;\n" +
                     "  · install the 'AutoCommand Intercept CA' certificate into the machine trust store while it is on, so blocked HTTPS sites can show an explanation page (only BLOCKED hostnames are decrypted — everything else tunnels untouched);\n" +
                     "  · restore your previous proxy settings and remove the CA when you turn it off, when the app exits, or after a crash (the next start repairs it).\n\n" +
                     "Turn it on?", "Friendly block pages",

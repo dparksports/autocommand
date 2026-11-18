@@ -35,7 +35,16 @@ namespace AutoCommand.Contain.Core
     ///     are ever decrypted — everything else is a byte-for-byte tunnel;
     ///   · everything else → forwarded upstream untouched. The proxy is
     ///     pass-first, block-second: any internal error degrades to normal
-    ///     forwarding (or a plain 502), never to "the internet stopped".
+    ///     forwarding (or a plain 502), never to "the internet stopped";
+    ///   · scope (ProxyScope): browsers-only by DEFAULT — the WinINET proxy
+    ///     is machine-wide and cannot skip an app, so every accepted
+    ///     connection is attributed to its client image via the kernel TCP
+    ///     table, and only in-scope images (web browsers; WebView2 opt-in)
+    ///     reach the block decision. Everyone else — and any client whose
+    ///     image lookup misses — is forwarded with no decision, no
+    ///     decryption and no page; their containment stays where it already
+    ///     lives, the kernel firewall layer. Mode "all" restores the
+    ///     every-app behavior.
     ///
     /// Fail-safety mirrors the intercept stack: hooks are journaled
     /// (BlockPageProxyHooks) and restored on stop/exit/crash; the listener
@@ -190,10 +199,10 @@ namespace AutoCommand.Contain.Core
             }
 
             Status = BlockProxyStatus.Listening;
-            StatusDetail = $"127.0.0.1:{Port} — blocked hostnames get an explanation, everything else forwards.";
+            StatusDetail = $"127.0.0.1:{Port} — scope: {ProxyScope.ModeText}; blocked hostnames get an explanation, everything else forwards.";
             _acceptFailures = 0;
             StatusChanged?.Invoke();
-            Audit($"block-page proxy enabled on 127.0.0.1:{Port} (WinINET, block pages + selective TLS termination)");
+            Audit($"block-page proxy enabled on 127.0.0.1:{Port} (WinINET, scope {ProxyScope.ModeText}, block pages + selective TLS termination)");
             _ = Task.Run(() => AcceptLoopAsync(_cts.Token));
             return true;
         }
@@ -303,17 +312,55 @@ namespace AutoCommand.Contain.Core
 
                     string requestLine = head.Split('\n')[0].TrimEnd('\r');
                     if (requestLine.StartsWith("CONNECT ", StringComparison.OrdinalIgnoreCase))
+                    {
+                        if (!InScope(client)) { await TunnelConnectAsync(stream, requestLine); return; }
                         await HandleConnectAsync(client, stream, requestLine);
+                    }
                     else if (requestLine.Contains("://"))
+                    {
                         // absolute-form proxy speech — "GET http://host/path HTTP/1.1"
                         // (the METHOD comes first; the absolute URL never starts
                         // the line, which is exactly the dispatch bug the
                         // self-test caught)
+                        if (!InScope(client)) { await TunnelPlainHttpAsync(stream, head, requestLine); return; }
                         await HandlePlainHttpAsync(stream, head, requestLine);
+                    }
                     // anything else is not explicit-proxy speech — close
                 }
             }
             catch { /* one broken client never takes the proxy down */ }
+        }
+
+        /// <summary>The scope verdict for one accepted connection. The image
+        /// lookup runs while the client socket is still open — the kernel
+        /// row that identifies the client dies with the socket.</summary>
+        private bool InScope(Socket client)
+        {
+            int clientPort;
+            try { clientPort = ((IPEndPoint)client.RemoteEndPoint).Port; }
+            catch { return false; }   // no endpoint = dead connection; nothing to scope
+            string image = ProxyScope.ImageForClientPort(clientPort, Port);
+            return ProxyScope.ShouldContain(image);
+        }
+
+        /// <summary>Scoped-out clients (browsers-only mode, image outside the
+        /// list, or a lookup that missed): pure forwarding — no block
+        /// decision, no block page, no TLS termination, nothing decrypted
+        /// here. These paths deliberately share nothing with the contained
+        /// handlers beyond the parse/forward helpers, so a bug in block-page
+        /// code can never emit a page or mint a leaf for a scoped-out app.</summary>
+        private async Task TunnelConnectAsync(NetworkStream stream, string requestLine)
+        {
+            var (host, port) = ParseConnectAuthority(requestLine);
+            if (IsLoopbackName(host)) return;   // belt and braces, same as the contained path
+            await ForwardConnectAsync(stream, host, port);
+        }
+
+        private async Task TunnelPlainHttpAsync(NetworkStream stream, string head, string requestLine)
+        {
+            var (host, port, originLine) = ParsePlainAbsoluteForm(head, requestLine);
+            if (host == null || IsLoopbackName(host)) return;
+            await ForwardPlainHttpAsync(stream, head, originLine, host, port);
         }
 
         /// <summary>CONNECT host:port — the only place a hostname is visible
@@ -323,23 +370,7 @@ namespace AutoCommand.Contain.Core
         /// tunnel that dies mid-handshake), then pump bytes untouched.</summary>
         private async Task HandleConnectAsync(Socket client, NetworkStream stream, string requestLine)
         {
-            string authority = requestLine.Length > 8 ? requestLine[8..].Trim() : "";
-            int space = authority.IndexOf(' ');
-            if (space > 0) authority = authority[..space];
-            string host = authority;
-            int port = 443;
-            int colon = host.LastIndexOf(':');
-            if (host.StartsWith("["))   // [IPv6]:port
-            {
-                int bracket = host.IndexOf(']');
-                if (bracket > 0)
-                {
-                    if (bracket + 1 < host.Length && host[bracket + 1] == ':'
-                        && int.TryParse(host[(bracket + 2)..], out int p6)) port = p6;
-                    host = host[1..bracket];
-                }
-            }
-            else if (colon > 0 && int.TryParse(host[(colon + 1)..], out int p)) { port = p; host = host[..colon]; }
+            var (host, port) = ParseConnectAuthority(requestLine);
 
             if (IsLoopbackName(host)) return;   // bypass should prevent; belt and braces
 
@@ -372,7 +403,40 @@ namespace AutoCommand.Contain.Core
                 return;
             }
 
-            // Unblocked: upstream first, then the 200.
+            await ForwardConnectAsync(stream, host, port);
+        }
+
+        /// <summary>CONNECT host[:port] → authority parse (port defaults to
+        /// 443; [IPv6]:port handled). Shared by the contained and the
+        /// tunnel paths so they can never disagree about what was asked.</summary>
+        private static (string Host, int Port) ParseConnectAuthority(string requestLine)
+        {
+            string authority = requestLine.Length > 8 ? requestLine[8..].Trim() : "";
+            int space = authority.IndexOf(' ');
+            if (space > 0) authority = authority[..space];
+            string host = authority;
+            int port = 443;
+            int colon = host.LastIndexOf(':');
+            if (host.StartsWith("["))   // [IPv6]:port
+            {
+                int bracket = host.IndexOf(']');
+                if (bracket > 0)
+                {
+                    if (bracket + 1 < host.Length && host[bracket + 1] == ':'
+                        && int.TryParse(host[(bracket + 2)..], out int p6)) port = p6;
+                    host = host[1..bracket];
+                }
+            }
+            else if (colon > 0 && int.TryParse(host[(colon + 1)..], out int p)) { port = p; host = host[..colon]; }
+            return (host, port);
+        }
+
+        /// <summary>The unblocked CONNECT forward: upstream connects BEFORE
+        /// the 200 goes out (an unreachable origin surfaces as 502, not as a
+        /// tunnel that dies mid-handshake), then bytes pump untouched both
+        /// ways. Used by the contained path AND the tunnel path.</summary>
+        private async Task ForwardConnectAsync(NetworkStream stream, string host, int port)
+        {
             Socket upstream = null;
             try
             {
@@ -395,8 +459,29 @@ namespace AutoCommand.Contain.Core
         /// does) and Connection: close so the raw pump terminates cleanly.</summary>
         private async Task HandlePlainHttpAsync(NetworkStream stream, string head, string requestLine)
         {
+            var (host, port, originLine) = ParsePlainAbsoluteForm(head, requestLine);
+            if (host == null || IsLoopbackName(host)) return;
+
+            var (blocked, cls) = await DecideAsync(host);
+            if (blocked)
+            {
+                await WriteBlockPageAsync(stream, host, cls, statusCode: 403);
+                Interlocked.Increment(ref _pagesServed);
+                return;
+            }
+
+            await ForwardPlainHttpAsync(stream, head, originLine, host, port);
+        }
+
+        /// <summary>Absolute-form proxy request → (host, port, origin-form
+        /// request line). Host falls back to the Host: header; null host =
+        /// unparseable (caller closes). Shared by the contained and the
+        /// tunnel paths so they can never disagree about what was asked.</summary>
+        private static (string Host, int Port, string OriginFormLine) ParsePlainAbsoluteForm(string head, string requestLine)
+        {
             string host = null;
             int port = 80;
+            string originLine = requestLine;
             int space1 = requestLine.IndexOf(' ');
             int lastSpace = requestLine.LastIndexOf(' ');
             if (space1 > 0 && lastSpace > space1)
@@ -416,7 +501,7 @@ namespace AutoCommand.Contain.Core
                     port = parsed;
                 }
                 else host = authority;
-                requestLine = $"{requestLine[..space1]} {path} {requestLine[(lastSpace + 1)..]}";
+                originLine = $"{requestLine[..space1]} {path} {requestLine[(lastSpace + 1)..]}";
             }
             if (host == null)
             {
@@ -435,16 +520,15 @@ namespace AutoCommand.Contain.Core
                     }
                 }
             }
-            if (host == null || IsLoopbackName(host)) return;
+            return (host, port, originLine);
+        }
 
-            var (blocked, cls) = await DecideAsync(host);
-            if (blocked)
-            {
-                await WriteBlockPageAsync(stream, host, cls, statusCode: 403);
-                Interlocked.Increment(ref _pagesServed);
-                return;
-            }
-
+        /// <summary>The unblocked plain-HTTP forward: origin-form request
+        /// line, proxy-private headers stripped, Connection: close so the
+        /// raw pump terminates cleanly. Used by the contained path AND the
+        /// tunnel path.</summary>
+        private async Task ForwardPlainHttpAsync(NetworkStream stream, string head, string originLine, string host, int port)
+        {
             Socket upstream = null;
             try { upstream = await ConnectUpstreamAsync(host, port); }
             catch { }
@@ -457,7 +541,7 @@ namespace AutoCommand.Contain.Core
             var upstreamStream = new NetworkStream(upstream, ownsSocket: false);
             // origin-form request line + forced close semantics
             var rebuilt = new StringBuilder();
-            rebuilt.Append(requestLine).Append("\r\n");
+            rebuilt.Append(originLine).Append("\r\n");
             foreach (string line in head.Split('\n').Skip(1))
             {
                 string l = line.TrimEnd('\r');

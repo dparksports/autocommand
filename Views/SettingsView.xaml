@@ -174,7 +174,19 @@
                         <CheckBox x:Name="BlockProxyChk" FontSize="11" Margin="0,8,0,0"
                                   Content="Friendly block pages — blocked requests get an explanation instead of the browser's raw error"
                                   Checked="BlockProxy_Changed" Unchecked="BlockProxy_Changed"
-                                  ToolTip="While on, user applications (browsers) route through a local AutoCommand proxy at 127.0.0.1:7878: blocked hostnames get an explanation page (HTTPS via the Intercept CA, trusted only while this is on); everything else forwards untouched. Windows services are never routed. Settings restore on toggle-off, app exit, or crash."/>
+                                  ToolTip="While on, user applications route through a local AutoCommand proxy at 127.0.0.1:7878: browsers see blocked hostnames explained (HTTPS via the Intercept CA, trusted only while this is on); other apps tunnel untouched (scope below); Windows services are never routed. Settings restore on toggle-off, app exit, or crash."/>
+
+                        <StackPanel Margin="24,6,0,0">
+                            <CheckBox x:Name="ProxyScopeChk" FontSize="11"
+                                      Content="Browsers only — other apps' web requests go direct (their firewall blocks still apply)"
+                                      Checked="ProxyScope_Changed" Unchecked="ProxyScope_Changed"
+                                      ToolTip="While on, only web browsers (Edge, Chrome, Brave, Firefox, Opera, Vivaldi — extendable via %LOCALAPPDATA%\AutoCommand\browsers.txt) are checked against your blocks and can see block pages. Every other app is forwarded untouched and stays covered by Windows Firewall blocks. Applies to the next request — no restart needed."/>
+
+                            <CheckBox x:Name="WebView2ScopeChk" FontSize="11" Margin="24,4,0,0"
+                                      Content="Also include embedded WebView2 (msedgewebview2.exe — hosted by many desktop apps)"
+                                      Checked="WebView2Scope_Changed" Unchecked="WebView2Scope_Changed"
+                                      ToolTip="msedgewebview2.exe is an embedded component, not a browser you opened: Teams, Widgets, Outlook and countless other apps host it, and those host processes are not necessarily trustworthy. Off by default — a desktop app's embedded web content is NOT treated as browser traffic. Turn on to give its requests the same block pages and domain blocks your browsers get."/>
+                        </StackPanel>
 
                         <TextBlock x:Name="BlockProxyStatusText" FontSize="11"
                                    Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap"
