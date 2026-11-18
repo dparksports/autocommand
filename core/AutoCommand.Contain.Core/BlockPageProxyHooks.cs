@@ -98,6 +98,23 @@ namespace AutoCommand.Contain.Core
 
         // ── install / undo ────────────────────────────────────────────────
 
+        /// <summary>The per-user proxy as it stands RIGHT NOW — what Install
+        /// would replace and Undo restores. The consent dialog reads this to
+        /// warn when a real (non-loopback) proxy is about to be replaced:
+        /// while the block-page proxy is on, that proxy's routing is not in
+        /// effect for the apps it served.</summary>
+        public static (bool Enabled, string Server) CurrentUserProxy()
+        {
+            try
+            {
+                using var key = Registry.CurrentUser.OpenSubKey(InternetSettingsKey);
+                bool enabled = ((int?)key?.GetValue("ProxyEnable") ?? 0) == 1;
+                string server = key?.GetValue("ProxyServer") as string;
+                return (enabled, server);
+            }
+            catch { return (false, null); }   // unreadable settings = nothing to warn about
+        }
+
         /// <summary>Captures the current per-user proxy, journals it, then
         /// points WinINET at the loopback proxy. The journal write happens
         /// BEFORE the first registry mutation (journal-ahead contract).</summary>

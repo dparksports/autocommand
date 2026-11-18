@@ -156,11 +156,23 @@ namespace AutoCommand.Views
             {
                 // Consent first: this is the machine-touching toggle — system
                 // proxy for user apps, machine-trusted CA while on. Same
-                // honesty standard as the intercept session's consent.
+                // honesty standard as the intercept session's consent. If a
+                // REAL proxy is already configured, name it specifically:
+                // while the block-page proxy is on, that proxy's routing is
+                // replaced (scoped-out apps tunnel DIRECT from this machine).
+                var (proxyEnabled, proxyServer) = AutoCommand.Contain.Core.BlockPageProxyHooks.CurrentUserProxy();
+                // a stale copy of OUR OWN loopback setting is not "a real proxy"
+                bool replacingRealProxy = proxyEnabled && !string.IsNullOrWhiteSpace(proxyServer)
+                    && !proxyServer.Equals("127.0.0.1:" + AutoCommand.Contain.Core.BlockPageProxyService.DefaultPort,
+                                           StringComparison.OrdinalIgnoreCase);
+                string replaceNote = replacingRealProxy
+                    ? "  · ⚠ REPLACE YOUR EXISTING PROXY (" + proxyServer + ") while it is on — apps outside the browser scope tunnel DIRECT from this machine, not through that proxy; it comes back the moment this turns off;\n" +
+                      "  · install the 'AutoCommand Intercept CA' certificate into the machine trust store while it is on, so blocked HTTPS sites can show an explanation page (only BLOCKED hostnames are decrypted — everything else tunnels untouched);\n"
+                    : "  · install the 'AutoCommand Intercept CA' certificate into the machine trust store while it is on, so blocked HTTPS sites can show an explanation page (only BLOCKED hostnames are decrypted — everything else tunnels untouched);\n";
                 var proceed = MessageBox.Show(
                     "Turning friendly block pages on will:\n\n" +
                     "  · route user applications through a local AutoCommand proxy at 127.0.0.1:7878 while it is on — by default only web browsers are checked against your blocks, other apps tunnel untouched (scope options below); Windows services are never routed;\n" +
-                    "  · install the 'AutoCommand Intercept CA' certificate into the machine trust store while it is on, so blocked HTTPS sites can show an explanation page (only BLOCKED hostnames are decrypted — everything else tunnels untouched);\n" +
+                    replaceNote +
                     "  · restore your previous proxy settings and remove the CA when you turn it off, when the app exits, or after a crash (the next start repairs it).\n\n" +
                     "Turn it on?", "Friendly block pages",
                     MessageBoxButton.YesNo, MessageBoxImage.Warning, MessageBoxResult.No);

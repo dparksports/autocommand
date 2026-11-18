@@ -251,8 +251,32 @@ var certReq = new CertificateRequest("CN=sitedoctor-selftest", rsa,
 // this test must NOT mistake for its own black-hole path.
 certReq.CertificateExtensions.Add(new X509EnhancedKeyUsageExtension(
     new OidCollection { new("1.3.6.1.5.5.7.3.1") }, false));
-using X509Certificate2 cert = certReq.CreateSelfSigned(
-    DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1));
+using X509Certificate2 cert = PersistKeyMaterial(certReq.CreateSelfSigned(
+    DateTimeOffset.UtcNow.AddDays(-1), DateTimeOffset.UtcNow.AddDays(1)));
+
+// CreateSelfSigned leaves the private key IN MEMORY (ephemeral), and
+// schannel's server role refuses ephemeral keys — "platform does not
+// support ephemeral keys" — which made the healthy-server fixture skip on
+// every machine (observed on the 2026-11-17 runner too). Same fix as the
+// intercept leaf (InterceptCaService): round-trip through PFX so the key
+// lands in a persisted container schannel can reach.
+static X509Certificate2 PersistKeyMaterial(X509Certificate2 ephemeral)
+{
+    var pfx = ephemeral.Export(X509ContentType.Pkcs12);
+    foreach (var flags in new[]
+             {
+                 X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.Exportable | X509KeyStorageFlags.PersistKeySet,
+                 X509KeyStorageFlags.MachineKeySet | X509KeyStorageFlags.Exportable | X509KeyStorageFlags.PersistKeySet,
+             })
+    {
+        try { return new X509Certificate2(pfx, (string)null, flags); }
+        catch (CryptographicException) { }   // next store
+    }
+    // No usable key container (restricted sandboxes deny both stores) —
+    // hand back the ephemeral cert so schannel's refusal lands in the
+    // test's existing ephemeral-error accounting (SKIP), not in a crash.
+    return ephemeral;
+}
 
 var healthyListener = new TcpListener(IPAddress.Loopback, 0);
 healthyListener.Start();

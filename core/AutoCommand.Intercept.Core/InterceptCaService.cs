@@ -359,8 +359,22 @@ namespace AutoCommand.Intercept.Core
                 // is the same leaf the intercept MITM serves, so the fix
                 // repairs that handshake too.
                 var ephemeralPfx = leafWithKey.Export(X509ContentType.Pkcs12);
-                leafWithKey = new X509Certificate2(ephemeralPfx, (string)null,
-                    X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.Exportable | X509KeyStorageFlags.PersistKeySet);
+                // User store first; MachineKeys covers profile-less contexts
+                // (a service account has no %APPDATA% to write a user key
+                // into — the classic services gotcha), and the elevated app
+                // can always write it. Both denied = the environment has no
+                // usable key container; the caller surfaces that as its
+                // capability probe does.
+                try
+                {
+                    leafWithKey = new X509Certificate2(ephemeralPfx, (string)null,
+                        X509KeyStorageFlags.UserKeySet | X509KeyStorageFlags.Exportable | X509KeyStorageFlags.PersistKeySet);
+                }
+                catch (CryptographicException)
+                {
+                    leafWithKey = new X509Certificate2(ephemeralPfx, (string)null,
+                        X509KeyStorageFlags.MachineKeySet | X509KeyStorageFlags.Exportable | X509KeyStorageFlags.PersistKeySet);
+                }
 
                 _leafCache[host] = (leafWithKey, DateTime.UtcNow);
                 return leafWithKey;

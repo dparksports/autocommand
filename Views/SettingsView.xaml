@@ -169,7 +169,7 @@
                         <CheckBox x:Name="DenyWatchChk" FontSize="11"
                                   Content="Notify me when a program is refused by a block rule (real-time deny watcher)"
                                   Checked="DenyWatch_Changed" Unchecked="DenyWatch_Changed"
-                                  ToolTip="Watches the Windows Security log for kernel-level 'connection blocked' events (audit subcategory Filtering Platform Connection, enabled automatically), keeps only refusals your AutoCommand rules caused, and toasts once per program+destination per 10 minutes. Reads local logs only — nothing leaves the machine."/>
+                                  ToolTip="Watches the Windows Security log for kernel-level 'connection blocked' events (audit subcategory Filtering Platform Connection, enabled automatically), keeps only refusals your AutoCommand rules caused, and toasts once per program+destination per 10 minutes. The audit flip means EVERY firewall denial on the machine lands in the Security log, so on busy machines it rolls faster — size it up with 'wevtutil sl Security /ms:N' if you keep long histories. Reads local logs only — nothing leaves the machine."/>
 
                         <CheckBox x:Name="BlockProxyChk" FontSize="11" Margin="0,8,0,0"
                                   Content="Friendly block pages — blocked requests get an explanation instead of the browser's raw error"
