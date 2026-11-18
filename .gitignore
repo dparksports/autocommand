@@ -40,3 +40,6 @@ __pycache__/
 .zcode/
 # agent scratch root (build probes, logs, ad-hoc scripts) — same class as .citmp
 .zwork/
+
+# Cloudflare wrangler local state (telemetry/server dev builds)
+.wrangler/

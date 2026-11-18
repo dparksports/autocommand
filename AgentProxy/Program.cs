@@ -511,16 +511,19 @@ string AnswerOffline(JsonObject rpc)
             });
         case "tools/call":
             string name = @params?["name"]?.GetValue<string>() ?? "";
+            // The params ctor, not a collection initializer: JsonArray.Add
+            // carries RequiresUnreferencedCode, and this exe publishes
+            // trimmed — the ctor has no annotation, and the item is a
+            // statically-typed JsonObject (already a JsonNode), so nothing
+            // here can reflectively create a JsonValue.
             return Result(id, new JsonObject
             {
-                ["content"] = new JsonArray
-                {
+                ["content"] = new JsonArray(
                     new JsonObject
                     {
                         ["type"] = "text",
                         ["text"] = OfflineGuidance(),
-                    },
-                },
+                    }),
                 ["isError"] = true,
             });
         default:
