@@ -1,0 +1,54 @@
+<Window x:Class="AutoCommand.Views.ChatConsentDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="Enable direct chat?"
+        Width="560" SizeToContent="Height"
+        WindowStartupLocation="CenterOwner"
+        ResizeMode="NoResize"
+        FontFamily="Segoe UI"
+        Background="{DynamicResource SurfaceBrush}"
+        Foreground="{DynamicResource TextPrimaryBrush}">
+
+    <Grid Margin="20">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,10">
+            <TextBlock Text="Talk to AutoCommand through a cloud model" FontSize="16" FontWeight="SemiBold"/>
+            <TextBlock Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" FontStyle="Italic" Margin="0,4,0,0"
+                       Text="This app's promise does not change: nothing is sent unless you say yes here."/>
+        </StackPanel>
+
+        <Border Grid.Row="1" Background="{DynamicResource SurfaceAltBrush}"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1" CornerRadius="6"
+                Padding="12" Margin="0,0,0,12">
+            <StackPanel>
+                <TextBlock FontSize="12" TextWrapping="Wrap"
+                           Text="Direct chat is a conversation with GLM, a model run by Z.ai in the cloud — not the local AI bridge. If you enable it:"/>
+                <TextBlock FontSize="11" TextWrapping="Wrap" Margin="0,8,0,0"
+                           Text="• Everything you type, and every tool answer the model reads (this machine's live network data), is sent to the model endpoint you pick in Chat settings to produce a reply."/>
+                <TextBlock FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"
+                           Text="• Your API key is stored on this machine only, encrypted with Windows DPAPI, and travels to the model endpoint solely to authorize your requests."/>
+                <TextBlock FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"
+                           Text="• The transcript stays in memory — nothing is written to disk. Every request and tool call lands in %LOCALAPPDATA%\AutoCommand\agent\activity.jsonl, where you can read exactly what left."/>
+                <TextBlock FontSize="11" TextWrapping="Wrap" Margin="0,4,0,0"
+                           Text="• Changing tools are off by default; turning them on still asks for a confirmation in this app on every single change."/>
+            </StackPanel>
+        </Border>
+
+        <StackPanel Grid.Row="2" Orientation="Horizontal" HorizontalAlignment="Right">
+            <Button x:Name="EnableBtn" Content="Enable direct chat" Style="{StaticResource PrimaryButton}"
+                    Click="EnableBtn_Click" Margin="0,0,8,0"/>
+            <Button x:Name="NotNowBtn" Content="Not now" Style="{StaticResource PrimaryButton}"
+                    Click="NotNowBtn_Click"/>
+        </StackPanel>
+
+        <TextBlock Grid.Row="3" FontSize="10" Margin="0,12,0,0" TextWrapping="Wrap"
+                   Foreground="{DynamicResource TextSecondaryBrush}"
+                   Text="You can withdraw this anytime: untick consent in Chat settings (or delete settings.json) and the tab stops talking to the internet. Read the endpoint and the exact request shapes in docs/TECHNICAL_NOTES.md — verify, don't trust."/>
+    </Grid>
+</Window>

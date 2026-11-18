@@ -190,6 +190,11 @@
          a second time and fails every -r publish with CS0579 - the same
          collision the BridgeSelfTest entry above documents. -->
     <Compile Remove="tests\StartupHealthSelfTest\**" />
+    <!-- Direct chat self-test: the GLM chat client + the chat-side mirror
+         of the bridge tool policy, offline against a loopback fake
+         chat/completions server and a temp data root (own Main(), same
+         glob reason as every side project) -->
+    <Compile Remove="tests\DirectChatSelfTest\**" />
   </ItemGroup>
 
   <!-- Filter out Linux .so native binaries when publishing for Windows win-x64 -->

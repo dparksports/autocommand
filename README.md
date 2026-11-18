@@ -42,7 +42,7 @@ The sidebar is grouped by the question you're asking, not by what the tools do i
 
 - **WATCH — a question about traffic.** Process Monitor (every connection, who launched it; its right panel replays the feed as Matrix-style rain, and either pane folds from the thin rail), **Exfil** — typing vs telemetry: DiagTrack's hourly transmit cadence over the last 7 days beside your keystroke counts *if — and only if — you opt in* (counts only, never which keys, stored locally, kept 8 days). The point: traffic that follows your typing is you; traffic that fires while you're away is the machine.
 - **CONTAIN — a decision about traffic.** Firewall, Blocks, and Audit — everything the app ever did, one ledger.
-- **SYSTEM — everything else.** Be My Guest (invite your AI assistant, locally) and Settings. Behind the Advanced-investigation toggle sits **Investigate**, which joins everything recorded about one process into a single verdict and a copyable report.
+- **SYSTEM — everything else.** Be My Guest (invite your AI assistant, locally), Ask AutoCommand (chat with the app directly — opt-in), and Settings. Behind the Advanced-investigation toggle sits **Investigate**, which joins everything recorded about one process into a single verdict and a copyable report.
 
 A feed runs until you stop it — watching never pauses just because you looked away.
 
@@ -92,17 +92,22 @@ If you use an AI assistant, the **Be My Guest** tab can invite it to read the sa
 
 One honest boundary, stated up front: while a session runs, its token lives in a local file — anything running as your user can read what the AI reads.
 
+## Ask AutoCommand — talk to the app directly
+
+The **Ask AutoCommand** tab is the direct line: you ask in plain English and the app answers — powered by GLM (a cloud model from Z.ai), **off by default** and enabled only through an explicit consent dialog plus your own API key. Once on, the model reads the same live facts the AI bridge serves — through the same tools, with the same confirmation window in front of every single change. What you type, and the tool answers the model reads, travel to the model endpoint; the transcript never touches disk, your key is DPAPI-encrypted on your machine, and every request lands in the same activity log.
+
 ## What it sends about you
 
 ![Nothing by default: three narrow lookups spelled out, everything else local](Assets/infographics/privacy.svg)
 
-**Nothing, by default.** Everything happens on your computer. Three features reach the internet, each sending only what that feature needs:
+**Nothing, by default.** Everything happens on your computer. Four features reach the internet, each sending only what that feature needs:
 
 | Feature | Sends | Where |
 |---|---|---|
 | RDAP lookups (automatic) | the queried IP, nothing else | public IP-ownership registries, HTTPS |
 | Sysmon download (on Install click) | the download request | Microsoft, Authenticode-verified before it runs |
 | Secure-boot DBX blob (Shields Up) | the fetch for that one file | Microsoft |
+| Ask AutoCommand (opt-in chat) | your conversation text + the tool answers the model reads | the GLM endpoint you pick in the tab (Z.ai / Zhipu), HTTPS |
 
 The one optional extra — an anonymous daily count with no identifiers, not even a random one, so the project can show a usage graph — is **off unless you say yes**. Details and how to withdraw consent: [PRIVACY.md](docs/PRIVACY.md).
 

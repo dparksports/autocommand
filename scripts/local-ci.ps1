@@ -55,6 +55,7 @@ $strict = @(
     'tests/BlockPageSelfTest',
     'tests/ProxyInstallSelfTest',
     'tests/BridgeSelfTest',
+    'tests/DirectChatSelfTest',
     'tests/PyTraceSelfTest',
     'tests/InterceptSelfTest',
     'tests/HardenSelfTest',

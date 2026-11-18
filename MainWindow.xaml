@@ -176,6 +176,15 @@
             <TabItem>
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal">
+                        <TextBlock Text="💬" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <TextBlock Text="Ask AutoCommand" Style="{StaticResource NavPaneLabel}" VerticalAlignment="Center"/>
+                    </StackPanel>
+                </TabItem.Header>
+                <views:DirectChatView x:Name="DirectChatTab"/>
+            </TabItem>
+            <TabItem>
+                <TabItem.Header>
+                    <StackPanel Orientation="Horizontal">
                         <TextBlock Text="⚙" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
                         <TextBlock Text="Settings" Style="{StaticResource NavPaneLabel}" VerticalAlignment="Center"/>
                     </StackPanel>

@@ -213,6 +213,8 @@ Process Monitor, where it can be blocked like any other destination.
 | `%LOCALAPPDATA%\AutoCommand\domain-blocks.jsonl` + `domain-ip-map.json` | Blocked domains and the exact rules the DNS sync currently holds per domain (authoritative ownership) |
 | `%LOCALAPPDATA%\AutoCommand\blockproxy-active.json` | Block-page proxy crash journal — describes the live per-user proxy hooks, deleted on clean stop, replayed at startup after a crash |
 | `%LOCALAPPDATA%\AutoCommand\blockproxy.txt` | Block-page proxy on/off preference (default off; enabling asks) |
+| `%LOCALAPPDATA%\AutoCommand\chat\settings.json` | Ask AutoCommand tab — endpoint preset, model, consent flag, mutator toggle (plain inspectable JSON) |
+| `%LOCALAPPDATA%\AutoCommand\chat\key.bin` | Ask AutoCommand tab — the Z.ai API key, DPAPI-encrypted; never in settings.json |
 
 ### BITS Transfers tab (`%LOCALAPPDATA%\AutoCommand\bits\`)
 
@@ -313,3 +315,13 @@ $exe = "$env:LOCALAPPDATA\AutoCommand\tools\AutoCommand.AgentProxy.exe"
 '{"jsonrpc":"2.0","method":"notifications/initialized"}',
 '{"jsonrpc":"2.0","id":2,"method":"tools/list"}' | & $exe
 ```
+
+## Direct chat (GLM)
+
+The **Ask AutoCommand** tab is a conversation with GLM (model `glm-5.3-flash` by default) served by Z.ai — the only outbound AI surface besides the MCP bridge, and unlike the bridge it is **cloud**: everything the user types and every tool answer the model reads goes to the endpoint picked in the tab's settings. That is why it is double-gated: the consent dialog (settings.json `consent`) AND a pasted API key must both exist before the send path does anything; without either, the tab has no network at all.
+
+- **Endpoints** (`settings.json` `endpointPreset`, resolved by `ChatStore.ResolveBaseUrl`): `coding` → `https://api.z.ai/api/coding/paas/v4` (default — the GLM Coding Plan includes `glm-5.3-flash`), `standard` → `https://api.z.ai/api/paas/v4`, `bigmodel` → `https://open.bigmodel.cn/api/paas/v4`, `custom` → the URL the user typed. OpenAI-compatible `chat/completions`; SSE streaming with a transparent non-streaming fallback when a stream dies before emitting anything — but a stream that breaks **mid-answer** errors out instead of retrying (the half-printed text would double).
+- **Tool surface**: the same static `AgentToolRegistry` the MCP bridge serves, converted MCP-descriptor → OpenAI function shape (`GlmChatClient.OpenAiToolsFromDescriptors`). Mutators are described to the model **only** when the tab's "Allow AutoCommand changes" toggle is on (default off — the model is not even told they exist); the toggle-off refusal in `ChatToolRunner` is the backstop for a model that asks anyway.
+- **Policy mirror**: `ChatToolRunner` (core/AutoCommand.Agent.Core/DirectChat) re-implements the bridge's per-call rules — `dry_run` honored only where the handler consumes it (`SupportsDryRun`), per-target grants (gates per target AND duration), 90-second deny-default confirmation through the same `IAgentBridgeUI` → AgentConfirmWindow seam — with its OWN grant set: "always" granted over MCP must not pre-approve chat, and vice versa. Keep `ChatToolRunner` and `Engines/Engines.Bridge/Bridge.fs` in sync: a policy change made on one side only means the two AI faces disagree about what a mutation requires.
+- **State**: settings are plain JSON; the key is DPAPI (`key.bin`); the transcript lives only in memory (Clear conversation resets the runner's grants). Conversation history kept across turns is user/assistant text pairs only — intermediate tool traffic stays inside a single exchange. Every chat turn and tool call is appended to the shared `agent\activity.jsonl` with `"client":"direct-chat"`; the engine's own `LogActivity` would stamp the MCP client's name, which is why the chat writes its lines directly (mirror of the same JSON shape).
+- **Offline test**: `dotnet run --project tests/DirectChatSelfTest` — a loopback fake `chat/completions` server scripts the wire (streaming assembly, tool rounds with fragmented arguments, dead/mid-break/401/empty shapes, cancellation, DPAPI + settings round-trips) against a temp data root; strict in `scripts/local-ci.ps1` and `ci.yml`.

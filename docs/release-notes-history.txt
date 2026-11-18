@@ -17,6 +17,66 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.18 (2026-11-18)
+================================================================================
+
+# v2026.11.18 - Ask AutoCommand: talk to the app directly
+
+**A new tab gives AutoCommand a direct conversation mode — you ask in plain
+English, GLM answers, and the model reads this machine through the same tools
+the AI bridge serves, under the same confirmation rails. Off by default, and
+honest about the one thing it changes: this surface is cloud.**
+
+## NEW — the Ask AutoCommand tab (direct chat)
+
+- Converses with GLM (`glm-5.3-flash` by default) over Z.ai's
+  OpenAI-compatible API, streaming answers token-by-token. A stream that dies
+  before emitting anything falls back to a plain request; one that dies
+  mid-answer errors out instead of silently re-printing the half you saw.
+- Double-gated like everything cloud in this app: a consent dialog that says
+  exactly what leaves the machine (your conversation text + the tool answers
+  the model reads) AND your own API key must both exist before the send path
+  does anything. No consent or no key = the tab has no network at all.
+- The key is DPAPI-encrypted in %LOCALAPPDATA%\AutoCommand\chat\key.bin and
+  never enters settings.json; the transcript lives only in memory (Clear
+  wipes it, nothing was ever written); every request and tool call lands in
+  agent\activity.jsonl stamped `client: "direct-chat"` — the log records
+  THAT a request happened, never what was said.
+- Tool access is the SAME registry the "Be My Guest" MCP bridge serves — 25
+  tools, read-only by default. Mutating tools (gates, Shields Up presets,
+  telemetry opt-out) are not even described to the model until "Allow
+  AutoCommand changes" is switched on in the tab, and even then every single
+  change pops the same confirmation window the MCP bridge uses, with
+  per-target "always for this session" grants. Chat grants never leak into
+  MCP sessions or vice versa.
+- Endpoints are switchable in the tab's settings: Z.ai Coding Plan (default —
+  glm-5.3-flash is included in the subscription), Z.ai standard
+  pay-as-you-go, Zhipu BigModel for mainland keys, or ANY OpenAI-compatible
+  base URL — an OpenRouter/DeepSeek/Together key, or a fully local
+  Ollama/LM Studio server for no-cloud-at-all chat.
+
+## UNCHANGED — the MCP bridge
+
+- "Be My Guest" is untouched: same AgentProxy, same session file, same tool
+  registry, same confirm policy. Direct chat is a new consumer of the same
+  registry, not a replacement; MCP clients keep working exactly as before,
+  and the two faces keep separate confirmation grants.
+
+## For tinkerers
+
+- The chat-side policy mirror (core/AutoCommand.Agent.Core/DirectChat/
+  ChatToolRunner.cs) re-implements the bridge's per-call rules — dry_run only
+  where the handler consumes it, per-target grants, 90 s deny-default
+  confirmation — and cross-references Engines/Engines.Bridge/Bridge.fs; keep
+  the two in sync.
+- Offline coverage: tests/DirectChatSelfTest drives the chat client and the
+  policy mirror against a loopback fake chat/completions server (streaming
+  assembly, fragmented tool-call arguments, dead/mid-break/401/empty/cancel
+  shapes, DPAPI round-trips, audit lines); strict in local-ci and ci.yml.
+- docs/TECHNICAL_NOTES.md gained a "Direct chat (GLM)" section; the README's
+  outbound table now names the Z.ai endpoint.
+
+================================================================================
 v2026.11.17.2 (2026-11-17)
 ================================================================================
 
