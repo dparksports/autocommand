@@ -55,6 +55,25 @@ honest about the one thing it changes: this surface is cloud.**
   base URL — an OpenRouter/DeepSeek/Together key, or a fully local
   Ollama/LM Studio server for no-cloud-at-all chat.
 
+## NEW — block-time decision evidence ("who chose this, and what did they see")
+
+- Blocking a row now writes a "decided" event line into blocks-events.log
+  immediately before its "created" line — the trail reads decided → created.
+  The line carries the decision evidence: the ACTOR (user:monitor /
+  user:blocks-tab / autopilot / agent:<client> — blocks now record who asked,
+  the same honesty unblocks always had), the trigger process's (pid, start
+  time) instance identity so a recycled PID never joins to the wrong
+  history, the full image path at choice time, the svchost instance identity
+  (-s service · -k group · SCM corroboration, ⚠ on identity signals), and a
+  snapshot of what the monitor row showed — the counters and hostname
+  evidence that otherwise evaporates with the in-memory monitor state.
+- Sysmon's ProcessGuid now rides on connect events and block-hit rows: the
+  kernel-assigned per-boot GUID is the stable instance join key once a PID
+  dies or recycles. Rows persisted before the field existed keep joining by
+  (pid, image, time), as everything always had to.
+- Bookkeeping writes (reconcile, migration, domain sync) record no decision —
+  those aren't choices, and the trail shouldn't pretend they are.
+
 ## UNCHANGED — the MCP bridge
 
 - "Be My Guest" is untouched: same AgentProxy, same session file, same tool
