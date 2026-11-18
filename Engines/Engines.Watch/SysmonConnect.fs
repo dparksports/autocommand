@@ -21,6 +21,10 @@ open System.Xml.Linq
 type SysmonConnectEvent() =
     member val TimeUtc: DateTime = DateTime() with get, set
     member val Pid: int = 0 with get, set
+    /// <summary>Sysmon's ProcessGuid — kernel-assigned, unique for the whole
+    /// boot, and the only stable join key once the PID dies or recycles.
+    /// Null when the event carried no field (older Sysmon builds).</summary>
+    member val ProcessGuid: string = null with get, set
     member val Image: string = null with get, set
     member val SourceIp: string = null with get, set
     member val SourcePort: int = 0 with get, set
@@ -114,6 +118,7 @@ type SysmonConnectWatcherService() =
                     | eventData ->
                         let mutable image = ""
                         let mutable pidRaw = ""
+                        let mutable guid = ""
                         let mutable srcIp = ""
                         let mutable srcPort = ""
                         let mutable dstIp = ""
@@ -127,6 +132,7 @@ type SysmonConnectWatcherService() =
                                 (match a.Value with
                                  | "Image" -> image <- data.Value
                                  | "ProcessId" -> pidRaw <- data.Value
+                                 | "ProcessGuid" -> guid <- data.Value
                                  | "SourceIp" -> srcIp <- data.Value
                                  | "SourcePort" -> srcPort <- data.Value
                                  | "DestinationIp" -> dstIp <- data.Value
@@ -147,6 +153,7 @@ type SysmonConnectWatcherService() =
                                 SysmonConnectEvent(
                                     TimeUtc = timeUtc,
                                     Pid = pid,
+                                    ProcessGuid = (if String.IsNullOrEmpty guid then null else guid),
                                     Image = image,
                                     SourceIp = srcIp,
                                     SourcePort = parsePort srcPort,

@@ -50,6 +50,10 @@ namespace AutoCommand.Contain.Core
             public DateTime TimeUtc { get; set; }
             public string Image { get; set; }
             public int Pid { get; set; }
+            /// <summary>Sysmon's ProcessGuid — the stable instance identity.
+            /// Null on rows persisted before the field existed; those join by
+            /// (pid, image, time) like everything always had to.</summary>
+            public string ProcessGuid { get; set; }
             public string DestIp { get; set; }
             public int DestPort { get; set; }
             public string Protocol { get; set; }
@@ -62,6 +66,7 @@ namespace AutoCommand.Contain.Core
             public string Image, Process, DestIp, MatchKind;
             public int Pid, DestPort, Count;
             public DateTime FirstUtc, LastUtc;
+            public string ProcessGuid;   // newest hit's GUID — the instance join key (null pre-GUID rows)
         }
 
         private readonly object _gate = new();
@@ -190,6 +195,7 @@ namespace AutoCommand.Contain.Core
                         TimeUtc = e.TimeUtc,
                         Image = e.Image,
                         Pid = e.Pid,
+                        ProcessGuid = e.ProcessGuid,
                         DestIp = e.DestIp,
                         DestPort = e.DestPort,
                         Protocol = e.Protocol,
@@ -207,6 +213,7 @@ namespace AutoCommand.Contain.Core
                     TimeUtc = e.TimeUtc,
                     Image = e.Image,
                     Pid = e.Pid,
+                    ProcessGuid = e.ProcessGuid,
                     DestIp = e.DestIp,
                     DestPort = e.DestPort,
                     Protocol = e.Protocol,
@@ -262,6 +269,12 @@ namespace AutoCommand.Contain.Core
                             Count = g.Count(),
                             FirstUtc = g.Min(h => h.TimeUtc),
                             LastUtc = g.Max(h => h.TimeUtc),
+                            // newest hit wins: within one (pid, dest) group the
+                            // GUID is the same instance unless a pre-GUID row is
+                            // in the group — either way it is the honest join key
+                            ProcessGuid = g.OrderByDescending(h => h.TimeUtc)
+                                           .FirstOrDefault(h => !string.IsNullOrEmpty(h.ProcessGuid))
+                                           ?.ProcessGuid,
                         };
                     })
                     .OrderByDescending(a => a.LastUtc)

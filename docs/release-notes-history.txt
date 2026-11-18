@@ -42,13 +42,13 @@ honest about the one thing it changes: this surface is cloud.**
   wipes it, nothing was ever written); every request and tool call lands in
   agent\activity.jsonl stamped `client: "direct-chat"` — the log records
   THAT a request happened, never what was said.
-- Tool access is the SAME registry the "Be My Guest" MCP bridge serves — 25
-  tools, read-only by default. Mutating tools (gates, Shields Up presets,
-  telemetry opt-out) are not even described to the model until "Allow
-  AutoCommand changes" is switched on in the tab, and even then every single
-  change pops the same confirmation window the MCP bridge uses, with
-  per-target "always for this session" grants. Chat grants never leak into
-  MCP sessions or vice versa.
+- Tool access is the SAME registry the "Be My Guest" MCP bridge serves — 26
+  tools (trace_block joined this release), read-only by default. Mutating
+  tools (gates, Shields Up presets, telemetry opt-out) are not even described
+  to the model until "Allow AutoCommand changes" is switched on in the tab,
+  and even then every single change pops the same confirmation window the
+  MCP bridge uses, with per-target "always for this session" grants. Chat
+  grants never leak into MCP sessions or vice versa.
 - Endpoints are switchable in the tab's settings: Z.ai Coding Plan (default —
   glm-5.3-flash is included in the subscription), Z.ai standard
   pay-as-you-go, Zhipu BigModel for mainland keys, or ANY OpenAI-compatible

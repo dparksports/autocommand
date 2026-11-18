@@ -2518,8 +2518,48 @@ namespace AutoCommand.Views
 
         private void RecordBlockedEntry(SvchostMonitorItem item, string kind, string key)
         {
-            BlocksStore.AddOrUpdate(BuildBlockRecord(item, kind, key));
+            BlocksStore.AddOrUpdate(BuildBlockRecord(item, kind, key), "monitor", BuildDecision(item, kind, key));
             RefreshBlockedUi();
+        }
+
+        /// <summary>
+        /// The block-time decision evidence, built from everything the row
+        /// knows RIGHT NOW — the same "moment identity is richest" rule
+        /// BuildBlockRecord follows. The row's counters die with the monitor
+        /// state; the decision line in blocks-events.log is the only place
+        /// "what did the user see when they chose this" survives.
+        /// </summary>
+        private static BlockDecision BuildDecision(SvchostMonitorItem item, string kind, string key)
+        {
+            var d = new BlockDecision
+            {
+                Actor = "user:monitor",
+                TriggerPid = item?.ProcessId ?? 0,
+                TriggerStartUtc = item?.ProcessStartedUtc,
+                Image = item?.ImagePath ?? "",
+            };
+
+            if (item != null && item.IsSvchost)
+            {
+                // Same identity preference BuildBlockRecord applies (-s, then
+                // SCM, then -k) plus the corroboration state — the trace
+                // surfaces replay this instead of re-resolving a dead PID.
+                string s = string.IsNullOrEmpty(item.DeclaredService) ? "—" : item.DeclaredService;
+                string k = string.IsNullOrEmpty(item.SvchostGroup) ? "—" : item.SvchostGroup;
+                string scm = string.IsNullOrEmpty(item.HostedServicesCsv) ? "no service" : item.HostedServicesCsv;
+                d.SvchostId = $"-s {s} · -k {k} · SCM {scm}" + (item.IdentitySuspicious ? " · ⚠ identity signal" : "");
+            }
+
+            if (item != null)
+            {
+                string dst = kind == "ip" ? $"{key} ({item.Protocol ?? "tcp"})" : key;
+                d.RowSnapshot = $"dest {dst}" +
+                    (string.IsNullOrEmpty(item.Hostname) ? "" : $" · host {item.Hostname}") +
+                    $" · tx {item.TxBytes} B · rx {item.RxBytes} B · denied attempts {item.BlockedAttempts}" +
+                    $" · row first seen {item.FirstSeenUtc.ToLocalTime():HH:mm:ss}" +
+                    (item.LastSeen == default ? "" : $" · last traffic {item.LastSeen.ToLocalTime():HH:mm:ss}");
+            }
+            return d;
         }
 
         private void LoadBlockedEntries()

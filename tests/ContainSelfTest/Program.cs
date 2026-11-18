@@ -1042,6 +1042,162 @@ Console.WriteLine("== 17. Zero-scan new-block fast path ==");
           seededColl.Count == countBeforeReblock);
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// 18. BlockTrace — decision capture at block time, the trace-back compose
+//     (lifecycle + per-instance identity join), and the honest archive
+//     inference for pre-capture blocks. Synthetic archive + hit feed;
+//     nothing touches the real %LOCALAPPDATA% store.
+// ─────────────────────────────────────────────────────────────────────
+string traceDir = Path.Combine(Path.GetTempPath(), "contain-selftest-trace-" + Guid.NewGuid().ToString("N"));
+string archiveDir = Path.Combine(traceDir, "sysmon-archive");
+AutoCommand.Engines.Watch.SysmonArchiveService.ArchiveDirectory = archiveDir;   // house pattern: redirect, then restore in finally
+try
+{
+    Directory.CreateDirectory(archiveDir);
+    var ledger = new BlocksLedger(traceDir);
+    ledger.Load();
+
+    // 18a. Decision capture — the decided line rides with its created line.
+    var captured = new BlockDecision
+    {
+        Actor = "user:monitor",
+        TriggerPid = 5852,
+        TriggerStartUtc = new DateTime(2026, 11, 18, 15, 0, 0, DateTimeKind.Utc),
+        Image = @"C:\Users\u\AppData\Local\BraveSoftware\Brave-Browser\Application\brave.exe",
+        RowSnapshot = "dest 203.0.113.9 (udp) · tx 4321 B · rx 0 B · denied attempts 7",
+    };
+    ledger.AddOrUpdate(new BlockRecord
+    {
+        Kind = "ip", Key = "203.0.113.9", ProcessName = "brave.exe",
+        ServiceKey = "brave", ClassAtBlock = "Unclassified", Origin = "monitor",
+        CreatedUtc = new DateTime(2026, 11, 18, 15, 5, 30, DateTimeKind.Utc),
+        StatusUtc = new DateTime(2026, 11, 18, 15, 5, 30, DateTimeKind.Utc),
+    }, "monitor", captured);
+
+    var events = File.ReadAllLines(ledger.EventLogPath).Where(l => l.Contains("203.0.113.9")).ToList();
+    Check("trace: decided line precedes its created line",
+          events.Count >= 2 &&
+          events.FindIndex(l => l.Contains("|decided|")) >= 0 &&
+          events.FindIndex(l => l.Contains("|decided|")) < events.FindIndex(l => l.Contains("|created|")),
+          string.Join(" / ", events));
+
+    // wire format round-trip: encode → parse keeps the evidence
+    var reparsed = BlockDecision.TryParse(captured.ToString(), out var rt);
+    Check("trace: decision detail round-trips pid/actor/image/snapshot",
+          reparsed && rt.Actor == "user:monitor" && rt.TriggerPid == 5852 &&
+          rt.TriggerStartUtc == captured.TriggerStartUtc &&
+          rt.Image == captured.Image && rt.RowSnapshot == captured.RowSnapshot,
+          captured.ToString());
+
+    // a decision-less add writes no decided line (bookkeeping ≠ choice)
+    ledger.AddOrUpdate(new BlockRecord
+    {
+        Kind = "ip", Key = "198.51.100.5", ProcessName = "other.exe",
+        ClassAtBlock = "Unclassified", Origin = "reconcile",
+        CreatedUtc = new DateTime(2026, 11, 18, 15, 5, 30, DateTimeKind.Utc),
+        StatusUtc = new DateTime(2026, 11, 18, 15, 5, 30, DateTimeKind.Utc),
+    }, "reconcile");
+    Check("trace: decision-less add writes no decided line",
+          !File.ReadAllLines(ledger.EventLogPath)
+               .Any(l => l.Contains("198.51.100.5") && l.Contains("|decided|")));
+
+    // 18b. The compose: lifecycle + decision + per-instance identity join.
+    //      Synthetic archive: brave (guid G1) hit the IP before the block and
+    //      a svchost instance (guid G2, -k netsvcs -s WpnService) hit it after.
+    string braveImg = @"C:\Users\u\AppData\Local\BraveSoftware\Brave-Browser\Application\brave.exe";
+    File.WriteAllLines(Path.Combine(archiveDir, "sysmon-archive-2026-11-18.jsonl"), new[]
+    {
+        "{\"ts\":\"2026-11-18T15:04:59.000Z\",\"eid\":3,\"rid\":11,\"data\":{\"UtcTime\":\"2026-11-18 15:04:59.500\",\"ProcessGuid\":\"{G1AAAA-1}\",\"ProcessId\":\"5852\",\"Image\":\"" + braveImg.Replace(@"\", @"\\") + "\",\"DestinationIp\":\"203.0.113.9\",\"DestinationPort\":\"443\",\"Protocol\":\"udp\"}}",
+        "{\"ts\":\"2026-11-18T15:01:00.000Z\",\"eid\":1,\"rid\":12,\"data\":{\"UtcTime\":\"2026-11-18 15:01:00.100\",\"ProcessGuid\":\"{G1AAAA-1}\",\"ProcessId\":\"5852\",\"Image\":\"" + braveImg.Replace(@"\", @"\\") + "\",\"CommandLine\":\"\\\"C:\\\\...\\\\brave.exe\\\" --type=renderer\",\"ParentImage\":\"C:\\\\...\\\\brave.exe\",\"User\":\"DESKTOP\\\\u\"}}",
+        "{\"ts\":\"2026-11-18T15:30:00.000Z\",\"eid\":3,\"rid\":13,\"data\":{\"UtcTime\":\"2026-11-18 15:30:00.500\",\"ProcessGuid\":\"{G2BBBB-2}\",\"ProcessId\":\"1044\",\"Image\":\"C:\\\\Windows\\\\system32\\\\svchost.exe\",\"DestinationIp\":\"203.0.113.9\",\"DestinationPort\":\"80\",\"Protocol\":\"tcp\"}}",
+        "{\"ts\":\"2026-11-18T14:59:00.000Z\",\"eid\":1,\"rid\":14,\"data\":{\"UtcTime\":\"2026-11-18 14:59:00.100\",\"ProcessGuid\":\"{G2BBBB-2}\",\"ProcessId\":\"1044\",\"Image\":\"C:\\\\Windows\\\\system32\\\\svchost.exe\",\"CommandLine\":\"\\\"C:\\\\Windows\\\\system32\\\\svchost.exe\\\" -k netsvcs -p -s WpnService\",\"ParentImage\":\"C:\\\\Windows\\\\system32\\\\services.exe\",\"User\":\"NT AUTHORITY\\\\System\"}}",
+        // 198.51.100.5's own attempts: 15:04:55 inside the created+5m trigger
+        // grace, 15:20 outside it — the inference must pick the EARLIER one.
+        "{\"ts\":\"2026-11-18T15:04:55.000Z\",\"eid\":3,\"rid\":15,\"data\":{\"UtcTime\":\"2026-11-18 15:04:55.500\",\"ProcessGuid\":\"{G1AAAA-1}\",\"ProcessId\":\"5852\",\"Image\":\"" + braveImg.Replace(@"\", @"\\") + "\",\"DestinationIp\":\"198.51.100.5\",\"DestinationPort\":\"443\",\"Protocol\":\"udp\"}}",
+        "{\"ts\":\"2026-11-18T15:20:00.000Z\",\"eid\":3,\"rid\":16,\"data\":{\"UtcTime\":\"2026-11-18 15:20:00.500\",\"ProcessGuid\":\"{G9CCCC-9}\",\"ProcessId\":\"999\",\"Image\":\"C:\\\\other.exe\",\"DestinationIp\":\"198.51.100.5\",\"DestinationPort\":\"80\",\"Protocol\":\"tcp\"}}",
+    });
+
+    var feed = new List<BlockHitFeedService.BlockHit>
+    {
+        new() { TimeUtc = new DateTime(2026, 11, 18, 15, 31, 0, DateTimeKind.Utc), Image = @"C:\Windows\system32\svchost.exe", Pid = 1044, ProcessGuid = "{G2BBBB-2}", DestIp = "203.0.113.9", DestPort = 80, Protocol = "tcp", MatchKind = "ip" },
+        new() { TimeUtc = new DateTime(2026, 11, 18, 15, 31, 5, DateTimeKind.Utc), Image = @"C:\Windows\system32\svchost.exe", Pid = 1044, ProcessGuid = "{G2BBBB-2}", DestIp = "203.0.113.9", DestPort = 80, Protocol = "tcp", MatchKind = "ip" },
+        // a hit on a DIFFERENT IP must never join this trace
+        new() { TimeUtc = new DateTime(2026, 11, 18, 15, 31, 6, DateTimeKind.Utc), Image = braveImg, Pid = 5852, ProcessGuid = "{G1AAAA-1}", DestIp = "192.0.2.44", DestPort = 443, Protocol = "udp", MatchKind = "ip" },
+    };
+
+    var composed = BlockTraceService.Trace("ip", "203.0.113.9", ledger, feed);
+    Check("trace: compose keeps the captured decision (not inferred)",
+          composed.Decision != null && !composed.DecisionInferred &&
+          composed.Decision.Actor == "user:monitor");
+    Check("trace: lifecycle carries decided + created for the key",
+          composed.Lifecycle.Any(e => e.Action == "decided") &&
+          composed.Lifecycle.Any(e => e.Action == "created"));
+    Check("trace: hits join per instance and only for this key",
+          composed.Instances.Count == 1 && composed.Instances[0].Pid == 1044 &&
+          composed.Instances[0].Attempts == 2 &&
+          composed.Instances[0].ProcessGuid == "G2BBBB-2",
+          $"instances={composed.Instances.Count} first={(composed.Instances.Count > 0 ? composed.Instances[0].Pid.ToString() : "-")}");
+    Check("trace: svchost instance decoded from the archive command line",
+          composed.Instances[0].SvchostId.Contains("WpnService") &&
+          composed.Instances[0].SvchostId.Contains("netsvcs") &&
+          composed.Instances[0].User == "NT AUTHORITY\\System" &&
+          composed.Instances[0].IdentitySource == "archive",
+          composed.Instances[0].SvchostId);
+    Check("trace: summary speaks plain English with the local created time",
+          composed.Summary.Contains("Blocked") && !composed.Summary.Contains("0001"),
+          composed.Summary);
+
+    // 18c. Inference for a pre-capture block: no decided line exists, the
+    //      newest archived attempt at-or-before creation becomes the honest,
+    //      marked-inferred trigger.
+    var ledger2 = new BlocksLedger(Path.Combine(traceDir, "store2"));
+    ledger2.Load();
+    ledger2.AddOrUpdate(new BlockRecord
+    {
+        Kind = "ip", Key = "198.51.100.5", ProcessName = "svc.exe",
+        ClassAtBlock = "Unclassified", Origin = "monitor",
+        CreatedUtc = new DateTime(2026, 11, 18, 15, 5, 30, DateTimeKind.Utc),
+        StatusUtc = new DateTime(2026, 11, 18, 15, 5, 30, DateTimeKind.Utc),
+    }, "monitor");
+
+    var inferred = BlockTraceService.Trace("ip", "198.51.100.5", ledger2,
+        Array.Empty<BlockHitFeedService.BlockHit>());
+    Check("trace: pre-capture block infers its trigger from the archive",
+          inferred.Decision != null && inferred.DecisionInferred &&
+          inferred.Decision.TriggerPid == 5852 &&
+          inferred.Instances.Count > 0 &&
+          string.IsNullOrEmpty(inferred.InferredNote) == false,
+          $"pid={inferred.Decision?.TriggerPid} note={inferred.InferredNote}");
+    Check("trace: inference stays inside the trigger grace (no future attempts)",
+          // the 15:20 attempt (pid 999) is outside created+5m — the inference
+          // must name the EARLIER attempt's instance, never the later one
+          inferred.Decision.TriggerPid == 5852 && inferred.Decision.TriggerPid != 999 &&
+          inferred.Decision.RowSnapshot.Contains("443/udp"),
+          inferred.Decision.RowSnapshot);
+
+    // TryBackfill persists the inference exactly once (dedup-guarded)
+    BlockTraceService.TryBackfill(inferred, ledger2);
+    BlockTraceService.TryBackfill(inferred, ledger2);
+    int backfills = File.ReadAllLines(ledger2.EventLogPath)
+        .Count(l => l.Contains("198.51.100.5") && l.Contains("trace-backfill"));
+    Check("trace: TryBackfill writes exactly one attributed line",
+          backfills == 1, $"count={backfills}");
+
+    // 18d. A removed block traces its history without a record
+    ledger.Remove("ip", "203.0.113.9", "monitor");
+    var removedTrace = BlockTraceService.Trace("ip", "203.0.113.9", ledger, feed);
+    Check("trace: removed block keeps its lifecycle and marks the removal",
+          removedTrace.Record == null && removedTrace.RemovedUtc != null &&
+          removedTrace.Lifecycle.Any(e => e.Action == "removed") &&
+          removedTrace.Summary.Contains("removed"),
+          removedTrace.Summary);
+}
+finally
+{
+    AutoCommand.Engines.Watch.SysmonArchiveService.ArchiveDirectory = null;   // restore the real archive root
+    try { Directory.Delete(traceDir, true); } catch { }
+}
+
 Console.WriteLine();
 Console.WriteLine(failures == 0 ? "ALL CONTAIN SELF-TESTS PASSED" : $"{failures} CHECK(S) FAILED");
 return failures == 0 ? 0 : 1;

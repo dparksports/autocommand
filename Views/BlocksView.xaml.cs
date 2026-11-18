@@ -1979,6 +1979,18 @@ namespace AutoCommand.Views
             return 0;
         }
 
+        /// <summary>The trace-back drill-down: one window, the full provenance
+        /// (decision, lifecycle, hitting instances). Read-only except for the
+        /// composer's one dedup-guarded "attributed" line when it had to infer
+        /// the trigger from the archive — that write is a user-surface
+        /// privilege the bridge's read tools deliberately lack.</summary>
+        private void RowTrace_Click(object sender, RoutedEventArgs e)
+        {
+            if ((sender as FrameworkElement)?.Tag is not BlockRowVm vm) return;
+            var win = new BlockTraceWindow(vm.Record.Kind, vm.Record.Key) { Owner = Window.GetWindow(this) };
+            win.ShowDialog();
+        }
+
         private async void RowRemove_Click(object sender, RoutedEventArgs e)
         {
             if ((sender as FrameworkElement)?.Tag is not BlockRowVm vm) return;

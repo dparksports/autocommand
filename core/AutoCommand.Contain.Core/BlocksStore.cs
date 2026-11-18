@@ -409,8 +409,14 @@ namespace AutoCommand.Contain.Core
         // ── writes ────────────────────────────────────────────────────────
 
         /// <summary>Inserts or refreshes one block. Re-blocking the same key
-        /// keeps the original CreatedUtc (history) but updates identity.</summary>
-        public void AddOrUpdate(BlockRecord record, string origin = "monitor")
+        /// keeps the original CreatedUtc (history) but updates identity.
+        /// <paramref name="decision"/> is the block-time evidence (who chose
+        /// it, which process instance, what the row showed) — surfaces that
+        /// have it pass it, and it lands as the "decided" event line right
+        /// before the "created" line, so the trail reads decided → created.
+        /// Null (reconcile, migration, domain-sync) writes no decision: those
+        /// are bookkeeping, not choices.</summary>
+        public void AddOrUpdate(BlockRecord record, string origin = "monitor", BlockDecision decision = null)
         {
             if (record == null || string.IsNullOrEmpty(record.Key)) return;
             lock (_gate)
@@ -426,6 +432,8 @@ namespace AutoCommand.Contain.Core
                 }
                 else _records.Add(record);
                 Save();
+                if (decision != null)
+                    AppendEvent("decided", record.Kind, record.Key, decision.ToString(), origin);
                 AppendEvent("created", record.Kind, record.Key,
                     $"{record.ServiceKey}|{record.ClassAtBlock}", origin);
             }
@@ -671,6 +679,7 @@ namespace AutoCommand.Contain.Core
         public static bool TryParseServiceFromDescription(string desc, out string serviceKey, out string displayName)
             => _default.TryParseServiceFromDescription(desc, out serviceKey, out displayName);
         public static void AddOrUpdate(BlockRecord record, string origin = "monitor") => _default.AddOrUpdate(record, origin);
+        public static void AddOrUpdate(BlockRecord record, string origin, BlockDecision decision) => _default.AddOrUpdate(record, origin, decision);
         public static void Remove(string kind, string key, string origin = "monitor") => _default.Remove(kind, key, origin);
         public static int RemoveForExeName(string exeName, string origin = "monitor") => _default.RemoveForExeName(exeName, origin);
         public static void SetStatus(string kind, string key, string status, string origin = "blocks-tab") => _default.SetStatus(kind, key, status, origin);

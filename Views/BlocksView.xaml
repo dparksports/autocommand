@@ -387,6 +387,9 @@
                                                    Foreground="{Binding ContainmentBrush}" VerticalAlignment="Center"
                                                    ToolTip="{Binding ContainmentToolTip}"/>
                                         <StackPanel Grid.Column="8" Orientation="Horizontal" HorizontalAlignment="Right" VerticalAlignment="Center">
+                                            <Button Content="Trace" Click="RowTrace_Click" Tag="{Binding}"
+                                                    Padding="8,2" FontSize="11" Margin="0,0,6,0"
+                                                    ToolTip="The full provenance: when this was blocked, the decision evidence (who chose it, which process instance triggered it — svchost resolved to its service), the lifecycle, and every process instance that hit it"/>
                                             <Button Content="{Binding RowActionLabel}" Click="RowToggle_Click" Tag="{Binding}"
                                                     Padding="8,2" FontSize="11" Margin="0,0,6,0"
                                                    />

@@ -221,6 +221,20 @@ namespace AutoCommand.Agent.Core
                 a => VerifyBlockContainment(a)),
 
             new Tool(
+                "trace_block",
+                "The full provenance of ONE blocked target in a single call: the block-time decision — who chose it " +
+                "(user surface / actor), which process instance triggered it, with svchost instances resolved to their " +
+                "hosted service — the blocks-events.log lifecycle (created, paused, removed, recreated), and the process " +
+                "instances that have hit it since, each with its Sysmon ProcessGuid, command line, parent and user. " +
+                "Blocks that predate decision capture get their trigger joined from the Sysmon archive and are marked " +
+                "'inferred' — evidence, not a snapshot. Read-only: unlike the Trace window this never writes an " +
+                "attributed line back. This is the trace-back for 'when was this IP blocked and by what'.",
+                Schema(("key", "Blocked target to trace: a remote IP (kind ip) or an executable path (kind proc)", true),
+                       ("kind", "\"ip\" or \"proc\" — inferred from the key when omitted (an IP address is kind ip)", false)),
+                false,
+                a => TraceBlock(a)),
+
+            new Tool(
                 "audit_block_duplicates",
                 "Read-only duplicate audit of AutoCommand's block rules: per target, how many rules are " +
                 "exact duplicates of another (same rule name — and for process rules, the same image " +
@@ -830,6 +844,101 @@ namespace AutoCommand.Agent.Core
         private static void EnsureFeedStarted()
         {
             try { BlockHitFeedService.Instance.Start(); } catch { }
+        }
+
+        /// <summary>trace_block: the whole trace-back compose (BlockTraceService)
+        /// rendered as JSON — the same evidence the Blocks tab's Trace window
+        /// shows, in the shape an agent can reason over. Strictly read-only;
+        /// the archive-inferred decision is marked inferred and nothing is
+        /// written back (TryBackfill stays a user-surface action).</summary>
+        private static string TraceBlock(JsonObject a)
+        {
+            string key = a["key"]?.GetValue<string>()?.Trim() ?? "";
+            if (key.Length == 0)
+                return ToJson(new JsonObject
+                {
+                    ["error"] = "provide the target to trace — an IP address (kind ip) or an executable path (kind proc). " +
+                                "See list_blocks for the current inventory."
+                });
+
+            string kind = a["kind"]?.GetValue<string>()?.Trim().ToLowerInvariant() ?? "";
+            if (kind != "ip" && kind != "proc")
+                kind = System.Net.IPAddress.TryParse(key, out _) ? "ip" : "proc";
+
+            EnsureFeedStarted();
+            var t = BlockTraceService.Trace(kind, key);
+
+            var o = new JsonObject
+            {
+                ["type"] = "block_trace",
+                ["kind"] = t.Kind,
+                ["key"] = t.Key,
+                ["in_ledger"] = t.Record != null,
+                ["created"] = t.Record?.CreatedUtc.ToString("yyyy-MM-dd HH:mm") ??
+                              t.CreatedUtc?.ToLocalTime().ToString("yyyy-MM-dd HH:mm") ?? "unknown",
+                ["status"] = t.Record?.Status ?? "removed",
+                ["summary"] = t.Summary,
+            };
+            if (t.Record != null)
+                o["identity"] = new JsonObject
+                {
+                    ["service_key"] = t.Record.ServiceKey,
+                    ["service_display"] = t.Record.SvcDisplayName,
+                    ["class_at_block"] = t.Record.ClassAtBlock,
+                    ["origin"] = t.Record.Origin,
+                    ["attrib"] = t.Record.Attrib,
+                };
+
+            if (t.Decision != null)
+            {
+                var d = new JsonObject
+                {
+                    ["actor"] = t.Decision.Actor,
+                    ["inferred"] = t.DecisionInferred,
+                    ["trigger_pid"] = t.Decision.TriggerPid,
+                    ["image"] = t.Decision.Image,
+                    ["svchost_id"] = t.Decision.SvchostId,
+                    ["row_snapshot"] = t.Decision.RowSnapshot,
+                };
+                if (t.DecisionInferred) d["note"] = t.InferredNote;
+                o["decision"] = d;
+            }
+
+            var lc = new JsonArray();
+            foreach (var e in t.Lifecycle)
+                lc.Add(new JsonObject
+                {
+                    ["utc"] = e.TimeUtc.ToString("yyyy-MM-dd HH:mm:ss"),
+                    ["action"] = e.Action,
+                    ["detail"] = e.Detail,
+                    ["origin"] = e.Origin,
+                });
+            o["lifecycle"] = lc;
+
+            var inst = new JsonArray();
+            foreach (var i in t.Instances)
+                inst.Add(new JsonObject
+                {
+                    ["process"] = i.Process,
+                    ["pid"] = i.Pid,
+                    ["guid"] = string.IsNullOrEmpty(i.ProcessGuid) ? null : i.ProcessGuid,
+                    ["attempts"] = i.Attempts,
+                    ["first"] = i.FirstUtc.ToLocalTime().ToString("HH:mm:ss"),
+                    ["last"] = i.LastUtc.ToLocalTime().ToString("HH:mm:ss"),
+                    ["destinations"] = i.Destinations,
+                    ["svchost_id"] = string.IsNullOrEmpty(i.SvchostId) ? null : i.SvchostId,
+                    ["corroboration"] = string.IsNullOrEmpty(i.SvchostCorroboration) ? null : i.SvchostCorroboration,
+                    ["command_line"] = string.IsNullOrEmpty(i.CommandLine) ? null : i.CommandLine,
+                    ["parent_image"] = string.IsNullOrEmpty(i.ParentImage) ? null : i.ParentImage,
+                    ["user"] = string.IsNullOrEmpty(i.User) ? null : i.User,
+                    ["identity_source"] = i.IdentitySource,
+                });
+            o["instances"] = inst;
+
+            if (t.Instances.Count > 0)
+                o["note"] = "Instances join by Sysmon ProcessGuid, so identities survive PID recycling and process exit. " +
+                            "Compose with verify_block_containment to prove the same instances are still silent.";
+            return ToJson(o);
         }
 
         private static string AuditBlockDuplicates()
