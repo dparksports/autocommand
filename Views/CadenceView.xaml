@@ -46,6 +46,12 @@
                        VerticalAlignment="Center"/>
             <TextBlock x:Name="ScanStatusText" VerticalAlignment="Center" Margin="18,0,0,0"
                        Foreground="{DynamicResource MutedTextBrush}"/>
+            <Button x:Name="RefreshButton" Content="refresh now" Margin="12,0,0,0" VerticalAlignment="Center"
+                    Click="RefreshNow_Click"
+                    ToolTip="Rescan the Sysmon archive right now. Safe to click any time — concurrent scans collapse into the running one."/>
+            <Button x:Name="VerifyButton" Content="verify last 15 min" Margin="8,0,0,0" VerticalAlignment="Center"
+                    Click="Verify_Click"
+                    ToolTip="Cross-check the counts: raw svchost connection rows in the archive vs the packets the Exfil scanner attributed to DiagTrack, over the last 15 minutes."/>
         </StackPanel>
 
         <!-- 7-day × 24-hour matrix -->
@@ -68,6 +74,8 @@
             <TextBlock x:Name="VerdictText" TextWrapping="Wrap"
                        Foreground="{DynamicResource TextPrimaryBrush}"/>
             <TextBlock x:Name="TypingLockedText" TextWrapping="Wrap" Margin="0,2,0,0"
+                       Foreground="{DynamicResource TextSecondaryBrush}"/>
+            <TextBlock x:Name="VerifyText" TextWrapping="Wrap" Margin="0,6,0,0"
                        Foreground="{DynamicResource TextSecondaryBrush}"/>
         </StackPanel>
     </Grid>

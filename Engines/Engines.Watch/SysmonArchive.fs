@@ -517,6 +517,14 @@ type SysmonArchiveService private () =
                     BufferedAppender.Flush(path))
         with _ -> ()
 
+    /// <summary>Flushes the archive's managed append buffers to disk. The
+    /// readers inside this service flush implicitly before every read;
+    /// this is for direct file readers outside it — the Exfil tab's
+    /// DiagTrack scanner walks the day files by byte offset — so they see
+    /// buffered lines too, instead of waiting on the disk-flush instrument.</summary>
+    static member FlushBuffersToDisk () : unit =
+        SysmonArchiveService.flushArchiveBuffers ()
+
     static member private newestBy(eid: int,
                                    wanted: HashSet<string>,
                                    keyOf: Func<ArchiveEvent, string>,

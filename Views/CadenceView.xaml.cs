@@ -1,6 +1,7 @@
 using System;
 using System.Collections.Generic;
 using System.Linq;
+using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Data;
@@ -67,6 +68,82 @@ namespace AutoCommand.Views
 
         // ── wiring ───────────────────────────────────────────────────────
 
+        private void RefreshNow_Click(object sender, RoutedEventArgs e)
+        {
+            // flip the status line immediately, then scan off the UI
+            // thread — ScanNow raises Changed, which reloads the view
+            // when the pass lands. Re-clicks are harmless: concurrent
+            // ScanNow calls collapse into the running one.
+            Reload();
+            _ = Task.Run(() => Services.DiagTrackPacketsService.Instance.ScanNow());
+        }
+
+        /// <summary>The "actual vs reported" cross-check, in-app: Search
+        /// re-reads the archive fresh (it flushes the archive's buffers
+        /// first, so it sees the freshest lines), and every svchost
+        /// EID-3 row is bucketed against what the Exfil scanner counted.
+        /// The buckets are honest about what counts alone cannot split:
+        /// an unknown guid is another svchost service (bits, dosvc…) or
+        /// an unlearned utcsvc instance — either way the matrix stays
+        /// conservative, never overclaiming.</summary>
+        private void Verify_Click(object sender, RoutedEventArgs e)
+        {
+            VerifyButton.IsEnabled = false;
+            VerifyText.Text = "verifying — streaming the archive for the last 15 minutes…";
+
+            var diag = Services.DiagTrackPacketsService.Instance;
+            _ = Task.Run(() =>
+            {
+                string text;
+                try
+                {
+                    var sinceUtc = DateTime.UtcNow.AddMinutes(-15);
+                    var rows = SysmonArchiveService.Search(3, "svchost", sinceUtc, int.MaxValue);
+
+                    int raw = 0, knownGuid = 0;
+                    foreach (var e in rows)
+                    {
+                        // `contains` prefilters on any data value —
+                        // ParentImage matches too — so the Image check is
+                        // the actual identity test
+                        if (!e.Data.TryGetValue("Image", out var img) ||
+                            img.IndexOf("svchost", StringComparison.OrdinalIgnoreCase) < 0)
+                            continue;
+                        raw++;
+                        if (e.Data.TryGetValue("ProcessGuid", out var g) && diag.IsKnownDiagGuid(g))
+                            knownGuid++;
+                    }
+
+                    var attributed = diag.RecentCount(TimeSpan.FromMinutes(15));
+                    var unknown = raw - knownGuid;
+                    var lagging = knownGuid - attributed;
+
+                    string verdict;
+                    if (attributed > knownGuid)
+                        verdict = "attributed exceeds the archive read — a rescan raced this check; verify again.";
+                    else if (lagging > 0)
+                        verdict = $"{lagging} row(s) are countable but not ingested yet — the scanner is behind the archive; click refresh now.";
+                    else if (raw == 0)
+                        verdict = "no svchost connection rows in this window — nothing to reconcile.";
+                    else
+                        verdict = "the scanner is in sync — rows outside DiagTrack are other svchost services by guid, and the matrix never overclaims.";
+
+                    text = $"verify last 15 min — archive: {raw} svchost connection row(s) · " +
+                           $"attributed to DiagTrack: {attributed} · unknown guid: {unknown}" +
+                           Environment.NewLine + verdict;
+                }
+                catch
+                {
+                    text = "verify failed — the archive read could not complete; try again.";
+                }
+                Dispatcher.BeginInvoke(() =>
+                {
+                    VerifyButton.IsEnabled = true;
+                    VerifyText.Text = text;
+                });
+            });
+        }
+
         private void ConsentToggle_Checked(object sender, RoutedEventArgs e)
         {
             if (_syncingToggle) return;
@@ -113,14 +190,40 @@ namespace AutoCommand.Views
                 BuildStrips(packets, keys);
                 BuildVerdict(packets, covered, keys);
 
-                ScanStatusText.Text = diag.FirstScanComplete
-                    ? $"archive scanned ({diag.ScanDaysDone}/{diag.ScanDaysTotal} day files)"
-                    : $"scanning archive… {diag.ScanDaysDone}/{diag.ScanDaysTotal} day files";
+                ScanStatusText.Text = BuildScanStatus(diag);
             }
             catch
             {
                 // a tab must never take the app down over a refresh
             }
+        }
+
+        /// <summary>One line answering "is this pipeline live?": scan
+        /// cadence and next pass (so a stale view is diagnosable as "the
+        /// instrument is slow or disabled", not "data is missing"), plus
+        /// the newest ingested packet time.</summary>
+        private static string BuildScanStatus(Services.DiagTrackPacketsService diag)
+        {
+            if (!diag.FirstScanComplete)
+                return $"scanning archive… {diag.ScanDaysDone}/{diag.ScanDaysTotal} day files";
+
+            var newest = diag.NewestEventLocal();
+            var newestText = newest == null ? "no packets yet" : "newest packet " + newest.Value.ToString("HH:mm");
+            var tail = $"archive scanned ({diag.ScanDaysDone}/{diag.ScanDaysTotal} day files) · {newestText}";
+
+            var st = Services.InstrumentMetronome.Instance.Snapshot()
+                .FirstOrDefault(s => s.Spec.Id == "diagtrack-cadence-scan");
+            if (st == null) return tail;
+            if (!st.Enabled)
+                return tail + " · scan DISABLED in Settings → instruments";
+
+            var paused = st.Paused ? " · paused" : "";
+            var cadence = st.Seconds >= 60 ? $"{st.Seconds / 60}m" : $"{st.Seconds}s";
+            var next = st.NextRunUtc - DateTime.UtcNow;
+            var nextText = next.TotalSeconds <= 0 ? "next: now"
+                : next.TotalMinutes < 1 ? $"next in {(int)Math.Ceiling(next.TotalSeconds)}s"
+                : $"next in {(int)Math.Ceiling(next.TotalMinutes)}m";
+            return $"{tail} · scan every {cadence}{paused} · {nextText}";
         }
 
         // ── matrix: one column per day, each cell split in half ──────────

@@ -77,10 +77,14 @@ namespace AutoCommand.Services
 
         private sealed class DiagEvent
         {
-            public DateTime TsLocal;
-            public string Guid = "";
-            public string Ip = "";
-            public long Rid;
+            // Properties, not public fields: System.Text.Json ignores
+            // fields by default, so the JSONL persistence silently wrote
+            // `{}` for every event (nothing round-tripped, and rid dedupe
+            // across restarts silently did nothing).
+            public DateTime TsLocal { get; set; }
+            public string Guid { get; set; } = "";
+            public string Ip { get; set; } = "";
+            public long Rid { get; set; }
         }
 
         // ── lifecycle ────────────────────────────────────────────────────
@@ -123,6 +127,12 @@ namespace AutoCommand.Services
             {
                 if (!entered) return;
                 LoadEventsFile();
+                // This scanner is a direct byte-offset reader, so it must
+                // flush the archive's managed append buffers first — the
+                // same read-side consistency every Engines.Watch reader
+                // gets — or the freshest appended lines are invisible
+                // until the disk-flush instrument next runs.
+                SysmonArchiveService.FlushBuffersToDisk();
                 ScanArchive();
                 RaiseChanged();
             }
@@ -157,6 +167,13 @@ namespace AutoCommand.Services
                     lock (_gate)
                     {
                         if (e.Rid <= 0 || _seenRids.Add(e.Rid)) _events.Add(e);
+                        // Rebuild the attribution set from persisted
+                        // packets too: _diagGuids otherwise only grows
+                        // from EID-1 lines in freshly-scanned archive
+                        // bytes, so anything learned in a previous
+                        // session (and every packet from that instance
+                        // until its next restart) would drop on the floor.
+                        if (e.Guid.Length > 0) _diagGuids.Add(e.Guid);
                     }
                 }
             }
@@ -323,6 +340,47 @@ namespace AutoCommand.Services
         }
 
         // ── read model for the view ──────────────────────────────────────
+
+        /// <summary>Local time of the newest ingested DiagTrack packet, or
+        /// null when nothing has been ingested inside the retention
+        /// window. The status line pairs this with the scan cadence so a
+        /// stale view reads as "pipeline state", not "missing data".</summary>
+        public DateTime? NewestEventLocal()
+        {
+            lock (_gate)
+            {
+                DateTime? newest = null;
+                foreach (var e in _events)
+                    if (newest == null || e.TsLocal > newest.Value) newest = e.TsLocal;
+                return newest;
+            }
+        }
+
+        /// <summary>Attributed DiagTrack packets ingested within the
+        /// trailing window — what the matrix and strips sum to for that
+        /// span. The verify affordance compares this against a fresh
+        /// archive read of the same window.</summary>
+        public int RecentCount(TimeSpan window)
+        {
+            var cutoff = DateTime.Now - window;
+            lock (_gate)
+            {
+                int n = 0;
+                foreach (var e in _events)
+                    if (e.TsLocal >= cutoff) n++;
+                return n;
+            }
+        }
+
+        /// <summary>Whether an EID-3 row's ProcessGuid belongs to a
+        /// utcsvc instance this scanner has learned (from an in-window
+        /// EID-1 or a previously ingested packet). Unknown guid = the row
+        /// is another svchost service, or an unlearned utcsvc instance.</summary>
+        public bool IsKnownDiagGuid(string guid)
+        {
+            if (string.IsNullOrEmpty(guid)) return false;
+            lock (_gate) return _diagGuids.Contains(guid);
+        }
 
         /// <summary>Local day ("yyyy-MM-dd") → 24 hourly packet counts, for
         /// days inside the retention window. Days absent = nothing recorded.</summary>
