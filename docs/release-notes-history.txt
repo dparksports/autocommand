@@ -17,6 +17,61 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.18.3 (2026-11-18)
+================================================================================
+
+# v2026.11.18.3 — the guard stopped polling and started listening
+
+**The BITS job guard shipped this morning woke up on a two-second clock:
+between sweeps, a foreign destination was invisible, and the worst case
+was the window, not the wire. This release replaces the cadence with the
+event streams that were already flowing past it. A Sysmon EID 3 connect
+from a guarded instance is now handled the moment the archive appends it
+— per-IP rule installed within milliseconds, the live socket torn down
+in the same breath, so the first handshake escapes and nothing else
+does. BITS announces job lifecycle on its own event channel, and the
+guard subscribes: a queued foreign job is canceled while it is still
+queued, typically before BITS' scheduler ever picks it up. The two-
+second sweep survives as a fifteen-second backstop — it no longer
+defines the guard's latency, only its worst-case correctness.**
+
+## CHANGED — the guard is event-driven
+
+- One intake, two reactions: the Sysmon archive's Appended hook now
+  feeds the guard both spawn (EID 1) and connect (EID 3) events, drained
+  by a dedicated consumer the instant they land — signal-woken, not
+  clock-polled, with the handler still enqueue-and-return under the
+  archive lock.
+- The flow push: an EID 3 whose ProcessGuid matches a guarded instance
+  (PID fallback for a lost spawn event) classifies the destination
+  immediately — foreign means the per-IP AC-BLOCK rule lands within
+  milliseconds (kernel enforcement from the first retry), the store
+  records the block with a "decided" line (actor job-guard, trigger
+  pid/start, what the event showed), and SetTcpEntry kills the
+  just-established socket in the same breath.
+- The job push: an EventLogWatcher on the Microsoft-Windows-Bits-Client
+  Operational channel signals a targeted job sweep on every BITS
+  lifecycle event — cancellation now typically lands while the job is
+  still queued. Channel missing or disabled: the exception is absorbed
+  and the backstop keeps correctness.
+- Flood safety is designed in: private/LAN/loopback/multicast
+  destinations are never foreign (a guard that blocks the home gateway
+  is a guard that breaks the machine it lives on), verdicts are cached,
+  retries to a destination emit one trail line per minute, and a scan
+  storm is capped at eight new rules per rolling minute — beyond the
+  cap the socket belt still kills flows and one aggregated line says
+  so.
+- Policy re-reads are cached to one-second granularity, so a hand edit
+  of bits_guard_pref.txt still takes effect immediately without
+  turning per-event handling into disk reads.
+
+## ALSO IN THE REPO
+
+- An end-user infographic set (Assets/infographics/end-user/) and a
+  rewritten front page (README.draft.md) landed for review — committed,
+  not yet promoted to README.md.
+
+================================================================================
 v2026.11.18.2 (2026-11-18)
 ================================================================================
 
