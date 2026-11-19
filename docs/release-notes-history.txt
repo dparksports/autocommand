@@ -65,6 +65,22 @@ defines the guard's latency, only its worst-case correctness.**
   of bits_guard_pref.txt still takes effect immediately without
   turning per-event handling into disk reads.
 
+## NEW IN THE ENGINE — the AutoCommand Light foundation
+
+- The engines now carry a second identity: **AutoCommand Light**, a
+  novice-facing sibling shell — its own data root
+  (%LOCALAPPDATA%\AutoCommandLight), its own AL-BLOCK rule names, no
+  MCP bridge of its own. The Light shell itself lands separately; this
+  release is the engine ground it will stand on
+  (Identity.light() / Naming.light()).
+- **Mutual adoption, in place**: AutoCommand adopts Light's
+  AL-BLOCK-IP / AL-BLOCK-APP rules (Light never service-scopes, so
+  there is no AL-BLOCK-SVC prefix to adopt), and Light adopts
+  AutoCommand's whole AC-BLOCK family — either app's panic button and
+  Blocks list cover the full install. Inert until a Light install
+  exists: nothing on a current machine changes unless AL-BLOCK rules
+  are already present.
+
 ## ALSO IN THE REPO
 
 - An end-user infographic set (Assets/infographics/end-user/) and a
