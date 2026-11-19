@@ -99,6 +99,50 @@
                 <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
             </Style>
 
+            <!-- the sidebar nav item: kills the default WPF tab chrome
+                 (light gradient pills whose hard-coded backgrounds wrecked
+                 text contrast in dark). Grammar matches the segmented
+                 control: transparent at rest, themed hover tint, selected
+                 lifts onto a surface card. Header text stays the themed
+                 TextPrimaryBrush in every state (the implicit TextBlock
+                 style), so contrast is guaranteed in both palettes. -->
+            <Style x:Key="NavItem" TargetType="TabItem">
+                <Setter Property="Foreground" Value="{DynamicResource TextPrimaryBrush}"/>
+                <Setter Property="Background" Value="Transparent"/>
+                <Setter Property="BorderThickness" Value="0"/>
+                <Setter Property="Cursor" Value="Hand"/>
+                <Setter Property="Padding" Value="12,9"/>
+                <Setter Property="Margin" Value="8,2"/>
+                <Setter Property="SnapsToDevicePixels" Value="True"/>
+                <Setter Property="Template">
+                    <Setter.Value>
+                        <ControlTemplate TargetType="TabItem">
+                            <Border x:Name="bd" Background="{TemplateBinding Background}"
+                                    CornerRadius="9" Padding="{TemplateBinding Padding}">
+                                <ContentPresenter ContentSource="Header"
+                                                  HorizontalAlignment="Left"
+                                                  VerticalAlignment="Center"
+                                                  RecognizesAccessKey="True"/>
+                            </Border>
+                            <ControlTemplate.Triggers>
+                                <Trigger Property="IsMouseOver" Value="True">
+                                    <Setter TargetName="bd" Property="Background"
+                                            Value="{DynamicResource RowHoverBrush}"/>
+                                </Trigger>
+                                <Trigger Property="IsSelected" Value="True">
+                                    <Setter TargetName="bd" Property="Background"
+                                            Value="{DynamicResource SurfaceBrush}"/>
+                                    <Setter TargetName="bd" Property="BorderBrush"
+                                            Value="{DynamicResource BorderBrush}"/>
+                                    <Setter TargetName="bd" Property="BorderThickness" Value="1"/>
+                                    <Setter Property="FontWeight" Value="SemiBold"/>
+                                </Trigger>
+                            </ControlTemplate.Triggers>
+                        </ControlTemplate>
+                    </Setter.Value>
+                </Setter>
+            </Style>
+
             <!-- the segmented control's segment: transparent until chosen,
                  then it lifts onto a themed surface -->
             <Style x:Key="SegmentItem" TargetType="RadioButton">

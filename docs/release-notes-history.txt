@@ -17,6 +17,27 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.18.7 (2026-11-19)
+================================================================================
+
+# v2026.11.18.7 — the sidebar reads in the dark
+
+**The default WPF tab chrome painted near-white pills with hard-coded
+backgrounds, and in the dark palette that put light text on light chrome —
+exactly the contrast failure a HIG design is not allowed to have. The
+sidebar is now owned chrome: a themed NavItem style whose states match the
+segmented control's grammar (transparent at rest, themed hover tint,
+selected lifts onto a surface card with a hairline border), the TabControl's
+content chrome flattened to the palette's canvas, and header text pinned to
+the themed primary brush in every state and both palettes.**
+
+## FIXED
+
+- Sidebar navigation text contrast in dark theme (and hover/selected states
+  in both themes): themed backgrounds under themed text — light pill chrome
+  is gone from the gatekeeper's sidebar.
+
+================================================================================
 v2026.11.18.6 (2026-11-18)
 ================================================================================
 

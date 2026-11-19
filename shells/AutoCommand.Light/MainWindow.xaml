@@ -4,6 +4,7 @@
         xmlns:views="clr-namespace:AutoCommand.Light.Views"
         x:Name="RootWindow"
         Title="AutoCommand Light"
+        Background="{DynamicResource BackgroundBrush}"
         Height="720" Width="1040"
         MinWidth="720" MinHeight="480"
         WindowStartupLocation="CenterScreen"
@@ -15,9 +16,10 @@
             <RowDefinition Height="Auto"/>
         </Grid.RowDefinitions>
 
-        <TabControl x:Name="MainTabs" Grid.Row="0" TabStripPlacement="Left" SelectedIndex="0">
+        <TabControl x:Name="MainTabs" Grid.Row="0" TabStripPlacement="Left" SelectedIndex="0"
+                Background="{DynamicResource BackgroundBrush}" BorderThickness="0">
 
-            <TabItem x:Name="TodayNavItem">
+            <TabItem x:Name="TodayNavItem" Style="{StaticResource NavItem}">
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="🛡" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
@@ -27,7 +29,7 @@
                 <views:TodayView x:Name="TodayTab"/>
             </TabItem>
 
-            <TabItem x:Name="AppsNavItem">
+            <TabItem x:Name="AppsNavItem" Style="{StaticResource NavItem}">
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="🧩" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
@@ -37,7 +39,7 @@
                 <views:AppsView x:Name="AppsTab"/>
             </TabItem>
 
-            <TabItem x:Name="AttemptsNavItem">
+            <TabItem x:Name="AttemptsNavItem" Style="{StaticResource NavItem}">
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="🧾" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
@@ -47,7 +49,7 @@
                 <views:AttemptsView x:Name="AttemptsTab"/>
             </TabItem>
 
-            <TabItem x:Name="HelpNavItem">
+            <TabItem x:Name="HelpNavItem" Style="{StaticResource NavItem}">
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="💬" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
@@ -57,7 +59,7 @@
                 <views:HelpView x:Name="HelpTab"/>
             </TabItem>
 
-            <TabItem x:Name="SettingsNavItem">
+            <TabItem x:Name="SettingsNavItem" Style="{StaticResource NavItem}">
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="⚙" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
