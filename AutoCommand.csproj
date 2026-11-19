@@ -195,6 +195,15 @@
          chat/completions server and a temp data root (own Main(), same
          glob reason as every side project) -->
     <Compile Remove="tests\DirectChatSelfTest\**" />
+    <!-- AutoCommand Light: the plain-language product core (product\) and
+         its novice-facing WPF shell (shells\AutoCommand.Light) build
+         through their own ProjectReferences — same glob reason as core\,
+         MatrixRain\ and ShieldsUp\ (duplicate types in the WPF _wpftmp
+         pass otherwise). LightCoreSelfTest follows the same side-project
+         pattern as every other tests\ suite. -->
+    <Compile Remove="product\**" />
+    <Compile Remove="shells\**" />
+    <Compile Remove="tests\LightCoreSelfTest\**" />
   </ItemGroup>
 
   <!-- Filter out Linux .so native binaries when publishing for Windows win-x64 -->
