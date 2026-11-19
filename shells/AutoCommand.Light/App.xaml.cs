@@ -46,6 +46,14 @@ namespace AutoCommand.Light
             LightTheme.Initialize();
             LightGate.Initialize();
 
+            // the interactive-use courtesy: the gate asks the window probe
+            // whether the person is driving an app before it decides how
+            // loudly to raise a hold (balloon for user-driven, digest for
+            // unattended) — the answer never decides anything by itself
+            LightGate.InteractiveProbe = key => WindowProbe.IsUserDriven(key, ParentImageOf(key));
+            LightGate.HoldRaised += (key, display) => Dispatcher.BeginInvoke(new Action(() =>
+                _tray?.NotifyHold(display)));
+
             // Kernel-side denial telemetry (WFP 5157 audit): the ground
             // truth the gate's "attempts stopped" numbers rest on.
             FirewallDenyWatchService.Instance.Start();
@@ -104,6 +112,16 @@ namespace AutoCommand.Light
             _tray?.Dispose();
             LightServices.Shutdown();
             base.OnExit(e);
+        }
+
+        private static string? ParentImageOf(string key)
+        {
+            foreach (var row in LightServices.Tracked.Values)
+            {
+                if (AutoCommand.Light.Core.PermissionStore.NormalizeKey(row.ProcessName) == key)
+                    return row.ParentImage;
+            }
+            return null;
         }
 
         private static void LogCrash(Exception ex, string source)

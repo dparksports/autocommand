@@ -200,7 +200,14 @@ namespace AutoCommand.Views
             set { if (!ReferenceEquals(_containmentBrush, value)) { _containmentBrush = value; Notify(nameof(ContainmentBrush)); } }
         }
 
-        public string RowActionLabel => HasDisabledRules || !RulesEnabled ? "Restore blocking" : "Stop blocking";
+        /// <summary>"Restore (re-create)" for rule-less-but-restorable rows
+        /// (imported ledger) — the click rebuilds rules rather than flipping
+        /// existing ones. "Not restorable" when even that is impossible
+        /// (the program path is gone): the row's Remove button is the way
+        /// out, and pressing this button only explains why.</summary>
+        public string RowActionLabel => !HasRules
+            ? (BlocksView.CanRecreate(Record) ? "Restore (re-create)" : "Not restorable")
+            : HasDisabledRules || !RulesEnabled ? "Restore blocking" : "Stop blocking";
     }
 
     public sealed class BlockGroupVm
@@ -252,7 +259,7 @@ namespace AutoCommand.Views
 
     public partial class BlocksView : UserControl
     {
-        private enum BlockFilter { All, Active, Paused, Partial, HighImpact, Unattributed, MsInfra }
+        private enum BlockFilter { All, Active, Paused, Partial, HighImpact, Unattributed, MsInfra, NotEnforced }
 
         /// <summary>User-chosen row order for the detail pane. Default is
         /// the shipped order (IPs first, then apps, each by key) — every
@@ -450,6 +457,14 @@ namespace AutoCommand.Views
                     r.ServiceKey = System.IO.Path.GetFileNameWithoutExtension(r.Key).ToLowerInvariant();
                     r.SvcDisplayName = ServiceCatalog.DisplayNameFor(r.ServiceKey, null);
                     r.Attrib = "catalog";
+                }
+                // Rules made by AutoCommand Light carry its marker in the
+                // description. Provenance beats classification: the page
+                // must answer "who blocked this" — the Light gate did, and
+                // this tab shows the state either way.
+                if ((t.Description ?? "").StartsWith("AutoCommand Light User Block", StringComparison.Ordinal))
+                {
+                    r.ClassAtBlock = "made by AutoCommand Light";
                 }
                 if (!string.IsNullOrEmpty(r.Key)) BlocksStore.AddOrUpdate(r, "reconcile");
             }
@@ -925,19 +940,27 @@ namespace AutoCommand.Views
             int pausedN = vms.Count(v => v.HasRules && !v.RulesEnabled);
             int partial = vms.Count(v => v.HasRules && v.EnabledCount > 0 && v.EnabledCount < v.RulesCount);
             int restorableN = vms.Count(v => v.HasDisabledRules);
+            int noRulesN = vms.Count(v => !v.HasRules);
+            int recreatableN = vms.Count(v => !v.HasRules && CanRecreate(v.Record));
             int high = groups.Where(g => g.Impact == ServiceImpact.High).Sum(g => g.AllRows.Count);
             int msInfra = vms.Count(v => v.Record.ClassAtBlock is string c &&
                 (c.Contains("Microsoft/Azure") || c.Contains("Akamai") || c.Contains("Gcore")));
             int unattr = vms.Count(v => BlocksStore.ServiceGroupKey(v.Record) == "svchost:unresolved");
 
-            BuildFilterChips(vms.Count, groups.Count, active, pausedN, partial, high, msInfra, unattr);
+            BuildFilterChips(vms.Count, groups.Count, active, pausedN, partial, high, msInfra, unattr, noRulesN);
 
             ResumePausedBtn.Content = pausedN > 0 && partial > 0
                 ? $"Turn blocking back ON ({pausedN} off · {partial} partial)"
                 : pausedN == 0 && partial > 0
                     ? $"Turn blocking back ON ({partial} partial)"
                     : $"Turn blocking back ON ({pausedN} off)";
-            ResumePausedBtn.IsEnabled = restorableN > 0;
+            // imported-ledger rows have no rules to toggle — naming them in
+            // the button keeps "restore all" honest about its whole scope
+            if (noRulesN > 0)
+                ResumePausedBtn.Content += noRulesN == recreatableN
+                    ? $" · {noRulesN} re-creatable"
+                    : $" · {noRulesN} not enforced";
+            ResumePausedBtn.IsEnabled = restorableN > 0 || recreatableN > 0;
             PauseActiveBtn.Content = $"Turn blocking OFF ({active} on)";
             PauseActiveBtn.IsEnabled = active > 0;
             SelectAllPausedChk.Visibility = restorableN > 0 ? Visibility.Visible : Visibility.Collapsed;
@@ -959,7 +982,7 @@ namespace AutoCommand.Views
         // ── state ribbon (lenses) ──────────────────────────────────────────
 
         private void BuildFilterChips(int total, int groupsCount, int active, int paused,
-            int partial, int high, int msInfra, int unattr)
+            int partial, int high, int msInfra, int unattr, int noRules)
         {
             _buildingFilter = true;
             var chips = new List<FilterChip>
@@ -968,6 +991,7 @@ namespace AutoCommand.Views
                 new(BlockFilter.Active, $"⛔ {active} blocking ON"),
                 new(BlockFilter.Paused, $"⏸ {paused} blocking OFF"),
             };
+            if (noRules > 0) chips.Add(new(BlockFilter.NotEnforced, $"🛠 {noRules} not enforced"));
             if (partial > 0) chips.Add(new(BlockFilter.Partial, $"◐ {partial} partial"));
             if (high > 0) chips.Add(new(BlockFilter.HighImpact, $"🔴 {high} high-impact"));
             if (msInfra > 0) chips.Add(new(BlockFilter.MsInfra, $"⚠ {msInfra} on Microsoft infra"));
@@ -992,6 +1016,7 @@ namespace AutoCommand.Views
             BlockFilter.Active => r.RulesEnabled,
             BlockFilter.Paused => r.HasRules && !r.RulesEnabled,
             BlockFilter.Partial => r.HasRules && r.EnabledCount > 0 && r.EnabledCount < r.RulesCount,
+            BlockFilter.NotEnforced => !r.HasRules,
             BlockFilter.Unattributed => BlocksStore.ServiceGroupKey(r.Record) == "svchost:unresolved",
             BlockFilter.MsInfra => r.Record.ClassAtBlock is string c &&
                 (c.Contains("Microsoft/Azure") || c.Contains("Akamai") || c.Contains("Gcore")),
@@ -1348,6 +1373,7 @@ namespace AutoCommand.Views
             BlockFilter.Paused => "Lens: only blocks whose rules are disabled — blocking OFF. These are the inactive rules; 'Turn blocking back ON' restores them all (with a preview).",
             BlockFilter.Partial => "Lens: only partially-covered targets — some of their rules are on, some off.",
             BlockFilter.HighImpact => "Lens: only categories Windows depends on (security features, sign-in, updates).",
+            BlockFilter.NotEnforced => "Lens: ledger records with no firewall rules — imported from a previous install or wiped elsewhere. 'Turn blocking back ON' re-creates the restorable ones from the ledger; entries whose program path is gone can only be removed.",
             BlockFilter.Unattributed => "Lens: blocks whose service identity is still unresolved — 'Repair attribution' may recover it.",
             BlockFilter.MsInfra => "Lens: blocks on Microsoft/Azure, Akamai or Gcore infrastructure.",
             _ => "Every firewall block this app created. Pick a category on the right for its detail; the search box finds categories and targets.",
@@ -1449,7 +1475,23 @@ namespace AutoCommand.Views
         {
             if (scope == null || scope.Count == 0) return;
 
-            var previewGroups = scope.GroupBy(v => BlocksStore.ServiceGroupKey(v.Record))
+            // A restore scope can carry rows with NO firewall rules at all —
+            // the imported-ledger case (a previous install's blocks.txt): the
+            // rules were wiped with the old Windows while the records kept
+            // saying "on". A toggle cannot act on them; they are re-created
+            // from the ledger instead (the same guarded fallback the per-row
+            // Restore uses), and rows whose exe path is gone on this install
+            // can never come back — they are only reported.
+            var toggleRows = scope.Where(v => v.HasRules).ToList();
+            var recreateRows = enable
+                ? scope.Where(v => !v.HasRules && CanRecreate(v.Record)).ToList()
+                : new List<BlockRowVm>();
+            var deadRows = enable
+                ? scope.Where(v => !v.HasRules && !CanRecreate(v.Record)).ToList()
+                : new List<BlockRowVm>();
+            if (toggleRows.Count == 0 && recreateRows.Count == 0) return;
+
+            var previewGroups = toggleRows.GroupBy(v => BlocksStore.ServiceGroupKey(v.Record))
                 .Select(g =>
                 {
                     var impact = GroupImpactFor(g.First().Record);
@@ -1473,6 +1515,28 @@ namespace AutoCommand.Views
                     };
                 })
                 .ToList();
+            if (recreateRows.Count > 0)
+                previewGroups.Add(new BulkGroupLine
+                {
+                    Glyph = "🛠",
+                    DisplayName = "Re-created from the block ledger — no firewall rules exist for these yet",
+                    Targets = recreateRows.Count,
+                    Rules = recreateRows.Sum(v => RecreateRuleEstimate(v.Record)),
+                    HighImpact = false,
+                    Warning = "The old rules are gone (typical after a Windows reinstall or import) — " +
+                              "blocking is rebuilt from the ledger, nothing is deleted.",
+                });
+            if (deadRows.Count > 0)
+                previewGroups.Add(new BulkGroupLine
+                {
+                    Glyph = "🕳",
+                    DisplayName = "Not restorable — the blocked program's path no longer exists on this install",
+                    Targets = deadRows.Count,
+                    Rules = 0,
+                    HighImpact = false,
+                    Warning = "These entries cannot be re-blocked here. " +
+                              "Re-block them from Process Monitor on this PC, or remove them.",
+                });
 
             string verb = enable ? "Restore blocking" : "Stop blocking";
             var win = new BlockBulkPreviewWindow(verb, enable, previewGroups);
@@ -1482,44 +1546,155 @@ namespace AutoCommand.Views
             var final = win.ExcludeHighImpact
                 ? scope.Where(v => GroupImpactFor(v.Record) != ServiceImpact.High).ToList()
                 : scope;
-            if (final.Count == 0) return;
+            var toggleFinal = final.Where(v => v.HasRules).ToList();
+            var recreateFinal = enable
+                ? final.Where(v => !v.HasRules && CanRecreate(v.Record)).ToList()
+                : new List<BlockRowVm>();
+            var deadFinal = enable
+                ? final.Where(v => !v.HasRules && !CanRecreate(v.Record)).ToList()
+                : new List<BlockRowVm>();
+            if (toggleFinal.Count == 0 && recreateFinal.Count == 0) return;
 
-            // before-state snapshot powers the undo (capture BEFORE optimistic mutation)
-            var snapshot = final.Select(v => (v.Record.Kind, v.Record.Key, enable ? !v.HasDisabledRules : v.RulesEnabled)).ToList();
-            var targets = final.Select(v => (v.Record.Kind, v.Record.Key)).ToList();
-            int estRules = final.Sum(v => v.RulesCount);
+            // The not-restorable entries cannot come back here. One question,
+            // asked before any work starts: sweep them out of the ledger in
+            // the same pass? (Their firewall rules are already gone, so
+            // removal is purely bookkeeping — and permanent, hence its own
+            // confirm rather than riding on the preview's approval.)
+            bool removeDead = false;
+            if (deadFinal.Count > 0)
+            {
+                removeDead = MessageBox.Show(
+                    Window.GetWindow(this),
+                    $"{deadFinal.Count} of the rule-less block(s) cannot be re-created — the blocked " +
+                    "program's path no longer exists on this install.\n\n" +
+                    "Also permanently remove those entries from the block ledger? " +
+                    "Their firewall rules are already gone; traffic is not affected.",
+                    verb, MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
+            }
 
-            ApplyOptimisticToggle(final, enable,
-                $"{verb} — updating {estRules} firewall rule(s) across {final.Count} target(s)…");
+            // before-state snapshot powers the undo (capture BEFORE optimistic
+            // mutation). Re-created rows are deliberately outside it — the
+            // per-row recreate has no undo either, and rebuilding enforcement
+            // is itself the safe direction.
+            var snapshot = toggleFinal
+                .Select(v => (v.Record.Kind, v.Record.Key, enable ? !v.HasDisabledRules : v.RulesEnabled)).ToList();
+            var targets = toggleFinal.Select(v => (v.Record.Kind, v.Record.Key)).ToList();
+            int estRules = toggleFinal.Sum(v => v.RulesCount);
+
+            ApplyOptimisticToggle(toggleFinal, enable,
+                toggleFinal.Count > 0
+                    ? $"{verb} — updating {estRules} firewall rule(s) across {toggleFinal.Count} target(s)…"
+                    : $"{verb} — re-creating {recreateFinal.Count} block(s) from the ledger…");
 
             var progress = new Progress<(int Changed, int Matched)>(p =>
                 StatusText.Text = $"{verb} — {p.Changed} firewall rule(s) updated ({p.Matched} matched)…");
 
-            var snap = await FirewallService.Instance.SetTargetsEnabledSnapshotAsync(targets, enable, true, progress);
-            var verifiedTargets = FilterTargetsReachingState(targets, snap.Inventory, enable);
-            if (snap.Matched == 0 || verifiedTargets.Count == 0 || (snap.Changed == 0 && !string.IsNullOrEmpty(snap.FirstError)))
+            AutoCommand.Engines.Firewall.TargetToggleSnapshot snap = null;
+            var verifiedTargets = new List<(string Kind, string Key)>();
+            bool toggleOk = false;
+            if (toggleFinal.Count > 0)
             {
-                string detail = !string.IsNullOrEmpty(snap.FirstError)
+                snap = await FirewallService.Instance.SetTargetsEnabledSnapshotAsync(targets, enable, true, progress);
+                verifiedTargets = FilterTargetsReachingState(targets, snap.Inventory, enable);
+                toggleOk = snap.Matched > 0 && verifiedTargets.Count > 0 &&
+                    !(snap.Changed == 0 && !string.IsNullOrEmpty(snap.FirstError));
+            }
+
+            int recreated = 0, recreateFailed = 0;
+            for (int i = 0; i < recreateFinal.Count; i++)
+            {
+                var vm = recreateFinal[i];
+                StatusText.Text = $"{verb} — re-creating from the ledger ({i + 1}/{recreateFinal.Count})…";
+                int created = await TryRecreateBlockRulesAsync(vm.Record);
+                if (created > 0)
+                {
+                    recreated++;
+                    BlocksStore.SetStatus(vm.Record.Kind, vm.Record.Key, "on");
+                    BlocksStore.AppendEvent("recreated", vm.Record.Kind, vm.Record.Key,
+                        $"{created} rule(s) rebuilt from the ledger (no matching rules existed)", "blocks-tab");
+                }
+                else recreateFailed++;
+            }
+            if (recreated > 0)
+            {
+                await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
+                NotifyMonitorIfVisible();
+            }
+
+            int removedDead = 0;
+            if (removeDead)
+            {
+                foreach (var vm in deadFinal)
+                {
+                    // no firewall rules exist for these — removal is ledger
+                    // bookkeeping only, same semantics as the per-row Remove
+                    // (proc rows lift every coverage sibling of the exe name)
+                    if (vm.Record.IsIp)
+                        BlocksStore.Remove(vm.Record.Kind, vm.Record.Key, "blocks-tab");
+                    else
+                    {
+                        string exeName = System.IO.Path.GetFileName(vm.Record.Key);
+                        AppBlockCoverageService.Instance.NotifyUnblocked(exeName);
+                        BlocksStore.RemoveForExeName(exeName, "blocks-tab");
+                    }
+                    BlockGateService.Instance.ForgetTarget(vm.Record.Kind, vm.Record.Key);
+                    _trafficCache.TryRemove(vm.Record.Kind + vm.Record.Key, out _);
+                    removedDead++;
+                }
+                if (removedDead > 0)
+                {
+                    await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
+                    NotifyMonitorIfVisible();
+                }
+            }
+
+            if (toggleOk)
+            {
+                BlocksStore.SetStatuses(verifiedTargets, enable ? "on" : "off", "blocks-tab");
+                await Helpers.FirewallBaselineManager.ApplyToggleSnapshotAsync(snap);
+                NotifyMonitorIfVisible();
+            }
+            else if (recreated == 0 && removedDead == 0)
+            {
+                string detail = snap != null && !string.IsNullOrEmpty(snap.FirstError)
                     ? $" — {snap.FirstError}"
                     : " — no matching firewall rules reached the requested state";
-                ShowBulkToast($"{verb} did not change any rules ({snap.Changed}/{snap.Matched}){detail}", null);
-                await ReloadAsync(string.IsNullOrEmpty(snap.FirstError) ? snap.Inventory : null);
+                ShowBulkToast($"{verb} did not change any rules ({snap?.Changed ?? 0}/{snap?.Matched ?? 0}){detail}", null);
+                await ReloadAsync(snap != null && string.IsNullOrEmpty(snap.FirstError) ? snap.Inventory : null);
                 return;
             }
 
-            BlocksStore.SetStatuses(verifiedTargets, enable ? "on" : "off", "blocks-tab");
-            await Helpers.FirewallBaselineManager.ApplyToggleSnapshotAsync(snap);
-            NotifyMonitorIfVisible();
+            var parts = new List<string>();
+            if (toggleOk)
+            {
+                string targetSummary = verifiedTargets.Count == toggleFinal.Count
+                    ? $"{toggleFinal.Count} target(s)"
+                    : $"{verifiedTargets.Count} of {toggleFinal.Count} target(s)";
+                parts.Add(enable
+                    ? $"blocking restored — {targetSummary} ON again ({snap.Changed}/{snap.Matched} rules)"
+                    : $"blocking stopped — {targetSummary} OFF, traffic flows ({snap.Changed}/{snap.Matched} rules)");
+            }
+            else if (recreated > 0 && toggleFinal.Count > 0)
+            {
+                parts.Add("the existing rules could not be toggled" +
+                    (string.IsNullOrEmpty(snap.FirstError) ? "" : $" ({snap.FirstError})"));
+            }
+            if (recreated > 0)
+                parts.Add($"{recreated} block(s) re-created from the ledger");
+            if (recreateFailed > 0)
+                parts.Add($"{recreateFailed} could not be re-created");
+            if (removedDead > 0)
+                parts.Add($"{removedDead} dead entries removed from the ledger");
+            if (deadFinal.Count > removedDead)
+                parts.Add($"{deadFinal.Count - removedDead} not restorable (path missing) — re-block from Process Monitor or remove");
 
-            string targetSummary = verifiedTargets.Count == final.Count
-                ? $"{final.Count} target(s)"
-                : $"{verifiedTargets.Count} of {final.Count} target(s)";
-            string errSuffix = !string.IsNullOrEmpty(snap.FirstError) ? $" · warning: {snap.FirstError}" : "";
-            ShowBulkToast((enable
-                ? $"Blocking restored — {targetSummary} ON again ({snap.Changed}/{snap.Matched} rules) · {scopeLabel}"
-                : $"Blocking stopped — {targetSummary} OFF, traffic flows ({snap.Changed}/{snap.Matched} rules) · {scopeLabel}") + errSuffix,
-                snapshot);
-            await ReloadAsync(string.IsNullOrEmpty(snap.FirstError) ? snap.Inventory : null);
+            string warn = toggleOk && !string.IsNullOrEmpty(snap?.FirstError)
+                ? $" · warning: {snap.FirstError}" : "";
+            ShowBulkToast($"{verb} — {string.Join(" · ", parts)} · {scopeLabel}{warn}",
+                toggleOk ? snapshot : null);
+            await ReloadAsync(recreated == 0 && snap != null && string.IsNullOrEmpty(snap.FirstError)
+                ? snap.Inventory
+                : null);
         }
 
         private static List<(string Kind, string Key)> FilterTargetsReachingState(
@@ -1591,7 +1766,11 @@ namespace AutoCommand.Views
 
         private async void ResumePausedBtn_Click(object sender, RoutedEventArgs e)
         {
-            var scope = _allRows.Where(r => r.CanSelect).ToList();
+            // rule-less rows ride along: the bulk path re-creates them from
+            // the ledger (or reports them as not restorable). They used to be
+            // silently skipped here, which stranded every imported-ledger
+            // block on its own per-row "Restore blocking" button.
+            var scope = _allRows.Where(r => r.CanSelect || !r.HasRules).ToList();
             await BulkToggleAsync(scope, true, "all OFF blocks");
         }
 
@@ -1610,7 +1789,7 @@ namespace AutoCommand.Views
         private async void DetailRestoreBtn_Click(object sender, RoutedEventArgs e)
         {
             if (_detailGroup == null) return;
-            await BulkToggleAsync(_detailGroup.AllRows.Where(r => r.HasDisabledRules).ToList(),
+            await BulkToggleAsync(_detailGroup.AllRows.Where(r => r.HasDisabledRules || !r.HasRules).ToList(),
                 true, _detailGroup.DisplayName);
         }
 
@@ -1876,6 +2055,16 @@ namespace AutoCommand.Views
         private async void RowToggle_Click(object sender, RoutedEventArgs e)
         {
             if ((sender as FrameworkElement)?.Tag is not BlockRowVm vm) return;
+
+            // rule-less and beyond re-creation: the honest answer is why,
+            // not a toggle that can only match zero rules
+            if (!vm.HasRules && !CanRecreate(vm.Record))
+            {
+                ShowBulkToast($"'{vm.Target}' cannot be restored — its program path no longer exists on this install. " +
+                    "Use this row's Remove button, or re-block it from Process Monitor.", null);
+                return;
+            }
+
             bool enable = vm.HasDisabledRules || !vm.RulesEnabled;
             int expectedRules = vm.RulesCount;
             bool allowFastPath = vm.HasRules && vm.DuplicateRules == 0 &&
@@ -1941,6 +2130,24 @@ namespace AutoCommand.Views
                 await ReloadAsync(string.IsNullOrEmpty(snap.FirstError) ? snap.Inventory : null);
             }
         }
+
+        /// <summary>True when a ledger record can be turned back into real
+        /// enforcement by TryRecreateBlockRulesAsync — the same guards,
+        /// checked cheaply so the bulk path can partition its scope before
+        /// the preview: service keys always attempt; IPs must parse;
+        /// program keys must exist on this install.</summary>
+        internal static bool CanRecreate(BlockRecord r)
+        {
+            string key = (r.Key ?? "").Trim();
+            if (key.Length == 0) return false;
+            if (r.Kind == "svc") return true;
+            if (r.IsIp) return System.Net.IPAddress.TryParse(key, out _);
+            return r.Kind == "proc" && File.Exists(key);
+        }
+
+        /// <summary>Rough rule count a recreate will add — inbound+outbound
+        /// for IPs, one rule for programs/services. Preview math only.</summary>
+        private static int RecreateRuleEstimate(BlockRecord r) => r.IsIp ? 2 : 1;
 
         /// <summary>Rebuilds enforcement for a ledger record whose firewall
         /// rules no longer exist — the imported-from-a-previous-install

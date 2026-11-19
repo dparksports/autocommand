@@ -106,7 +106,7 @@
                        />
                 <Button x:Name="ResumePausedBtn" Click="ResumePausedBtn_Click" Margin="0,0,8,0"
                         Padding="10,3" FontSize="11"
-                        ToolTip="Opens the preview sheet: every block whose rules are disabled, grouped by service, with a high-impact warning and an 'except high-impact' option. Re-enables the rules — nothing is deleted."
+                        ToolTip="Opens the preview sheet: every block whose rules are disabled, grouped by service, with a high-impact warning and an 'except high-impact' option. Re-enables the rules — nothing is deleted. Ledger records with no firewall rules (typical after a Windows reinstall or import) are re-created from the ledger; entries whose program path is gone are reported and can be removed."
                        />
                 <Button x:Name="PauseActiveBtn" Click="PauseActiveBtn_Click"
                         Padding="10,3" FontSize="11"

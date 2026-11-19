@@ -40,18 +40,27 @@ namespace AutoCommand.Light
             Owner.Opacity = 0.45;
             Topmost = true;
 
-            UpdateCountdown();
-            _countdown.Tick += (s, e) =>
+            if (ticket.UserDriven)
             {
-                _secondsLeft--;
+                // the person is driving this app right now — no countdown:
+                // the question waits for them, the gate keeps holding
+                CountdownText.Text = "Still held — decide whenever you're ready.";
+            }
+            else
+            {
                 UpdateCountdown();
-                if (_secondsLeft <= 0) Finish(Core.AppPermission.Never);
-            };
-            _countdown.Start();
+                _countdown.Tick += (s, e) =>
+                {
+                    _secondsLeft--;
+                    UpdateCountdown();
+                    if (_secondsLeft <= 0) FinishNoDecision();
+                };
+                _countdown.Start();
+            }
         }
 
         private void UpdateCountdown() =>
-            CountdownText.Text = $"Doing nothing counts as Never — in {_secondsLeft}s";
+            CountdownText.Text = $"No answer keeps it held — decide later in Apps ({_secondsLeft}s)";
 
         private void OnceBtn_Click(object s, RoutedEventArgs e) =>
             Finish(Core.AppPermission.Always, allowOnce: true);
@@ -62,6 +71,19 @@ namespace AutoCommand.Light
         private void NeverBtn_Click(object s, RoutedEventArgs e) =>
             Finish(Core.AppPermission.Never);
 
+        /// <summary>Countdown ran out (unattended app): the dialog simply
+        /// closes. No decision travels anywhere — the app stays HELD as an
+        /// Ask and the question moves to the digest. Never is explicit.
+        /// (Non-modal window: DialogResult would throw, so no-decision is
+        /// just "closed without Answered".)</summary>
+        private void FinishNoDecision()
+        {
+            if (Answered) return;
+            _countdown.Stop();
+            if (Owner != null) Owner.Opacity = 1.0;
+            Close();
+        }
+
         private void Finish(Core.AppPermission answer, bool allowOnce = false)
         {
             if (Answered) return;
@@ -70,7 +92,6 @@ namespace AutoCommand.Light
             AllowOnce = allowOnce;
             _countdown.Stop();
             if (Owner != null) Owner.Opacity = 1.0;
-            DialogResult = true;
             Close();
         }
 

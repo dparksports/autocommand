@@ -57,6 +57,21 @@ namespace AutoCommand.Light
         private TrayState _lastState = (TrayState)(-1);
         private string _lastTooltip = "";
 
+        /// <summary>The question travels to where the person is: a balloon
+        /// for a held app they are actively driving. Clicking it opens the
+        /// Apps page, where Allow is one flip away.</summary>
+        public void NotifyHold(string displayName)
+        {
+            try
+            {
+                _icon.ShowBalloonTip(8000, "AutoCommand Light",
+                    $"{displayName} is being held. Click to review it.",
+                    ToolTipIcon.Warning);
+            }
+            catch { // a balloon must not be load-bearing
+            }
+        }
+
         /// <summary>The gate's numbers, spoken in tray grammar.</summary>
         public void UpdateFrom(int asks, int attempts)
         {

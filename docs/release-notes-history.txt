@@ -17,6 +17,52 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.18.8 (2026-11-19)
+================================================================================
+
+# v2026.11.18.8 — the gate learns courtesy: held, never condemned
+
+**The first real incident taught the gate its manners. A user's agent CLI
+(zcode.exe) reached for the internet while nobody was watching the dialog;
+the 90-second silence auto-decided Never; the tool broke, and the Advanced
+app could not show who did it. All three of those are fixed in this
+release, and the fix changes the gate's constitution: silence keeps a
+person's tools safe — it never condemns them.**
+
+## CHANGED — the constitution
+
+- Ticket expiry no longer decides anything. An unanswered question keeps
+  the app HELD as an Ask (the sweep keeps enforcing) and moves the
+  question to the digest. Never is an explicit tap — in the dialog or on
+  the Apps page — and only there. The gate's worst case is now exactly
+  the product promise: held until you decide.
+
+## NEW — the interactive-use courtesy
+
+- Before raising a hold loudly, the gate asks whether the person is
+  driving the app right now: foreground, a visible top-level window, or
+  launched from their shell/IDE family (an agent CLI in a terminal is
+  the case that must never be silently condemned — the classification is
+  pure and tested). User-driven holds raise a tray balloon that clicks
+  through to the Apps page, where Allow is one flip away; unattended
+  holds stay quiet and land in the digest.
+
+## NEW — no surprises for existing workflows
+
+- Onboarding gained a snapshot step: everything unknown that was already
+  running when the gate closed, offered as one screen of bulk triage
+  (check what you trust). The tools a person had open before installing
+  are never the surprise.
+
+## FIXED — cross-app visibility
+
+- Every gate hold, release and decision now lands in Light's readable
+  ledger (History explains itself).
+- The Advanced app's Blocks page recognizes Light's rule marker on
+  reconciliation and groups those rules under "made by AutoCommand
+  Light" — who blocked it, and its state, answerable from either app.
+
+================================================================================
 v2026.11.18.7 (2026-11-19)
 ================================================================================
 

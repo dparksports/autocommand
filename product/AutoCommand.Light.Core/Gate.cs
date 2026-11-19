@@ -189,17 +189,61 @@ public static class GatePolicy
 }
 
 /// <summary>A pending question for the user. The gate raises one ticket
-/// per unknown app; the dialog owns the countdown, and expiry means
-/// Never — silence is an answer, and it is the safe one.</summary>
+/// per unknown app; the dialog shows a countdown for unattended apps.
+/// The semantics changed with the gatekeeper's first incident: expiry no
+/// longer decides Never — it dismisses the dialog and the app stays
+/// HELD (Ask). Never is an explicit tap, always. Silence keeps the
+/// person's tools safe; it never condemns them.</summary>
 public sealed record AskTicket(
     string Key,
     string DisplayName,
     string ImagePath,
     DateTime RaisedUtc,
-    DateTime DeadlineUtc)
+    DateTime DeadlineUtc,
+    /// <summary>The person is driving this app right now (foreground,
+    /// visible window, or launched from their terminal/IDE). User-driven
+    /// tickets do not auto-dismiss on the countdown at all.</summary>
+    bool UserDriven = false)
 {
     public const int TimeoutSeconds = 90;
     public bool Expired(DateTime nowUtc) => nowUtc >= DeadlineUtc;
+}
+
+/// <summary>
+/// The "person is driving" signal — the interactive-use courtesy that
+/// keeps the gate from ever breaking a tool the user is working through.
+/// An app is user-driven when it is foreground, has a visible top-level
+/// window, or was launched from the user's shell/IDE family (a CLI like
+/// an agent terminal is exactly the case that must never be silently
+/// condemned). Pure classification; the shell measures the window facts.
+/// </summary>
+public static class InteractiveUse
+{
+    /// <summary>Shells and workbenches: parents in this family mean the
+    /// app was launched by the user's own hands, not by a service.</summary>
+    public static readonly HashSet<string> ShellParents =
+        new(StringComparer.OrdinalIgnoreCase)
+        {
+            "windowsterminal", "wt", "conhost", "cmd", "powershell", "pwsh",
+            "code", "idea", "rider", "pycharm", "devenv", "sublime_text",
+            "notepad", "explorer",
+        };
+
+    public static bool IsUserDriven(
+        string key,
+        string? foregroundBase,
+        IEnumerable<string> visibleWindowBases,
+        string? parentImage)
+    {
+        var k = PermissionStore.NormalizeKey(key);
+        if (k.Length == 0) return false;
+        if (!string.IsNullOrWhiteSpace(foregroundBase) &&
+            PermissionStore.NormalizeKey(foregroundBase) == k) return true;
+        foreach (var v in visibleWindowBases ?? Array.Empty<string>())
+            if (PermissionStore.NormalizeKey(v) == k) return true;
+        var parent = PermissionStore.NormalizeKey(parentImage ?? "");
+        return ShellParents.Contains(parent);
+    }
 }
 
 /// <summary>One stopped attempt, as the shell measures it: an app reached

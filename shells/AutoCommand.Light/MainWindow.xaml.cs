@@ -20,6 +20,7 @@ namespace AutoCommand.Light
         private TrayController? _tray;
         private AskDialog? _openAsk;
         private int _onbStep;
+        private readonly List<(string Key, string Display, string Path, System.Windows.Controls.CheckBox Box)> _snap = new();
 
         public MainWindow()
         {
@@ -80,16 +81,80 @@ namespace AutoCommand.Light
         private void OnbBtn_Click(object sender, RoutedEventArgs e)
         {
             _onbStep++;
+
+            if (_onbStep == 3)
+            {
+                // step 3 is the running-apps snapshot: taken now, after a
+                // few seconds of watching, so the baseline is real
+                ShowSnapshotStep();
+                OnbStep1.Visibility = Visibility.Collapsed;
+                OnbStep2.Visibility = Visibility.Collapsed;
+                OnbStepSnap.Visibility = Visibility.Visible;
+                OnbStep3.Visibility = Visibility.Collapsed;
+                OnbBtn.Content = _snap.Count > 0 ? "Done — keep asking the rest" : "Start guarding";
+                return;
+            }
+
+            if (_onbStep == 4)
+            {
+                // apply the trust the user granted on the snapshot screen
+                foreach (var (key, display, path, box) in _snap)
+                {
+                    if (box.IsChecked == true && !string.IsNullOrWhiteSpace(path))
+                        LightGate.Decide(key, Core.AppPermission.Always, display, path, "onboarding");
+                }
+                _snap.Clear();
+            }
+
             OnbStep1.Visibility = _onbStep == 1 ? Visibility.Visible : Visibility.Collapsed;
             OnbStep2.Visibility = _onbStep == 2 ? Visibility.Visible : Visibility.Collapsed;
-            OnbStep3.Visibility = _onbStep == 3 ? Visibility.Visible : Visibility.Collapsed;
-            OnbBtn.Content = _onbStep >= 3 ? "Start guarding" : "Next";
-            if (_onbStep > 3)
+            OnbStepSnap.Visibility = _onbStep == 3 ? Visibility.Visible : Visibility.Collapsed;
+            OnbStep3.Visibility = _onbStep == 4 ? Visibility.Visible : Visibility.Collapsed;
+            OnbBtn.Content = _onbStep >= 4 ? "Start guarding" : "Next";
+            if (_onbStep > 4)
             {
                 Onboarding.Visibility = Visibility.Collapsed;
                 try { File.WriteAllText(OnboardingMarkerPath, DateTime.UtcNow.ToString("o")); }
                 catch { // read-only profile: the hello repeats next session
                 }
+            }
+        }
+
+        /// <summary>One screen of bulk triage: everything unknown that was
+        /// running when the gate closed, so the tools a person already had
+        /// open are never the surprise — one checkmark per trusted app.</summary>
+        private void ShowSnapshotStep()
+        {
+            SnapList.Children.Clear();
+            _snap.Clear();
+
+            var seen = new List<(string Key, string Display, string Path)>();
+            foreach (var row in LightServices.Tracked.Values)
+            {
+                var key = Core.PermissionStore.NormalizeKey(row.ProcessName);
+                if (key.Length == 0) continue;
+                if (Core.GatePolicy.ExemptReason(row.ProcessName, row.ImagePath, row.IsSvchost) != Exemption.None)
+                    continue;
+                if (Core.GatePolicy.IsBrowser(key)) continue;
+                var entry = LightGate.Store.Find(key);
+                if (entry is { Permission: Core.AppPermission.Always }) continue;
+                var display = entry?.DisplayName ?? (row.ProcessName ?? key);
+                if (seen.Any(s => s.Key == key)) continue;
+                seen.Add((key, display, row.ImagePath ?? ""));
+            }
+
+            SnapEmpty.Visibility = seen.Count == 0 ? Visibility.Visible : Visibility.Collapsed;
+            foreach (var (key, display, path) in seen.Take(10))
+            {
+                var box = new CheckBox
+                {
+                    Content = display,
+                    FontSize = 14,
+                    Margin = new Thickness(0, 6, 0, 6),
+                    Foreground = (System.Windows.Media.Brush)FindResource("TextPrimaryBrush"),
+                };
+                SnapList.Children.Add(box);
+                _snap.Add((key, display, path, box));
             }
         }
 
@@ -111,6 +176,12 @@ namespace AutoCommand.Light
                     LightGate.Decide(dialog.Ticket.Key, dialog.Answer, dialog.Ticket.DisplayName,
                         dialog.Ticket.ImagePath, "ask-dialog",
                         dialog.AllowOnce ? TimeSpan.FromMinutes(10) : null);
+                }
+                else
+                {
+                    // closed, dismissed, or the countdown ran out: the app
+                    // stays HELD as an Ask — no decision was made
+                    LightGate.TicketDismissed(dialog.Ticket);
                 }
                 Dispatcher.BeginInvoke(new Action(PumpAsks), DispatcherPriority.Background);
             };

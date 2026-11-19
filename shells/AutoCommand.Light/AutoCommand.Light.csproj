@@ -20,7 +20,7 @@
     <!-- WinForms rides along only for the tray icon (NotifyIcon): the
          persistent surface renders its state at runtime, no icon assets. -->
     <UseWindowsForms>true</UseWindowsForms>
-    <Version>2026.11.18.7</Version>
+    <Version>2026.11.18.8</Version>
     <!-- no "+<git hash>" suffix on InformationalVersion: the release
          scripts' ProductVersion checks want the clean number, exactly as
          AgentProxy's csproj does -->

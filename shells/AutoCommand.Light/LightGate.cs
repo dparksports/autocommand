@@ -40,10 +40,21 @@ namespace AutoCommand.Light
         private static readonly List<AskTicket> _tickets = new();
         private static readonly List<Core.AttemptFact> _attempts = new();
         private static readonly HashSet<string> _attemptSeen = new(StringComparer.OrdinalIgnoreCase);
+        private static readonly HashSet<string> _dismissedKeys = new(StringComparer.OrdinalIgnoreCase);
         private static DateTime? _openUntilUtc;
         private static bool _pausedExplicitly;
 
         public static bool IsOpen => _openUntilUtc.HasValue && DateTime.UtcNow < _openUntilUtc.Value;
+
+        /// <summary>Injected by the shell: is this app user-driven right
+        /// now (foreground, visible window, or launched from the user's
+        /// terminal/IDE)? The gate uses the answer only for courtesy —
+        /// promote the question to a balloon — never for auto-decisions.</summary>
+        public static Func<string, bool>? InteractiveProbe { get; set; }
+
+        /// <summary>Raised when a user-driven app is first held, so the
+        /// tray can put the question where the person actually is.</summary>
+        public static event Action<string, string>? HoldRaised;
 
         /// <summary>Fired on the UI dispatcher when asks or decisions
         /// change (the shell marshals before invoking).</summary>
@@ -93,13 +104,19 @@ namespace AutoCommand.Light
                     item.IsSvchost, _store, DateTime.UtcNow);
                 if (decision.ShouldGate && !string.IsNullOrWhiteSpace(item.ImagePath))
                 {
-                    EnsureBlocked(item.ImagePath, PermissionStore.NormalizeKey(item.ProcessName));
                     var key = Core.PermissionStore.NormalizeKey(item.ProcessName);
-                    if (decision.IsNew && !_tickets.Any(t => t.Key == key))
+                    EnsureBlocked(item.ImagePath, key);
+                    if (decision.IsNew && !_tickets.Any(t => t.Key == key) &&
+                        !_dismissedKeys.Contains(key))
                     {
-                        _tickets.Add(new Core.AskTicket(key, DisplayNameFor(key, item.ProcessName),
+                        var display = DisplayNameFor(key, item.ProcessName);
+                        var userDriven = InteractiveProbe?.Invoke(key) ?? false;
+                        _tickets.Add(new Core.AskTicket(key, display,
                             item.ImagePath, DateTime.UtcNow,
-                            DateTime.UtcNow.AddSeconds(Core.AskTicket.TimeoutSeconds)));
+                            DateTime.UtcNow.AddSeconds(Core.AskTicket.TimeoutSeconds),
+                            userDriven));
+                        if (userDriven)
+                            try { HoldRaised?.Invoke(key, display); } catch { }
                         FireChanged();
                     }
                 }
@@ -169,11 +186,21 @@ namespace AutoCommand.Light
                 else await EnsureOpen(path, g.Key);
             }
 
-            // 4. tickets past their deadline decided themselves: Never
+            // 4. tickets past their deadline dismiss themselves — the app
+            //    STAYS HELD as an Ask (the sweep keeps enforcing), and the
+            //    decision waits in the digest. Never is explicit-only:
+            //    silence keeps a person's tools safe, it never condemns
+            //    them (the zcode incident is the reason this paragraph
+            //    exists).
             var expired = _tickets.Where(t => t.Expired(DateTime.UtcNow)).ToList();
             foreach (var t in expired)
-                Decide(t.Key, Core.AppPermission.Never, t.DisplayName, t.ImagePath, "ask-timeout");
-            if (expired.Count > 0) FireChanged();
+                _dismissedKeys.Add(t.Key);
+            if (expired.Count > 0)
+            {
+                _tickets.RemoveAll(t => t.Expired(DateTime.UtcNow));
+                Save();
+                FireChanged();
+            }
         }
 
         private static async Task EnsureBlocked(string imagePath, string key)
@@ -184,6 +211,10 @@ namespace AutoCommand.Light
             {
                 await LightServices.Firewall.AddAppBlockAsync(imagePath, LightServices.OwnMarker + " · gate");
                 _gatedKeys.Add(key);
+                // the gate's own ledger line: Light's History/Attempts page
+                // can explain every hold without guesswork
+                LightServices.Ledger.AppendEvent("gate-hold", "proc", imagePath,
+                    $"{DisplayNameFor(key, key)} is held by the gate", "light-gate");
             }
             finally { RuleLock.Release(); }
         }
@@ -196,12 +227,16 @@ namespace AutoCommand.Light
             {
                 await LightServices.Firewall.RemoveBlockRulesForAppAsync(imagePath);
                 _gatedKeys.Remove(key);
+                LightServices.Ledger.AppendEvent("gate-release", "proc", imagePath,
+                    $"{DisplayNameFor(key, key)} may talk now", "light-gate");
             }
             finally { RuleLock.Release(); }
         }
 
         /// <summary>The user answered. One path for dialog, apps page,
-        /// undo and timeouts — the ledger of record is the store.</summary>
+        /// undo — the ledger of record is the store, and every decision
+        /// also lands in the readable history. Explicit-only: there is no
+        /// timeout path into this method anymore.</summary>
         public static void Decide(string key, Core.AppPermission permission, string displayName,
             string imagePath, string source, TimeSpan? allowFor = null)
         {
@@ -210,7 +245,16 @@ namespace AutoCommand.Light
                 permission == Core.AppPermission.Always && allowFor.HasValue ? now.Add(allowFor.Value) : null,
                 source));
 
+            _dismissedKeys.Remove(key);
             _tickets.RemoveAll(t => t.Key == key);
+            try
+            {
+                LightServices.Ledger.AppendEvent("gate-decide", "proc", imagePath ?? key,
+                    $"{displayName} → {(permission == Core.AppPermission.Always ? "allowed" : permission == Core.AppPermission.Never ? "never" : "asks first")} ({source})",
+                    "light-gate");
+            }
+            catch { // audit is best-effort; the store is the record
+            }
             var apply = Task.Run(async () =>
             {
                 // Always (standing or allow-once) opens the gate now; the
@@ -250,6 +294,18 @@ namespace AutoCommand.Light
         public static IReadOnlyList<Core.AskTicket> PendingAsks()
         {
             lock (_tickets) { return _tickets.ToList(); }
+        }
+
+        /// <summary>A dialog closed without an answer (countdown ran out
+        /// or the user dismissed it). The app stays HELD as an Ask — the
+        /// sweep keeps enforcing — and the question moves to the digest.
+        /// No timeout path ever reaches Decide().</summary>
+        public static void TicketDismissed(AskTicket ticket)
+        {
+            _tickets.RemoveAll(t => t.Key == ticket.Key);
+            _dismissedKeys.Add(ticket.Key);
+            Save();
+            FireChanged();
         }
 
         /// <summary>Today's attempts, as the Today view and the tray read

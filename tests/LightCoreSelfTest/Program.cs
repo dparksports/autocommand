@@ -288,6 +288,23 @@ void Check(string name, bool ok, string detail = "")
     Check("gate: keys normalize (path vs bare name vs case)",
           PermissionStore.NormalizeKey(@"C:\Tools\Fun-Tool.EXE") == "fun-tool" &&
           store.Find(@"C:\somewhere\else\FUN-TOOL.exe") != null);
+
+    // ── the interactive-use courtesy ────────────────────────────────────
+    // The zcode lesson: an app the person is driving must never be
+    // auto-condemned. The classification is pure; the shell measures the
+    // window facts.
+    Check("courtesy: foreground means user-driven",
+          InteractiveUse.IsUserDriven("zcode", "zcode", Array.Empty<string>(), null));
+    Check("courtesy: a visible window means user-driven",
+          InteractiveUse.IsUserDriven("fun-tool", "other", new[] { "explorer", "fun-tool" }, null));
+    Check("courtesy: launched from a terminal means user-driven",
+          InteractiveUse.IsUserDriven("zcode", "somethingelse", Array.Empty<string>(),
+              @"C:\Windows\System32\WindowsTerminal.exe"));
+    Check("courtesy: launched from an IDE means user-driven",
+          InteractiveUse.IsUserDriven("node", null, Array.Empty<string>(),
+              @"C:\Program Files\Microsoft VS Code\Code.exe"));
+    Check("courtesy: service-parented, background, invisible is NOT user-driven",
+          !InteractiveUse.IsUserDriven("telemetry", "msedge", new[] { "msedge" }, "services.exe"));
 }
 
 // ── 6. Today's composition ──────────────────────────────────────────────
