@@ -17,6 +17,47 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.18.9 (2026-11-19)
+================================================================================
+
+# v2026.11.18.9 — restore-all learns the imported ledger
+
+**Imported ledgers (a previous install's blocks.txt) produced Blocks rows with
+no firewall rules behind them — invisible to every bulk path, so each row had
+to be restored one click at a time, and most clicks honestly dead-ended ("path
+no longer exists on this install"). Restore-all now accounts for every
+rule-less row, and a dead row can no longer be lost: it is re-pointed, or
+armed.**
+
+## NEW — the save strategy for rule-less rows
+
+- Bulk restore partitions its scope into four honest buckets: toggle (rules
+  exist and flip in one pass), re-create (the ledger rebuilds the rules with
+  the same guarded adds the per-row path uses), re-point (the program is found
+  alive at a new path — blocking is rebuilt there and the record moves with
+  its history), and dormant (no copy found on this install — armed).
+- The dormant tripwire: AppBlockCoverageService derives dormant names from the
+  ledger on every refresh, and the same three triggers that keep live blocks
+  covered (Sysmon process-create, startup sweep, hourly disk sweep) now guard
+  them too. Wherever the program reappears, its new path is blocked and the
+  record re-points automatically — audited as repointed / dormant-extended.
+- Per-row rescue: dead rows read "Find & re-block" — a bounded search of
+  running processes and common install roots; a hit re-points with one
+  confirm, a miss reports the row dormant.
+
+## CHANGED — honesty in the ribbon
+
+- The command bar counts its whole scope: "Turn blocking back ON (3 off ·
+  1 partial · 14 re-creatable · 2 not enforced)".
+- A new "🛠 N not enforced" chip lenses the rule-less bucket in the list.
+- Rule-less-but-restorable rows read "Restore (re-create)"; rows read
+  "dormant · watcher armed" with the watch explained in the tooltip.
+- The summary toast accounts for every row: toggled, re-created, re-pointed,
+  removed, dormant.
+- Bulk removal of dead entries is opt-in, confirm-gated, and states plainly
+  that it cancels the watch.
+
+================================================================================
 v2026.11.18.8 (2026-11-19)
 ================================================================================
 

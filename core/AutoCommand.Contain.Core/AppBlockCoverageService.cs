@@ -65,6 +65,13 @@ namespace AutoCommand.Contain.Core
         private readonly object _gate = new();
         private HashSet<string> _blockedNames = new(StringComparer.OrdinalIgnoreCase);
         private HashSet<string> _coveredPaths = new(StringComparer.OrdinalIgnoreCase);
+        /// <summary>Exe names whose ledger record is alive but whose path is
+        /// gone (imported ledgers, moved programs). Derived from the store on
+        /// every cache refresh — no persistence of its own, because the
+        /// ledger is the source of truth. A dormant name trips the same
+        /// three triggers a blocked name does; when it fires, the new path
+        /// is blocked and the ledger record re-points to it (Resurrection).</summary>
+        private HashSet<string> _dormantNames = new(StringComparer.OrdinalIgnoreCase);
         private readonly List<CoverageEvent> _history = new();
         private EventLogWatcher _watcher;
         private Timer _refreshTimer, _gcTimer, _sweepTimer;
@@ -143,6 +150,7 @@ namespace AutoCommand.Contain.Core
         {
             try
             {
+                BlocksStore.Load();   // idempotent; dormant names derive from the ledger
                 var inv = await FirewallService.Instance.GetBlockedInventoryAsync();
                 var names = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
                 var paths = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
@@ -153,12 +161,19 @@ namespace AutoCommand.Contain.Core
                     if (!string.IsNullOrEmpty(t.AppPath))
                         paths.Add(t.AppPath.ToLowerInvariant());
                 }
+                var dormant = new HashSet<string>(
+                    BlocksStore.Records
+                        .Where(r => r.Kind == "proc" && r.Status != "off" && !File.Exists(r.Key ?? ""))
+                        .Select(r => Path.GetFileName(r.Key ?? "")),
+                    StringComparer.OrdinalIgnoreCase);
+                dormant.Remove("");
                 string[] newNames;
                 lock (_gate)
                 {
                     newNames = names.Except(_blockedNames).ToArray();   // both sets ignore case
                     _blockedNames = names;
                     _coveredPaths = paths;
+                    _dormantNames = dormant;
                     LastRefreshUtc = DateTime.UtcNow;
                 }
                 // A name that just entered the block list gets its on-disk
@@ -304,6 +319,80 @@ namespace AutoCommand.Contain.Core
         }
 
         /// <summary>
+        /// Where do these exes live NOW, if anywhere? The re-point leg for
+        /// dormant ledger records, so a decision whose path was wiped can be
+        /// rescued instead of sitting dead. Two bounded sources: running
+        /// processes (the exact answer when the program is active — one
+        /// MainModule pass for every name at once), then a shallow walk
+        /// (root + one level) of the documented install roots. Deliberately
+        /// NOT a drive walk — the slow "arrives later" case belongs to the
+        /// dormant tripwire, not to a blocking search.
+        /// </summary>
+        public static Dictionary<string, List<string>> FindLiveCopies(
+            IEnumerable<string> exeNames, int budgetMsTotal = 6000)
+        {
+            var wanted = new HashSet<string>(exeNames ?? Array.Empty<string>(), StringComparer.OrdinalIgnoreCase);
+            wanted.Remove("");
+            var found = wanted.ToDictionary(n => n, _ => new List<string>(), StringComparer.OrdinalIgnoreCase);
+            if (wanted.Count == 0) return found;
+
+            var seen = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+            var sw = Stopwatch.StartNew();
+
+            void Consider(string path)
+            {
+                if (string.IsNullOrEmpty(path)) return;
+                string name;
+                try { name = Path.GetFileName(path); } catch { return; }
+                if (wanted.Contains(name) && seen.Add(path)) found[name].Add(path);
+            }
+
+            try
+            {
+                // running processes first — highest-confidence, cheapest signal
+                foreach (var proc in Process.GetProcesses())
+                {
+                    string path = null;
+                    try { path = proc.MainModule?.FileName; }
+                    catch { /* elevated / exited / protected — skip */ }
+                    finally { proc.Dispose(); }
+                    Consider(path);
+                    if (sw.ElapsedMilliseconds > budgetMsTotal) return found;
+                }
+
+                string[] roots =
+                {
+                    Environment.GetFolderPath(Environment.SpecialFolder.ProgramFiles),
+                    Environment.GetFolderPath(Environment.SpecialFolder.ProgramFilesX86),
+                    Path.Combine(Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData), "Programs"),
+                    Environment.GetFolderPath(Environment.SpecialFolder.CommonProgramFiles),
+                    Environment.GetFolderPath(Environment.SpecialFolder.CommonApplicationData),
+                };
+                foreach (string root in roots)
+                {
+                    if (string.IsNullOrEmpty(root) || !Directory.Exists(root)) continue;
+                    try
+                    {
+                        foreach (string dir in new[] { root }.Concat(Directory.EnumerateDirectories(root)))
+                        {
+                            try
+                            {
+                                foreach (string f in Directory.EnumerateFiles(dir, "*.exe", SearchOption.TopDirectoryOnly))
+                                    Consider(f);
+                            }
+                            catch { /* access denied — skip this folder */ }
+                            if (sw.ElapsedMilliseconds > budgetMsTotal) return found;
+                        }
+                    }
+                    catch { /* root absent — skip */ }
+                    if (sw.ElapsedMilliseconds > budgetMsTotal) return found;
+                }
+            }
+            catch { /* best-effort — partial results are still useful */ }
+            return found;
+        }
+
+        /// <summary>
         /// The Sysmon-less leg: cover what exists on disk, not just what has
         /// run. Snapshots the cache under the gate, enumerates, then reuses
         /// EnsureCoveredAsync so the add/dedupe/record path stays
@@ -346,16 +435,22 @@ namespace AutoCommand.Contain.Core
                 if (string.IsNullOrEmpty(imagePath)) return;
                 string exe = Path.GetFileName(imagePath);
                 string pathKey = imagePath.ToLowerInvariant();
+                bool dormantHit;
                 lock (_gate)
                 {
-                    if (!_blockedNames.Contains(exe)) return;
+                    dormantHit = _dormantNames.Contains(exe);
+                    if (!_blockedNames.Contains(exe) && !dormantHit) return;
                     if (_coveredPaths.Contains(pathKey)) return;
                 }
 
                 string utc = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm");
-                string desc = $"[blocked {utc} UTC] {exe} — coverage auto-extended to new path " +
-                    $"({trigger}; app updated or moved) · parent: {parentImage ?? "unknown"} · " +
-                    $"AutoCommand AppBlockCoverageService";
+                string desc = dormantHit
+                    ? $"[blocked {utc} UTC] {exe} — dormant block re-armed: the ledger record's path was gone " +
+                      $"(imported ledger or moved program) and this binary just appeared ({trigger}) · " +
+                      $"parent: {parentImage ?? "unknown"} · AutoCommand AppBlockCoverageService"
+                    : $"[blocked {utc} UTC] {exe} — coverage auto-extended to new path " +
+                      $"({trigger}; app updated or moved) · parent: {parentImage ?? "unknown"} · " +
+                      $"AutoCommand AppBlockCoverageService";
 
                 var (created, _, ruleName) = await FirewallService.Instance.AddAppBlockWithPathAsync(imagePath, desc);
                 if (created > 0)
@@ -363,21 +458,33 @@ namespace AutoCommand.Contain.Core
                     lock (_gate)
                     {
                         _blockedNames.Add(exe);
+                        _dormantNames.Remove(exe);
                         _coveredPaths.Add(pathKey);
+                    }
+                    if (dormantHit)
+                    {
+                        // the decision transfers: ledger record(s) of this exe
+                        // name re-point to the live path, and its other on-disk
+                        // copies get covered in the same pass
+                        BlocksStore.RepointDeadForExeName(exe, imagePath, "coverage-watch");
+                        _ = ProactiveSweepAsync(new[] { exe });
                     }
                     Record(new CoverageEvent
                     {
                         TimeUtc = DateTime.UtcNow.ToString("yyyy-MM-dd HH:mm:ss"),
-                        Action = trigger switch
-                        {
-                            "startup sweep" => "startup-sweep-extended",
-                            "disk sweep" => "disk-sweep-extended",
-                            _ => "extended",
-                        },
+                        Action = dormantHit ? "dormant-extended"
+                            : trigger switch
+                            {
+                                "startup sweep" => "startup-sweep-extended",
+                                "disk sweep" => "disk-sweep-extended",
+                                _ => "extended",
+                            },
                         Exe = exe,
                         Path = imagePath,
                         RuleName = ruleName ?? "",
-                        Detail = $"trigger: {trigger} · parent: {parentImage ?? "unknown"}",
+                        Detail = dormantHit
+                            ? $"dormant ledger block resurrected at this path · trigger: {trigger} · parent: {parentImage ?? "unknown"}"
+                            : $"trigger: {trigger} · parent: {parentImage ?? "unknown"}",
                     });
                 }
             }

@@ -480,6 +480,45 @@ namespace AutoCommand.Contain.Core
             }
         }
 
+        /// <summary>
+        /// Resurrection of dead record(s): the coverage watcher (or a user
+        /// re-point) found the program alive at a new path, so the decision
+        /// transfers. Every dead record of this exe name collapses onto the
+        /// new path — the oldest becomes the re-pointed record (it keeps its
+        /// provenance: who blocked, when, why), the rest are removed as
+        /// duplicates, and any stale reconcile-synthesized record for the
+        /// new path yields to the richer one. Status stays ON. One audit
+        /// line records the move.
+        /// </summary>
+        public int RepointDeadForExeName(string exeName, string newPath, string origin = "coverage-watch")
+        {
+            if (string.IsNullOrEmpty(exeName) || string.IsNullOrEmpty(newPath)) return 0;
+            lock (_gate)
+            {
+                Load();
+                var dead = _records.Where(b => !b.IsIp && b.Status != "off" &&
+                        !File.Exists(b.Key ?? "") &&
+                        string.Equals(Path.GetFileName(b.Key ?? ""), exeName,
+                            StringComparison.OrdinalIgnoreCase))
+                    .OrderBy(b => b.CreatedUtc)
+                    .ToList();
+                if (dead.Count == 0) return 0;
+
+                string oldKey = dead[0].Key;
+                dead[0].Key = newPath;
+                dead[0].StatusUtc = DateTime.UtcNow;
+                int dupes = _records.RemoveAll(b => !ReferenceEquals(b, dead[0]) &&
+                    ((dead.Skip(1).Contains(b)) ||
+                     (b.Kind == dead[0].Kind && b.Key.Equals(newPath, StringComparison.OrdinalIgnoreCase))));
+                Save();
+                AppendEvent("repointed", "proc", newPath,
+                    $"{dead.Count} record(s) re-pointed from dead path(s) of {exeName}" +
+                    (dupes > 0 ? $" · {dupes} duplicate record(s) collapsed" : "") +
+                    (dead.Count > 0 ? $" · was: {oldKey}" : ""), origin);
+                return dead.Count;
+            }
+        }
+
         /// <summary>Marks the desired state (on/off). The firewall's Enabled
         /// flags stay authoritative for traffic; this is the durable intent.</summary>
         public void SetStatus(string kind, string key, string status, string origin = "blocks-tab")
@@ -682,6 +721,7 @@ namespace AutoCommand.Contain.Core
         public static void AddOrUpdate(BlockRecord record, string origin, BlockDecision decision) => _default.AddOrUpdate(record, origin, decision);
         public static void Remove(string kind, string key, string origin = "monitor") => _default.Remove(kind, key, origin);
         public static int RemoveForExeName(string exeName, string origin = "monitor") => _default.RemoveForExeName(exeName, origin);
+        public static int RepointDeadForExeName(string exeName, string newPath, string origin = "coverage-watch") => _default.RepointDeadForExeName(exeName, newPath, origin);
         public static void SetStatus(string kind, string key, string status, string origin = "blocks-tab") => _default.SetStatus(kind, key, status, origin);
         public static bool DeferredSaves { get => _default.DeferredSaves; set => _default.DeferredSaves = value; }
         public static void FlushPending() => _default.FlushPending();

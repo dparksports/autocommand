@@ -206,7 +206,8 @@ namespace AutoCommand.Views
         /// (the program path is gone): the row's Remove button is the way
         /// out, and pressing this button only explains why.</summary>
         public string RowActionLabel => !HasRules
-            ? (BlocksView.CanRecreate(Record) ? "Restore (re-create)" : "Not restorable")
+            ? (BlocksView.CanRecreate(Record) ? "Restore (re-create)"
+                : !Record.IsIp && Record.Kind == "proc" ? "Find & re-block" : "Not restorable")
             : HasDisabledRules || !RulesEnabled ? "Restore blocking" : "Stop blocking";
     }
 
@@ -507,6 +508,16 @@ namespace AutoCommand.Views
                     ContainmentBrush = mutedBrush,
                 };
                 vm.CanSelect = vm.HasDisabledRules;
+                if (!vm.HasRules && r.Kind == "proc" && r.Status != "off")
+                {
+                    // dormant tripwire: no rules exist, but the coverage
+                    // watcher guards the exe NAME — see AppBlockCoverageService
+                    vm.PausedShort = "dormant · watcher armed";
+                    vm.PausedInfoToolTip = "No firewall rules exist for this path (imported from a previous install, " +
+                        "or the program moved). The coverage watcher guards the exe by NAME: wherever it reappears — " +
+                        "on disk or at process start — its new path is blocked and this record re-points there. " +
+                        "This row's Remove cancels the watch.";
+                }
                 var gate = AutoCommand.Agent.Core.BlockGateService.Instance.Find(r.Kind, r.Key);
                 if (gate != null)
                 {
@@ -1489,7 +1500,28 @@ namespace AutoCommand.Views
             var deadRows = enable
                 ? scope.Where(v => !v.HasRules && !CanRecreate(v.Record)).ToList()
                 : new List<BlockRowVm>();
-            if (toggleRows.Count == 0 && recreateRows.Count == 0) return;
+            if (toggleRows.Count == 0 && recreateRows.Count == 0 && deadRows.Count == 0) return;
+
+            // tier-1 rescue before the preview: is the program alive somewhere
+            // on this install under a different path? A hit becomes a re-point
+            // (block the found path, move the ledger record); a miss stays
+            // dead — and dormant: the coverage watcher arms on the exe name,
+            // so a late arrival is blocked and the record re-points then.
+            var repointHits = new List<(BlockRowVm Vm, string NewPath)>();
+            var deadRemain = new List<BlockRowVm>();
+            if (enable && deadRows.Count > 0)
+            {
+                var hits = AppBlockCoverageService.FindLiveCopies(
+                    deadRows.Select(v => System.IO.Path.GetFileName(v.Record.Key ?? "")));
+                foreach (var vm in deadRows)
+                {
+                    string exe = System.IO.Path.GetFileName(vm.Record.Key ?? "");
+                    string hit = hits.TryGetValue(exe, out var list) && list.Count > 0 ? list[0] : null;
+                    if (hit != null) repointHits.Add((vm, hit));
+                    else deadRemain.Add(vm);
+                }
+            }
+            else deadRemain.AddRange(deadRows);
 
             var previewGroups = toggleRows.GroupBy(v => BlocksStore.ServiceGroupKey(v.Record))
                 .Select(g =>
@@ -1526,16 +1558,27 @@ namespace AutoCommand.Views
                     Warning = "The old rules are gone (typical after a Windows reinstall or import) — " +
                               "blocking is rebuilt from the ledger, nothing is deleted.",
                 });
-            if (deadRows.Count > 0)
+            if (repointHits.Count > 0)
+                previewGroups.Add(new BulkGroupLine
+                {
+                    Glyph = "🧭",
+                    DisplayName = $"Re-pointed to where the program lives now — {repointHits.Count} found on this install",
+                    Targets = repointHits.Count,
+                    Rules = repointHits.Count,
+                    HighImpact = false,
+                    Warning = "The ledger's old path no longer exists; blocking is rebuilt at the found path " +
+                              "and the record moves with it, keeping its history.",
+                });
+            if (deadRemain.Count > 0)
                 previewGroups.Add(new BulkGroupLine
                 {
                     Glyph = "🕳",
-                    DisplayName = "Not restorable — the blocked program's path no longer exists on this install",
-                    Targets = deadRows.Count,
+                    DisplayName = "Dormant — no copy found on this install right now",
+                    Targets = deadRemain.Count,
                     Rules = 0,
                     HighImpact = false,
-                    Warning = "These entries cannot be re-blocked here. " +
-                              "Re-block them from Process Monitor on this PC, or remove them.",
+                    Warning = "These stay armed: the coverage watcher blocks the exe by NAME wherever it " +
+                              "reappears (the record then re-points to the live path). Removal cancels the watch.",
                 });
 
             string verb = enable ? "Restore blocking" : "Stop blocking";
@@ -1550,10 +1593,16 @@ namespace AutoCommand.Views
             var recreateFinal = enable
                 ? final.Where(v => !v.HasRules && CanRecreate(v.Record)).ToList()
                 : new List<BlockRowVm>();
+            var repointKeys = new HashSet<string>(
+                repointHits.Select(h => h.Vm.SelectionKey), StringComparer.OrdinalIgnoreCase);
             var deadFinal = enable
-                ? final.Where(v => !v.HasRules && !CanRecreate(v.Record)).ToList()
+                ? final.Where(v => !v.HasRules && !CanRecreate(v.Record) &&
+                                   !repointKeys.Contains(v.SelectionKey)).ToList()
                 : new List<BlockRowVm>();
-            if (toggleFinal.Count == 0 && recreateFinal.Count == 0) return;
+            // re-pointing creates NEW blocking — the safe direction — so it is
+            // deliberately not subject to the "except high-impact" exclusion
+            var repointFinal = repointHits;
+            if (toggleFinal.Count == 0 && recreateFinal.Count == 0 && repointFinal.Count == 0) return;
 
             // The not-restorable entries cannot come back here. One question,
             // asked before any work starts: sweep them out of the ledger in
@@ -1565,10 +1614,12 @@ namespace AutoCommand.Views
             {
                 removeDead = MessageBox.Show(
                     Window.GetWindow(this),
-                    $"{deadFinal.Count} of the rule-less block(s) cannot be re-created — the blocked " +
-                    "program's path no longer exists on this install.\n\n" +
+                    $"{deadFinal.Count} of the rule-less block(s) cannot be re-created — no copy of the " +
+                    "program was found on this install. They stay DORMANT: the coverage watcher blocks the " +
+                    "exe by name wherever it reappears.\n\n" +
                     "Also permanently remove those entries from the block ledger? " +
-                    "Their firewall rules are already gone; traffic is not affected.",
+                    "Their firewall rules are already gone; traffic is not affected. " +
+                    "Removing them cancels the watch.",
                     verb, MessageBoxButton.YesNo, MessageBoxImage.Question) == MessageBoxResult.Yes;
             }
 
@@ -1621,6 +1672,30 @@ namespace AutoCommand.Views
                 NotifyMonitorIfVisible();
             }
 
+            int repointed = 0;
+            for (int i = 0; i < repointFinal.Count; i++)
+            {
+                var (vm, newPath) = repointFinal[i];
+                StatusText.Text = $"{verb} — re-pointing to where the program lives now ({i + 1}/{repointFinal.Count})…";
+                try
+                {
+                    var (createdR, _) = await FirewallService.Instance.AddAppBlockAsync(newPath,
+                        $"AutoCommand User Block — re-pointed from the block ledger (was: {vm.Record.Key})");
+                    if (createdR > 0)
+                    {
+                        repointed++;
+                        BlocksStore.RepointDeadForExeName(System.IO.Path.GetFileName(newPath), newPath, "blocks-tab");
+                        AppBlockCoverageService.Instance.NotifyBlocked(newPath);
+                    }
+                }
+                catch { /* the entry stays dormant; the toast reports counts honestly */ }
+            }
+            if (repointed > 0)
+            {
+                await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
+                NotifyMonitorIfVisible();
+            }
+
             int removedDead = 0;
             if (removeDead)
             {
@@ -1654,7 +1729,7 @@ namespace AutoCommand.Views
                 await Helpers.FirewallBaselineManager.ApplyToggleSnapshotAsync(snap);
                 NotifyMonitorIfVisible();
             }
-            else if (recreated == 0 && removedDead == 0)
+            else if (recreated == 0 && repointed == 0 && removedDead == 0)
             {
                 string detail = snap != null && !string.IsNullOrEmpty(snap.FirstError)
                     ? $" — {snap.FirstError}"
@@ -1681,18 +1756,20 @@ namespace AutoCommand.Views
             }
             if (recreated > 0)
                 parts.Add($"{recreated} block(s) re-created from the ledger");
+            if (repointed > 0)
+                parts.Add($"{repointed} re-pointed to their new path(s)");
             if (recreateFailed > 0)
                 parts.Add($"{recreateFailed} could not be re-created");
             if (removedDead > 0)
                 parts.Add($"{removedDead} dead entries removed from the ledger");
             if (deadFinal.Count > removedDead)
-                parts.Add($"{deadFinal.Count - removedDead} not restorable (path missing) — re-block from Process Monitor or remove");
+                parts.Add($"{deadFinal.Count - removedDead} dormant — the watcher blocks them if they ever reappear");
 
             string warn = toggleOk && !string.IsNullOrEmpty(snap?.FirstError)
                 ? $" · warning: {snap.FirstError}" : "";
             ShowBulkToast($"{verb} — {string.Join(" · ", parts)} · {scopeLabel}{warn}",
                 toggleOk ? snapshot : null);
-            await ReloadAsync(recreated == 0 && snap != null && string.IsNullOrEmpty(snap.FirstError)
+            await ReloadAsync(recreated == 0 && repointed == 0 && snap != null && string.IsNullOrEmpty(snap.FirstError)
                 ? snap.Inventory
                 : null);
         }
@@ -2056,12 +2133,57 @@ namespace AutoCommand.Views
         {
             if ((sender as FrameworkElement)?.Tag is not BlockRowVm vm) return;
 
-            // rule-less and beyond re-creation: the honest answer is why,
-            // not a toggle that can only match zero rules
+            // rule-less and beyond plain re-creation. For a proc row the next
+            // rescue is a re-point: find the program alive somewhere on this
+            // install and move the block (and the record) there. A miss leaves
+            // it dormant — armed in the coverage watcher by exe name.
             if (!vm.HasRules && !CanRecreate(vm.Record))
             {
-                ShowBulkToast($"'{vm.Target}' cannot be restored — its program path no longer exists on this install. " +
-                    "Use this row's Remove button, or re-block it from Process Monitor.", null);
+                if (vm.Record.Kind != "proc")
+                {
+                    ShowBulkToast($"'{vm.Target}' cannot be restored — its firewall rules no longer exist. " +
+                        "Use this row's Remove button.", null);
+                    return;
+                }
+
+                string exeName = System.IO.Path.GetFileName(vm.Record.Key ?? "");
+                StatusText.Text = $"searching for {exeName} in running processes and common install roots…";
+                var hits = AppBlockCoverageService.FindLiveCopies(new[] { exeName });
+                string newPath = hits.TryGetValue(exeName, out var list) && list.Count > 0 ? list[0] : null;
+                if (newPath == null)
+                {
+                    ShowBulkToast($"No copy of '{exeName}' found in running processes or common install roots right now. " +
+                        "The entry is dormant — the coverage watcher will block it wherever it reappears; " +
+                        "Remove cancels the watch.", null);
+                    StatusText.Text = $"synced {DateTime.Now:HH:mm:ss}";
+                    return;
+                }
+
+                if (MessageBox.Show(Window.GetWindow(this),
+                        $"Found '{exeName}' at:\n{newPath}\n\n" +
+                        "Re-point the block here? The ledger's old path no longer exists on this install.",
+                        "Re-point block", MessageBoxButton.YesNo, MessageBoxImage.Question) != MessageBoxResult.Yes) return;
+
+                try
+                {
+                    var (createdR, _) = await FirewallService.Instance.AddAppBlockAsync(newPath,
+                        $"AutoCommand User Block — re-pointed from the block ledger (was: {vm.Record.Key})");
+                    if (createdR > 0)
+                    {
+                        BlocksStore.RepointDeadForExeName(exeName, newPath, "blocks-tab");
+                        AppBlockCoverageService.Instance.NotifyBlocked(newPath);
+                        await Helpers.FirewallBaselineManager.AdoptLiveBlockRulesAsync();
+                        NotifyMonitorIfVisible();
+                        ShowBulkToast($"Re-pointed blocking for '{exeName}' — now enforced at {newPath}.", null);
+                    }
+                    else
+                        ShowBulkToast($"Windows refused a block rule for '{newPath}' — the entry stays dormant.", null);
+                }
+                catch (Exception ex)
+                {
+                    ShowBulkToast($"Re-point failed: {ex.Message} — the entry stays dormant.", null);
+                }
+                await ReloadAsync();
                 return;
             }
 
