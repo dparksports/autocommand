@@ -37,8 +37,10 @@ module Branding =
 module Identity =
     /// AutoCommand III's identity: the autocommand-ii values (port base
     /// 47821, %LOCALAPPDATA%\AutoCommand, AC-BLOCK rule names, the
-    /// 'autocommand' MCP id). autocommand-ii adopts no other installs'
-    /// rules, so AdoptedRulePrefixes is empty.
+    /// 'autocommand' MCP id). Adopts AutoCommand Light's AL-BLOCK rules in
+    /// place (mutual adoption — either app's panic button restores both
+    /// apps' blocks; Light never creates service-scoped rules, so there is
+    /// no AL-BLOCK-SVC prefix to adopt).
     let autocommand () =
         { Name = "AutoCommand"
           DataRoot = System.IO.Path.Combine(
@@ -46,7 +48,7 @@ module Identity =
                 "AutoCommand")
           OwnIpRulePrefix = "AC-BLOCK-IP "
           OwnAppRulePrefix = "AC-BLOCK-APP "
-          AdoptedRulePrefixes = []
+          AdoptedRulePrefixes = [ "AL-BLOCK-IP "; "AL-BLOCK-APP " ]
           BridgePortBase = 47821
           McpId = "autocommand" }
 
@@ -60,3 +62,20 @@ module Identity =
           AdoptedRulePrefixes = [ "AC-BLOCK-IP "; "AC-BLOCK-APP " ]
           BridgePortBase = 47921
           McpId = "autoscope" }
+
+    /// AutoCommand Light's identity: the novice-facing sibling shell (see
+    /// shells\AutoCommand.Light). Own data root and AL-BLOCK rule prefixes;
+    /// adopts AutoCommand's AC-BLOCK rules in place so Light's panic button
+    /// and Blocks list cover the full install. No MCP bridge of its own —
+    /// the bridge port base stays only because every identity carries one
+    /// (engines' invariant); Light never starts a listener on it.
+    let light () =
+        { Name = "AutoCommand Light"
+          DataRoot = System.IO.Path.Combine(
+                System.Environment.GetFolderPath(System.Environment.SpecialFolder.LocalApplicationData),
+                "AutoCommandLight")
+          OwnIpRulePrefix = "AL-BLOCK-IP "
+          OwnAppRulePrefix = "AL-BLOCK-APP "
+          AdoptedRulePrefixes = [ "AC-BLOCK-IP "; "AC-BLOCK-APP "; "AC-BLOCK-SVC " ]
+          BridgePortBase = 47721
+          McpId = "autocommand-light" }

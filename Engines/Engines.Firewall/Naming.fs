@@ -24,13 +24,14 @@ type FirewallNaming =
 
 module Naming =
     /// AutoCommand III's policy: creates AC-BLOCK (autocommand-ii's v2
-    /// scheme), adopts nothing (autocommand-ii manages only its own rules),
-    /// still honors its own pre-v2 legacy names.
+    /// scheme), adopts AutoCommand Light's AL-BLOCK in place (mutual —
+    /// either app's panic button restores both installs' blocks), still
+    /// honors its own pre-v2 legacy names.
     let autocommand () =
         { OwnIpPrefix = "AC-BLOCK-IP "
           OwnAppPrefix = "AC-BLOCK-APP "
           OwnSvcPrefix = "AC-BLOCK-SVC "
-          AdoptedPrefixes = []
+          AdoptedPrefixes = [ "AL-BLOCK-IP "; "AL-BLOCK-APP " ]
           LegacyIpPrefixes = [ "AutoCommand IP Block - " ]
           LegacyAppPrefixes = [ "AutoCommand Process Block - " ]
           UserBlockDescription = "AutoCommand User Block" }
@@ -47,3 +48,16 @@ module Naming =
           LegacyIpPrefixes = [ "AutoScope IP Block - " ]
           LegacyAppPrefixes = [ "AutoScope Process Block - " ]
           UserBlockDescription = "AutoScope User Block" }
+
+    /// AutoCommand Light's policy: creates AL-BLOCK (ip and app only —
+    /// Light never service-scopes), adopts AutoCommand's AC-BLOCK family
+    /// in place so Light's panic button and Blocks list cover the whole
+    /// install. No legacy names: Light is new naming, first generation.
+    let light () =
+        { OwnIpPrefix = "AL-BLOCK-IP "
+          OwnAppPrefix = "AL-BLOCK-APP "
+          OwnSvcPrefix = "AL-BLOCK-SVC "
+          AdoptedPrefixes = [ "AC-BLOCK-IP "; "AC-BLOCK-APP "; "AC-BLOCK-SVC " ]
+          LegacyIpPrefixes = []
+          LegacyAppPrefixes = []
+          UserBlockDescription = "AutoCommand Light User Block" }
