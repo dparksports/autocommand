@@ -57,6 +57,16 @@ armed.**
 - Bulk removal of dead entries is opt-in, confirm-gated, and states plainly
   that it cancels the watch.
 
+## NEW — the included list (seed domains and services)
+
+- Every release now ships a curated, machine-portable projection of the block
+  collection (domain names and service names — identities that mean the same
+  thing on every machine), embedded in the binary so single-file publish
+  cannot strip it. One version-gated pass per launch: gap-fill only — any
+  domain the user already decided about is left exactly as they decided — and
+  a released seed block stays released across updates. Startup never waits on
+  it; the next launch retries.
+
 ================================================================================
 v2026.11.18.8 (2026-11-19)
 ================================================================================

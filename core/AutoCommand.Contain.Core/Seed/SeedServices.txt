@@ -1,0 +1,25 @@
+# AutoCommand included list — service blocks (the portable projection).
+#
+# One entry per line:   serviceKey|Display Name|<seed version>
+#
+#   serviceKey  — the lowercase Windows service name (the engine's
+#                 canonical shape). One service-scoped outbound rule per
+#                 entry: every destination the service ever contacts is
+#                 dropped by the firewall itself, even while AutoCommand
+#                 is not running. Sibling services in the same svchost
+#                 host are never touched.
+#   since       — the seed version that introduced the entry. The version
+#                 gate (SeedImporter + seed-state.json) never re-applies
+#                 entries at or below the version a store already
+#                 processed, so a user who released a seeded block keeps
+#                 it released across updates.
+#
+# Curated conservatively on purpose: a seeded service block is applied to
+# every new install, so only services whose block does not degrade the
+# machine ship here. Aggressive-but-common hardening (wuauserv, bits,
+# cryptsvc, wlidsvc, usosvc, licensemanager, netprofm, wpnservice — all
+# present in the maintainer collection) deliberately does NOT: those stop
+# Windows Update, sign-in, licensing or notifications when blocked, and
+# a new user did not sign up for that.
+diagtrack|Connected User Experiences (DiagTrack)|1
+dosvc|Delivery Optimization|1

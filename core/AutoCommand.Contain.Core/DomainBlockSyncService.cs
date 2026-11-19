@@ -239,6 +239,40 @@ namespace AutoCommand.Contain.Core
             return true;
         }
 
+        /// <summary>Gap-fill import for the release's included list (the
+        /// seed): adds only domains absent from the list — any origin,
+        /// because the user's own decision always outranks the shipped
+        /// collection — then saves once and writes ONE summary ledger
+        /// event. No per-domain sync here: the caller kicks SyncAllAsync
+        /// so the fresh batch resolves in parallel instead of serially
+        /// walking DNS on the startup path. Returns how many were
+        /// added.</summary>
+        public int ImportSeedDomains(IEnumerable<(string Domain, string Note)> entries, string origin = "seed")
+        {
+            if (entries == null) return 0;
+            int added = 0;
+            lock (_gate)
+            {
+                foreach (var (domain, note) in entries)
+                {
+                    if (!IsValidDomain(domain)) continue;
+                    string d = domain.Trim().TrimEnd('.').ToLowerInvariant();
+                    if (_blocks.Any(b => b.Domain.Equals(d, StringComparison.OrdinalIgnoreCase))) continue;
+                    _blocks.Add(new DomainBlock { Domain = d, AddedUtc = DateTime.UtcNow, Origin = origin, Note = note });
+                    added++;
+                }
+                if (added > 0) _dirty = true;
+            }
+            if (added > 0)
+            {
+                SaveIfDirty();
+                Ledger.AppendEvent("imported", "domain", "-",
+                    $"{added} included-list domain(s) applied ({origin})", origin);
+                BlocksChanged?.Invoke();
+            }
+            return added;
+        }
+
         // ── the sync pass ─────────────────────────────────────────────────
 
         /// <summary>The metronome callback: reconcile every domain. Per-domain

@@ -1,0 +1,19 @@
+# AutoCommand included list — domain blocks (the portable projection).
+#
+# One entry per line, strict JSON (this file ships inside the assembly and
+# is parsed line-by-line; a bad line is skipped, never fatal):
+#
+#   {"domain":"example.com","note":"why this domain is blocked","since":1}
+#
+#   domain — the exact host to keep blocked. DomainBlockSyncService keeps
+#            its IP rules current across CDN rotation (marker-checked, so
+#            hand-made rules on the same IPs are never touched).
+#   note   — plain-language reason, shown in the Blocks tab.
+#   since  — the seed version that introduced the entry. The version gate
+#            (SeedImporter + seed-state.json) never re-applies entries at
+#            or below the version a store already processed, so a user who
+#            released a seeded block keeps it released across updates.
+#
+# Entries are additive only; the user's own list always outranks the ship.
+# (seed v1 ships no domain entries yet — the collection grows here,
+#  release over release: curate from the maintainer stores, bump "since".)

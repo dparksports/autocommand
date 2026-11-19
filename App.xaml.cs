@@ -539,6 +539,19 @@ namespace AutoCommand
                     // below continues it on a cadence). Sysmon-independent.
                     DomainBlockSyncService.Instance.Start();
 
+                    // the included list: this release ships the curated portable
+                    // projection of the block collection (domain names, service
+                    // names — the identities that mean the same thing on every
+                    // machine). One version-gated pass per launch: gap-fill only,
+                    // the user's own decisions outrank it, and a released seed
+                    // block stays released across updates. Fire-and-forget —
+                    // startup never waits on it; the next launch retries.
+                    _ = System.Threading.Tasks.Task.Run(async () =>
+                    {
+                        try { await AutoCommand.Contain.Core.SeedImporter.ApplyIncludedListAsync(); }
+                        catch { /* the next launch retries; startup does not wait on it */ }
+                    });
+
                     // MCP self-heal (only with the Be My Guest auto-register
                     // consent): re-point client registrations whose proxy moved
                     // or died at the stable tools\current path. Success reports

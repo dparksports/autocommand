@@ -30,6 +30,15 @@
   </ItemGroup>
 
   <ItemGroup>
+    <!-- The included list: the release's portable projection of the block
+         collection (SeedImporter reads these; PyTraceHook.py is the
+         naming precedent). Embedded, not loose content — a single-file
+         publish must not be able to strip the shipped collection. -->
+    <EmbeddedResource Include="Seed\SeedDomains.jsonl" LogicalName="AutoCommand.Assets.SeedDomains.jsonl" />
+    <EmbeddedResource Include="Seed\SeedServices.txt" LogicalName="AutoCommand.Assets.SeedServices.txt" />
+  </ItemGroup>
+
+  <ItemGroup>
     <ProjectReference Include="..\..\Engines\Engines.Watch\Engines.Watch.fsproj" />
   </ItemGroup>
 

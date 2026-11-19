@@ -1198,6 +1198,167 @@ finally
     try { Directory.Delete(traceDir, true); } catch { }
 }
 
+// ─────────────────────────────────────────────────────────────────────
+// 18. SeedImporter — the included list (the release's portable projection).
+//     Offline: every seam is pinned synthetic — no DNS, no firewall COM,
+//     no touch of the real %LOCALAPPDATA% stores. Covers the version gate
+//     (a released seed block stays released), gap-fill (the user's own
+//     decisions outrank the ship), idempotence, the failure-holds-version
+//     retry contract, hands-off when a rule already exists, and the
+//     shipped files themselves parsing.
+// ─────────────────────────────────────────────────────────────────────
+{
+    string seedDir = Path.Combine(Path.GetTempPath(), "contain-selftest-seed-" + Guid.NewGuid().ToString("N"));
+    string realStoreDir = AutoCommand.Contain.Core.DomainBlockSyncService.StoreDirectory;
+    AutoCommand.Contain.Core.DomainBlockSyncService.StoreDirectory = seedDir;
+
+    var ruleNames = new HashSet<string>(StringComparer.OrdinalIgnoreCase);
+    var addCalls = new List<string>();
+    SeedImporter.ServiceBlockState = key => Task.FromResult(ruleNames.Contains(key) ? 1 : 0);
+    SeedImporter.AddServiceBlock = (key, desc) =>
+    {
+        addCalls.Add(key + "|" + desc);
+        ruleNames.Add(key);
+        return Task.FromResult("AC-BLOCK-SVC " + key + " (Out)");
+    };
+    SeedImporter.SyncKick = () => Task.CompletedTask;
+    SeedImporter.StateDirectory = () => seedDir;
+
+    try
+    {
+        // 18.1 — fresh store, seed v2: mixed-case + trailing-dot domain
+        // normalizes, bad lines are skipped, everything applies.
+        SeedImporter.DomainsContent = () =>
+            "# header comment\n" +
+            "{\"domain\":\"Telemetry.Example.COM.\",\"note\":\"phones home\",\"since\":1}\n" +
+            "not json at all\n" +
+            "{\"domain\":\"cdn.example.net\",\"note\":\"\",\"since\":2}\n";
+        SeedImporter.ServicesContent = () =>
+            "# header\n" +
+            "diagtrack|Connected User Experiences (DiagTrack)|1\n" +
+            "garbage line\n" +
+            "dosvc|Delivery Optimization|2\n";
+
+        var r1 = await SeedImporter.ApplyIncludedListAsync();
+        var all = DomainBlockSyncService.Instance.All();
+        Check("seed: fresh store applies both domains",
+              r1.DomainsApplied == 2, $"domains={r1.DomainsApplied}");
+        Check("seed: fresh store applies both services, none fail",
+              r1.ServicesApplied == 2 && r1.ServicesFailed == 0,
+              $"applied={r1.ServicesApplied} failed={r1.ServicesFailed}");
+        Check("seed: version advances to the collection max",
+              r1.Version == 2, $"version={r1.Version}");
+        Check("seed: domain normalizes and marks its origin",
+              all.Any(b => b.Domain == "telemetry.example.com" && b.Origin == "seed"
+                          && b.Note == "phones home"),
+              string.Join(",", all.Select(b => b.Domain)));
+        Check("seed: rule description carries display name + seed version",
+              addCalls.Any(c => c == "diagtrack|AutoCommand Included List — Connected User Experiences (DiagTrack) (seed v1)"),
+              addCalls.FirstOrDefault() ?? "(none)");
+
+        // 18.2 — re-apply: the version gate makes it a no-op.
+        var r2 = await SeedImporter.ApplyIncludedListAsync();
+        Check("seed: re-apply is a full no-op",
+              r2.DomainsApplied == 0 && r2.ServicesApplied == 0 && r2.Version == 2,
+              $"d={r2.DomainsApplied} s={r2.ServicesApplied} v={r2.Version}");
+
+        // 18.3 — the tombstone rule: the user releases the seeded v1 domain,
+        // keeps a v2 one, and adds their own block; seed v3 still carries the
+        // released entry — and must NOT resurrect it. Only the since=3 entry
+        // applies; the user's own decision outranks everything.
+        await DomainBlockSyncService.Instance.RemoveAsync("telemetry.example.com", "selftest");
+        DomainBlockSyncService.Instance.ImportSeedDomains(
+            new[] { ("userown.example.com", "the user's own call") }, "blocks-tab");
+        SeedImporter.DomainsContent = () =>
+            "{\"domain\":\"telemetry.example.com\",\"note\":\"phones home\",\"since\":1}\n" +
+            "{\"domain\":\"cdn.example.net\",\"note\":\"\",\"since\":2}\n" +
+            "{\"domain\":\"new.example.org\",\"note\":\"new in v3\",\"since\":3}\n";
+        var r3 = await SeedImporter.ApplyIncludedListAsync();
+        all = DomainBlockSyncService.Instance.All();
+        Check("seed: a released seed block is never resurrected",
+              r3.DomainsApplied == 1 && !all.Any(b => b.Domain == "telemetry.example.com"),
+              $"domains={r3.DomainsApplied} present={all.Any(b => b.Domain == "telemetry.example.com")}");
+        Check("seed: the user's own domain is untouched",
+              all.Any(b => b.Domain == "userown.example.com" && b.Origin == "blocks-tab"), "");
+        Check("seed: version completes to 3", r3.Version == 3, $"version={r3.Version}");
+
+        // 18.4 — a failing engine call is counted, holds the version back,
+        // and the next launch retries exactly the unapplied tail.
+        SeedImporter.ServicesContent = () =>
+            "diagtrack|Connected User Experiences (DiagTrack)|1\n" +
+            "dosvc|Delivery Optimization|2\n" +
+            "badservice|Broken This Launch|4\n";
+        SeedImporter.AddServiceBlock = (key, desc) =>
+        {
+            if (key == "badservice") throw new InvalidOperationException("COM down this launch");
+            addCalls.Add(key + "|" + desc);
+            ruleNames.Add(key);
+            return Task.FromResult("AC-BLOCK-SVC " + key + " (Out)");
+        };
+        var r4 = await SeedImporter.ApplyIncludedListAsync();
+        Check("seed: a failed service is counted, not thrown",
+              r4.ServicesFailed == 1 && r4.ServicesApplied == 0 && r4.DomainsApplied == 0,
+              $"failed={r4.ServicesFailed} applied={r4.ServicesApplied} d={r4.DomainsApplied}");
+        Check("seed: the failed pass holds the version for retry",
+              r4.Version == 3, $"version={r4.Version}");
+        SeedImporter.AddServiceBlock = (key, desc) =>
+        {
+            addCalls.Add(key + "|" + desc);
+            ruleNames.Add(key);
+            return Task.FromResult("AC-BLOCK-SVC " + key + " (Out)");
+        };
+        var r5 = await SeedImporter.ApplyIncludedListAsync();
+        Check("seed: the next launch applies exactly the tail",
+              r5.ServicesApplied == 1 && r5.Version == 4 && r5.DomainsApplied == 0,
+              $"applied={r5.ServicesApplied} v={r5.Version} d={r5.DomainsApplied}");
+
+        // 18.5 — a rule that already exists (the user's own block, or a
+        // paused seed) is hands-off: skipped, not failed, not re-enabled.
+        SeedImporter.ServicesContent = () =>
+            "diagtrack|Connected User Experiences (DiagTrack)|1\n" +
+            "dosvc|Delivery Optimization|2\n" +
+            "diagtrack|Connected User Experiences (DiagTrack)|5\n";
+        var r6 = await SeedImporter.ApplyIncludedListAsync();
+        Check("seed: an existing rule is skipped without failing",
+              r6.ServicesApplied == 0 && r6.ServicesFailed == 0 && r6.Version == 5,
+              $"applied={r6.ServicesApplied} failed={r6.ServicesFailed} v={r6.Version}");
+        Check("seed: no duplicate adds ever landed",
+              addCalls.Count(c => c.StartsWith("diagtrack|", StringComparison.Ordinal)) == 1,
+              $"diagtrack adds={addCalls.Count(c => c.StartsWith("diagtrack|", StringComparison.Ordinal))}");
+
+        // 18.6 — the shipped files themselves: parse through the real
+        // embedded resources (seams nulled). The content contract: the
+        // service seed carries only entries whose block cannot degrade a
+        // new machine, and every entry is version-stamped.
+        SeedImporter.DomainsContent = null;
+        SeedImporter.ServicesContent = null;
+        var shipDomains = SeedImporter.ParseDomains(
+            SeedImporter.EmbeddedContent("AutoCommand.Assets.SeedDomains.jsonl"));
+        var shipServices = SeedImporter.ParseServices(
+            SeedImporter.EmbeddedContent("AutoCommand.Assets.SeedServices.txt"));
+        Check("seed: shipped domain file parses (v1: header only, zero entries)",
+              shipDomains.Count == 0, $"count={shipDomains.Count}");
+        Check("seed: shipped service file parses to the conservative set",
+              shipServices.Count >= 2 &&
+              shipServices.Any(s => s.ServiceKey == "diagtrack") &&
+              shipServices.Any(s => s.ServiceKey == "dosvc"),
+              string.Join(",", shipServices.Select(s => s.ServiceKey)));
+        Check("seed: every shipped entry is version-stamped ≥1",
+              shipServices.All(s => s.Since >= 1), "");
+    }
+    finally
+    {
+        AutoCommand.Contain.Core.DomainBlockSyncService.StoreDirectory = realStoreDir;   // restore the real store root
+        SeedImporter.DomainsContent = null;
+        SeedImporter.ServicesContent = null;
+        SeedImporter.ServiceBlockState = null;
+        SeedImporter.AddServiceBlock = null;
+        SeedImporter.SyncKick = null;
+        SeedImporter.StateDirectory = null;
+        try { Directory.Delete(seedDir, true); } catch { }
+    }
+}
+
 Console.WriteLine();
 Console.WriteLine(failures == 0 ? "ALL CONTAIN SELF-TESTS PASSED" : $"{failures} CHECK(S) FAILED");
 return failures == 0 ? 0 : 1;
