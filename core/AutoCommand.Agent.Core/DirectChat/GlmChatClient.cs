@@ -59,9 +59,14 @@ namespace AutoCommand.Agent.Core.DirectChat
         public const int MaxToolRounds = 6;
 
         /// <summary>Tool answers re-enter the request as message content; this
-        /// bound keeps one verbose tool (a full monitor snapshot) from
-        /// crowding out the conversation.</summary>
-        public const int MaxToolResultChars = 8_000;
+        /// bound keeps one verbose tool (a full monitor snapshot, the whole
+        /// blocks inventory) from dominating the exchange. 50K chars ≈ 12K
+        /// tokens — dwarfed by glm-5.3-flash's 1M-token window, and results
+        /// live only inside the current exchange (never re-sent in later
+        /// requests), so the real costs are latency and the transcript, not
+        /// context. Was 8K: list_blocks inventories outran it and the model
+        /// had to answer "truncated".</summary>
+        public const int MaxToolResultChars = 50_000;
 
         private readonly string _baseUrl;
         private readonly string _model;
@@ -448,7 +453,13 @@ namespace AutoCommand.Agent.Core.DirectChat
         internal static string Truncate(string text, int maxChars)
         {
             if (string.IsNullOrEmpty(text)) return text ?? "";
-            return text.Length <= maxChars ? text : text[..maxChars] + "…\n(truncated)";
+            if (text.Length <= maxChars) return text;
+            // Say what happened and how big the cut was — a model told
+            // "(truncated)" reports the truncation honestly (observed with
+            // list_blocks) instead of guessing at the missing tail.
+            return text[..maxChars] +
+                   $"\n…(truncated — {text.Length - maxChars:N0} more characters were cut by AutoCommand's " +
+                   "tool-result cap; answer from what is here or ask a narrower question)";
         }
     }
 }
