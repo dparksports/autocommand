@@ -17,6 +17,78 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.18.2 (2026-11-18)
+================================================================================
+
+# v2026.11.18.2 — the guard that does not trust the socket's name
+
+**The service-scoped firewall rule never actually stopped BITS: BITS
+borrows the job owner's credentials for the wire, so a rule scoped to
+the BITS service matches nothing and blocks nothing — the evidence, a
+svchost[BITS] instance that moved 41,636 packets to a CDN edge while
+"1/1 enabled" said it was contained, is in this repo's field notes.
+This release replaces that theater with three layers that hold: catch
+the dedicated `-s BITS` svchost the moment Sysmon sees it spawn, cancel
+foreign jobs at the QUEUE (where every destination is visible before
+the first connect, so never-before-seen destinations are covered too),
+and tear down any foreign flow the PID still holds. The same release
+stops the wire from lying: a packet capture that cannot see inbound
+traffic no longer prints "0 B" down as if the server were silent, a
+conversation the wire refused now says so by name, and an update CDN
+row reads as the tenant that owns it, not the infrastructure that
+served it.**
+
+## NEW — BITS job guard (three layers, one policy knob)
+
+- Spawn tracking (L1): the guard subscribes to the Sysmon archive's
+  Appended hook and tracks every dedicated svchost instance claiming
+  `-s BITS` by PID + ProcessGuid, releasing the instance two liveness
+  misses after exit. A masquerade that CLAIMS BITS is guarded too.
+- Job-queue containment (L2): every BITS transfer is a job whose remote
+  URL is readable before any connect. The guard enumerates the queue
+  via BITS COM every two seconds while an instance lives, classifies
+  each job's URL host, and cancels foreign jobs with
+  IBackgroundCopyJob::Cancel — the decision is made on the job's own
+  destination, so destinations that were never blocked before are still
+  stopped. Microsoft-classified remotes pass; the safe side of every
+  failure (unreadable URL, unresolvable host) is foreign.
+- The socket belt (L3): TCP flows the known BITS PID still holds toward
+  non-allowlisted remotes are torn down with SetTcpEntry. Not
+  preventive for the first packet, but starving: BITS backs off
+  exponentially and the instance never completes a conversation.
+- Policy file, re-read every sweep so a hand edit takes effect without
+  a restart: %LOCALAPPDATA%\AutoCommand\bits_guard_pref.txt — off,
+  audit (log only), enforce (default: cancel/kill unless every remote
+  classifies Microsoft/Azure), strict (cancel everything). Every spawn,
+  cancel and kill lands in blocks-events.log as origin `job-guard`, and
+  the Blocks tab's by-line says "BITS job guard".
+
+## CHANGED — the wire stops lying (Transmissions)
+
+- Rows gain `end_reason` (rst / fin / timeout) from capture flags the
+  engine already saw but never persisted, and `capture_in`, a health
+  flag for the capture session itself: the raw-socket path can be deaf
+  inbound on stacks where WFP shadowing eats the receive direction
+  before raw delivery, and until now that failure mode printed a
+  confident "0 B" received on every row — 4,149 of 4,149 one day —
+  which reads as "the server was silent" when the truth is "we did not
+  look". Deaf sessions now say "n/a · rx not captured", and refusal
+  claims are suppressed unless inbound was actually seen.
+- A conversation the wire refused is now a first-class status:
+  `tls·refused` — an rst, or a timeout that never saw a server byte
+  against handshake-sized request bytes, is a refused conversation even
+  when some other counter summed tens of thousands of retransmitted
+  segments for the same socket. (Field case behind this release: a BITS
+  instance reported "41,636 packets transmitted" while its archived
+  flow carried 6,425 unique bytes — retransmits of an unanswered
+  request, not delivered data.)
+- SNI-first provider attribution: `updates-cdn.bravesoftware.com` now
+  reads "Brave Software" instead of "Unclassified", and late RDAP/range
+  answers can no longer overwrite an application-level attribution with
+  an infrastructure one — Amazon is the front door, Brave is who it
+  serves; the row says the tenant.
+
+================================================================================
 v2026.11.18.1 (2026-11-18)
 ================================================================================
 
