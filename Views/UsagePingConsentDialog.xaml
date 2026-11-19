@@ -19,7 +19,7 @@
         </Grid.RowDefinitions>
 
         <StackPanel Grid.Row="0" Margin="0,0,0,10">
-            <TextBlock Text="Help AutoCommand grow — anonymously" FontSize="16" FontWeight="SemiBold"/>
+            <TextBlock Text="Help AutoCommand grow — one random id, zero tracking" FontSize="16" FontWeight="SemiBold"/>
             <TextBlock Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" FontStyle="Italic" Margin="0,4,0,0"
                        Text="This app's promise does not change: nothing is sent unless you say yes here."/>
         </StackPanel>
@@ -29,16 +29,16 @@
                 Padding="12" Margin="0,0,0,12">
             <StackPanel>
                 <TextBlock FontSize="12" TextWrapping="Wrap"
-                           Text="AutoCommand is free and open source. To keep building it, we need one honest number: how many people run it. If you opt in, the app sends this — and only this — once a day:"/>
+                           Text="AutoCommand is free and open source. To keep building it, we need one honest number: how many people run it — unique installs, not launches. If you opt in, the app sends this — and only this — once a day:"/>
                 <TextBlock FontFamily="Consolas" FontSize="11" Margin="0,8" TextWrapping="Wrap"
                            Foreground="{DynamicResource TextSecondaryBrush}"
-                           Text="{}{ a: &quot;autocommand&quot;,&#10;  v: app version,  o: Windows build }"/>
+                           Text="{}{ a: &quot;autocommand&quot;,&#10;  v: app version,  o: Windows build,&#10;  i: random install id }"/>
                 <TextBlock FontSize="11" TextWrapping="Wrap" Margin="0,0,0,4"
                            Text="• No hostnames, process names, or anything you do in the app."/>
                 <TextBlock FontSize="11" TextWrapping="Wrap" Margin="0,0,0,4"
                            Text="• Your IP address is never stored — the server counts your country at the network edge and drops everything else."/>
                 <TextBlock FontSize="11" TextWrapping="Wrap"
-                           Text="• No id of any kind — not even a random one — is sent or stored anywhere. Delete HKCU\Software\AutoCommand\UsagePing anytime to withdraw consent."/>
+                           Text="• The id is a random number the app invents itself — not from your hardware, account, or IP — so repeated launches count once. Delete HKCU\Software\AutoCommand\UsagePing anytime to withdraw consent and erase the id; opting back in later invents a fresh id no one can connect to the old one."/>
             </StackPanel>
         </Border>
 

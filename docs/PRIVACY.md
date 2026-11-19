@@ -1,7 +1,8 @@
 # AutoCommand privacy policy
 
 **The short version: AutoCommand collects nothing about you and reports to
-no one. Not at startup, not on a timer, not "anonymized."** The only
+no one on its own. Not at startup, not on a timer, not "anonymized" — the
+one exception is a count you have to opt into, spelled out below.** The only
 automatic outbound traffic is questions to *public directories* — when the
 monitor sees an IP it cannot identify locally, it asks public RDAP
 registries (over HTTPS) which organization owns that address. The registry
@@ -9,21 +10,24 @@ sees the queried IP and nothing else; no identifier, no behavior, no
 payload of yours. The full list of outbound lookups is
 [below](#network-lookups-spelled-out).
 
-The only exception is a **voluntary, opt-in daily count**. If — and only if —
-you clicked **"Yes, count me in"** in the dialog the app showed you once, the
-app sends the following, at most once per day:
+The only exception is a **voluntary, opt-in install count**. If — and only
+if — you clicked **"Yes, count me in"** in the dialog the app showed you,
+the app sends the following, at most once per day:
 
 | Field | Value | Why |
 |---|---|---|
 | `a` | `"autocommand"` | Which app |
 | `v` | Build date, compact (e.g. `261015`) | Day-level track of which builds people run |
 | `o` | Windows build (e.g. `10.0.26300`) | Know which builds to support |
+| `i` | A random install id (32 hex chars) | Count *unique installs*, not launches |
 
-**There is no identifier in the count — not even a random one.** No
-install id, no machine id, no account, nothing that could ever be connected
-back to you, your PC, or your Windows account. Each consenting install adds
-1 to a daily total, and the server stores daily totals and nothing else:
-no per-user rows exist anywhere in the system.
+**The only identifier in the count is that random id — a number the app
+invents on your machine.** It is a fresh `Guid` generated locally and stored
+in the count's own registry key. It is *not* derived from your hardware,
+your Windows account, your install folder, or your IP address, and the
+server never stores anything alongside it that could connect it to a
+person. Its one job: make repeated launches and reinstalls count once
+instead of once a day.
 
 **What this count is not:** no hostnames, no process names, no connection
 data, no behavioral events, and nothing about anything you do inside the app.
@@ -31,15 +35,31 @@ data, no behavioral events, and nothing about anything you do inside the app.
 **Your IP address is never read, stored, or forwarded by AutoCommand's
 counting code.** The receiving server (a Cloudflare Worker; code public in
 this repository under `telemetry/`) learns only the country code Cloudflare
-itself derives at the network edge, and increments a counter. Its entire
-database is daily totals per (app, version, country) — a leak of it reveals
-counts, and nothing else. The spec, worker code, and schema are public in the
-repository's `telemetry/` folder: verify, don't trust.
+itself derives at the network edge. Its entire database is: one row per
+random id (app, country, first-seen day), one row per id per active day
+(app, country, version), and the older daily-total table from before the id
+existed. A leak of it reveals counts and random numbers — nothing about any
+person. The spec, worker code, and schema are public in the repository's
+`telemetry/` folder: verify, don't trust.
 
 **Changing your mind:** delete the registry key
 `HKEY_CURRENT_USER\Software\AutoCommand\UsagePing` (or set its `Consent`
-value to `no`). That withdraws consent permanently. Uninstalling the app
-removes the settings with it.
+value to `no`). That withdraws consent permanently **and erases your random
+id**. If you ever opt back in, the app invents a brand-new id with no
+connection to the old one — nothing survives to be re-linked. Uninstalling
+the app removes the settings with it.
+
+**The legal posture, honestly.** Because the id is pseudonymous, we treat
+it as personal data and build to the standards the major privacy laws set
+for such data: it is sent only after an informed opt-in (GDPR-style
+consent), it is the minimum needed to count (data minimization), the dialog
+and this page disclose exactly what is sent (transparency), and withdrawing
+erases it for good (right to erasure). There is no sale or sharing as those
+words are used by CCPA/CPRA-style laws, and no cross-context profiling.
+That is a design claim, not legal advice: we believe the count meets what
+GDPR/UK GDPR, CCPA/CPRA, LGPD, PIPEDA and similar regimes require for data
+of this kind — and the code that proves every sentence on this page is
+public.
 
 **Everything else the app stores** stays on your machine, in readable files
 listed in the [Technical Notes](TECHNICAL_NOTES.md).

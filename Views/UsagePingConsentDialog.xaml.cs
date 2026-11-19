@@ -10,10 +10,11 @@ using AutoCommand.Helpers;
 
 namespace AutoCommand.Views
 {
-    /// <summary>Opt-in prompt for the anonymous daily count. Writes the answer
-    /// to HKCU (Consent = yes|no|ask) itself and closes; "Maybe later" keeps
-    /// consent=ask so the offer can reappear (bounded by UsagePingService.MaxAsks).
-    /// The community-graph link only appears when the endpoint is deployed.</summary>
+    /// <summary>Opt-in prompt for the install count. Writes the answer to HKCU
+    /// (Consent = yes|no|ask, plus the payload revision via SetConsent) itself
+    /// and closes; "Maybe later" keeps consent=ask so the offer can reappear
+    /// (bounded by UsagePingService.MaxAsks). The community-graph link only
+    /// appears when the endpoint is deployed.</summary>
     public partial class UsagePingConsentDialog : Window
     {
         public UsagePingConsentDialog()

@@ -255,12 +255,12 @@
                                        Foreground="{DynamicResource TextSecondaryBrush}" FontSize="11" FontWeight="SemiBold"/>
                         </StackPanel>
 
-                        <!-- Community: the live anonymous count + share -->
+                        <!-- Community: the live opt-in install count + share -->
                         <StackPanel Grid.Row="3" Margin="0,14,0,0">
                             <WrapPanel>
                                 <Button x:Name="CommunityGraphBtn" Content="📈 Community graph" Style="{StaticResource PrimaryButton}"
                                         Click="CommunityGraph_Click" Margin="0,0,8,0"
-                                        ToolTip="How many people run AutoCommand — an anonymous opt-in daily count, charted live. Opens the public page in your browser."/>
+                                        ToolTip="How many people run AutoCommand — an opt-in count of unique installs (one random throwaway id each), charted live. Opens the public page in your browser."/>
                                 <Button x:Name="ShareBtn" Content="🔗 Share AutoCommand" Style="{StaticResource PrimaryButton}"
                                         Click="Share_Click"
                                         ToolTip="Copy the download link and pass it to a peer who needs to see what their PC is really doing."/>

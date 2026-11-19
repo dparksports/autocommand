@@ -109,7 +109,7 @@ The **Ask AutoCommand** tab is the direct line: you ask in plain English and the
 | Secure-boot DBX blob (Shields Up) | the fetch for that one file | Microsoft |
 | Ask AutoCommand (opt-in chat) | your conversation text + the tool answers the model reads | the GLM endpoint you pick in the tab (Z.ai / Zhipu), HTTPS |
 
-The one optional extra — an anonymous daily count with no identifiers, not even a random one, so the project can show a usage graph — is **off unless you say yes**. Details and how to withdraw consent: [PRIVACY.md](docs/PRIVACY.md).
+The one optional extra — an install count so the project can show how many people actually use it — is **off unless you say yes**. Opting in sends once a day: app name, build date, Windows build, and one **random id the app invents itself** — never taken from your hardware, account, or IP, and erased for good if you withdraw consent (opting back in later invents a fresh, unlinked one). Your IP address is never stored. We designed the count to meet what GDPR/UK GDPR, CCPA/CPRA, LGPD, PIPEDA and similar laws require for data of this kind — informed opt-in, minimum data, easy withdrawal — with the server code public so you can verify rather than trust. Details: [PRIVACY.md](docs/PRIVACY.md).
 
 ## Built to leave
 
@@ -151,5 +151,5 @@ The `systemmonitor/` tree is the preserved precursor, excluded from the app buil
 | "A program I don't recognize is on the list" | Most are normal Windows parts. Double-click the row — it shows who started it and where it connects. Still unsure? Invite your AI assistant to take a look (Be My Guest). |
 | "It asked for Administrator permission" | That's how it sees system processes, not just yours. It never uses that permission without asking you first. |
 | "Should I remove my antivirus?" | Your call — they do different jobs. AutoCommand shows what's happening; antivirus scans files. Many people run both. |
-| "What does it send about me?" | Nothing, by default. The three narrow lookups and the optional anonymous count are spelled out above and in [PRIVACY.md](docs/PRIVACY.md). |
+| "What does it send about me?" | Nothing, by default. The narrow lookups in the table above carry no identifier, and the optional install count sends only a random, unlinkable id — all spelled out above and in [PRIVACY.md](docs/PRIVACY.md). |
 | "I blocked something and the internet broke" | Breathe. The 🚑 **Restore Internet** button undoes every block the app made, in one click. |

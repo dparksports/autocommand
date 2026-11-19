@@ -15,26 +15,35 @@ using AutoCommand.Sitedoctor.Core;
 namespace AutoCommand.Services
 {
     /// <summary>
-    /// Anonymous daily usage count — the only thing AutoCommand ever sends.
-    /// Counts active installs so the project can show real usage numbers;
+    /// Opt-in usage count — the only thing AutoCommand ever sends.
+    /// Counts unique installs so the project can show real usage numbers;
     /// there is no other telemetry of any kind.
     ///
     /// Consent model: OFF by default. A one-time dialog (max 3 offers) asks
     /// the user to opt in; "no" is permanent and respected immediately.
     /// State lives in HKCU\Software\AutoCommand\UsagePing (Consent = ask|yes|no,
-    /// LastSentDay, Asks) — readable registry policy, same as every other
-    /// app setting.
+    /// LastSentDay, Asks, InstallId, ConsentRev) — readable registry policy,
+    /// same as every other app setting.
     ///
     /// Payload — the whole thing, nothing else, ever:
     ///   { "a": "autocommand",
-    ///     "v": build date, compact (e.g. 261015),  "o": Windows build }
-    /// NO identifier of any kind is included — not even a random install id.
-    /// The app sends at most once per UTC day (LastSentDay below), so each
-    /// consenting install adds 1 to a daily aggregate counter on the server.
-    /// The server derives country at the network edge and never stores an IP
-    /// address; it keeps only daily totals (see telemetry/ in the repository
-    /// for the spec, the worker code, and the one-table schema). Deleting the
-    /// registry key withdraws consent.
+    ///     "v": build date, compact (e.g. 261015),
+    ///     "o": Windows build,
+    ///     "i": random install id }
+    /// The id is invented by this app on this machine (a fresh Guid) — it is
+    /// NOT derived from the hardware, the Windows account, or the IP address,
+    /// and it is never sent or stored alongside anything identifying. Deleting
+    /// the registry key withdraws consent AND erases the id; a later opt-in
+    /// invents a brand-new id that cannot be linked to the old one. The server
+    /// dedupes by this id — one row per unique install, one row per install
+    /// per active day — so re-launches, re-unzips, and even a wiped registry
+    /// within a day cannot inflate the count. Country is derived at the
+    /// network edge and no IP address is ever stored (see telemetry/ in the
+    /// repository for the spec, the worker code, and the schema).
+    ///
+    /// ConsentRev marks which payload shape the user agreed to; "yes" answers
+    /// given under an older shape are re-asked once, permanent "no" answers
+    /// are never re-asked.
     ///
     /// Endpoint stays empty until the receiver is deployed (telemetry/server);
     /// while empty this whole service is inert — no dialog, no network.
@@ -46,6 +55,12 @@ namespace AutoCommand.Services
         private const string Endpoint = "https://autocommand-usage-ping.dpark-sports.workers.dev/v1/ping";
         private const string AppName = "autocommand";
         private const int MaxAsks = 3;
+
+        /// <summary>Payload-shape revision the current dialog text describes.
+        /// Rev 1: no id at all. Rev 2: adds the random install id ("i"). Bump
+        /// whenever the payload or its description changes — stale "yes"
+        /// answers are re-asked once; stale "no" answers stay final.</summary>
+        private const int CurrentConsentRev = 2;
 
         private const string RegKey = @"Software\AutoCommand\UsagePing";
 
@@ -76,6 +91,17 @@ namespace AutoCommand.Services
 
                 string consent = ReadString("Consent", "ask");
 
+                // Re-ask once when the payload shape changed after a "yes"
+                // (informed consent): rev 2 discloses the random install id.
+                // A permanent "no" is never converted back into a question —
+                // only the rev marker moves so this check stays cheap.
+                if (ReadInt("ConsentRev", 1) < CurrentConsentRev)
+                {
+                    if (consent == "yes") { WriteString("Consent", "ask"); consent = "ask"; }
+                    if (consent == "ask") WriteInt("Asks", 0);
+                    WriteInt("ConsentRev", CurrentConsentRev);
+                }
+
                 if (consent == "yes")
                 {
                     _ = SendDailyPingAsync(); // fire-and-forget; never blocks startup
@@ -104,18 +130,21 @@ namespace AutoCommand.Services
             catch { /* never let counting break the app */ }
         }
 
-        /// <summary>Writes the consent answer (yes|no|ask). Public for the
-        /// consent dialog and a future Settings toggle.</summary>
+        /// <summary>Writes the consent answer (yes|no|ask) together with the
+        /// payload revision the user saw in the dialog. Public for the consent
+        /// dialog and a future Settings toggle.</summary>
         public static void SetConsent(string value)
         {
             if (value != "yes" && value != "no" && value != "ask") return;
             WriteString("Consent", value);
+            WriteInt("ConsentRev", CurrentConsentRev);
         }
 
         /// <summary>Sends today's ping unless one was already sent (UTC day).
-        /// The daily check is client-side — the server never sees anything
-        /// that could identify this install, so "once per day" is all we
-        /// can and need to enforce.</summary>
+        /// The daily gate is client-side (LastSentDay); the server additionally
+        /// dedupes per install id per day, so even a wiped registry cannot
+        /// double-count a day. The id itself is random and unlinkable —
+        /// see the class comment for exactly what that means.</summary>
         public static async Task SendDailyPingAsync()
         {
             try
@@ -127,7 +156,8 @@ namespace AutoCommand.Services
                 {
                     a = AppName,
                     v = CompactBuildDate(),
-                    o = Environment.OSVersion.Version.ToString()
+                    o = Environment.OSVersion.Version.ToString(),
+                    i = GetOrCreateInstallId()
                 });
 
                 using var client = new HttpClient { Timeout = TimeSpan.FromSeconds(5) };
@@ -153,6 +183,24 @@ namespace AutoCommand.Services
             return m.Success
                 ? m.Groups[1].Value.Substring(2) + m.Groups[2].Value + m.Groups[3].Value
                 : v;
+        }
+
+        /// <summary>Random, locally-invented install id (32 hex chars) — the
+        /// "i" field. Created on first send, stored in the same registry key.
+        /// Deliberately NOT derived from hardware, the Windows account, the
+        /// install folder, or the IP address, and never paired with anything
+        /// identifying, so the server can count unique installs without ever
+        /// learning who an install belongs to. Deleting the registry key
+        /// erases it; a re-consent invents a fresh id with no link to the old.</summary>
+        private static string GetOrCreateInstallId()
+        {
+            string id = ReadString("InstallId", "");
+            if (!System.Text.RegularExpressions.Regex.IsMatch(id ?? "", "^[0-9a-f]{32}$"))
+            {
+                id = Guid.NewGuid().ToString("N");
+                WriteString("InstallId", id);
+            }
+            return id;
         }
 
         // ── HKCU persistence (same store and style as ThemeService) ──

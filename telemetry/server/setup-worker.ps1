@@ -122,7 +122,8 @@ Check "public graph feed (/v1/graph)"     ($graph -match 'days')
 Check "badge (/v1/badge)"                 ($badge -match '^\d+$')
 
 # one marked test ping, verified via /v1/stats, then deleted
-$pingBody = '{"a":"autocommand","v":"0.0.0-smoketest","o":"setup"}'
+$smokeId = 'd' * 32    # valid random-id shape (32 hex); a real install colliding with it is ~impossible (2^-128)
+$pingBody = @{ a = 'autocommand'; v = '0.0.0-smoketest'; o = 'setup'; i = $smokeId } | ConvertTo-Json -Compress
 try {
     Invoke-RestMethod "$root/v1/ping" -Method Post -Body $pingBody -ContentType 'application/json' | Out-Null
 } catch {}
@@ -131,9 +132,13 @@ $stats = try {
     Invoke-RestMethod "$root/v1/stats" -Headers @{ Authorization = "Bearer $token" } -ErrorAction Stop
 } catch { $null }
 Check "ping accepted + stats auth works (/v1/stats)" ($null -ne $stats)
-$smokeSeen = ($null -ne $stats) -and ((($stats | ConvertTo-Json -Depth 6)) -match 'smoketest|total_pings')
+$smokeSeen = ($null -ne $stats) -and ((($stats | ConvertTo-Json -Depth 6)) -match 'smoketest')
 Check "test row landed in the count" ($smokeSeen)
 
+Invoke-Wrangler @('d1','execute','usage-ping','--remote',
+    '--command', "DELETE FROM installs WHERE id='$smokeId'") | Out-Null
+Invoke-Wrangler @('d1','execute','usage-ping','--remote',
+    '--command', "DELETE FROM daily_active WHERE install_id='$smokeId'") | Out-Null
 Invoke-Wrangler @('d1','execute','usage-ping','--remote',
     '--command', "DELETE FROM daily_rollup WHERE version LIKE '0.0.0-smoketest%'") | Out-Null
 Check "test row cleaned up" ($true)

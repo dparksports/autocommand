@@ -10,4 +10,5 @@ database_id = "07193093-7ba6-4b07-845a-b2a53f00cd56"
 
 # One secret only:
 #   npx wrangler secret put ADMIN_TOKEN  (used for GET /v1/stats)
-# No PING_SALT, no cron, no request logging ??? the design stores aggregates only.
+# No PING_SALT, no cron, no request logging — the only stored key is the
+# client-invented random install id; nothing else identifies an install.

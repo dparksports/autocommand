@@ -17,6 +17,67 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.18.1 (2026-11-18)
+================================================================================
+
+# v2026.11.18.1 — the community count counts unique installs
+
+**The opt-in usage count now counts installs, not launches: a random id
+the app invents on your own machine dedupes re-runs, re-downloads and
+re-unzips, so the public number stops growing when the same person tests
+daily. One honest identifier replaces "no identifier at all" — and every
+privacy document was rewritten in the same release to say exactly what
+that id is, and is not.**
+
+## CHANGED — the count (opt-in, still off by default)
+
+- The daily ping now carries one extra field: a 32-hex random install id
+  (a fresh Guid created locally, stored in
+  HKCU\Software\AutoCommand\UsagePing\InstallId). It is NOT derived from
+  your hardware, your Windows account, or your IP address, and nothing is
+  ever stored alongside it that could connect it to a person. Its whole
+  job: repeated launches and reinstalls count once, instead of once a
+  day.
+- The receiver dedupes by id at the primary key: one row per install
+  ever (installs), one row per install per active day (daily_active).
+  The public page's big number is now unique installs; daily actives,
+  countries and version adoption dedupe the same way. No IP address is
+  stored, exactly as before — the country still comes from the network
+  edge, and the receiving code still never reads one.
+- Deleting the UsagePing registry key withdraws consent AND erases the
+  id; opting back in later invents a brand-new id no one can connect to
+  the old one. Nothing survives to be re-linked.
+- If you had already said "yes": the app asks ONCE more. The old consent
+  covered a payload with no id; this one discloses it, and you should
+  get to re-decide with the full picture. A "no" was and stays permanent
+  and is never re-asked.
+- Builds from before this release are not counted by the migrated
+  receiver until they update (they get a "bad install id" rejection and
+  retry harmlessly once per launch). The all-time number restarts when
+  the receiver migrates; the daily chart keeps its full history from the
+  old aggregate table.
+
+## DOCS — the privacy story, rechecked line by line
+
+- PRIVACY.md, README, the in-app consent dialog, the Settings tooltips,
+  the public share page and the privacy infographic all describe the id
+  in plain language. The telemetry spec (telemetry/USAGE_PING_SPEC.md)
+  is rewritten as the contract: payload, schema, dedup semantics, threat
+  model, and the legal posture — pseudonymous data, treated as personal
+  data, built to what GDPR/UK GDPR, CCPA/CPRA, LGPD and PIPEDA require
+  for data of this kind: informed opt-in, data minimization, easy full
+  withdrawal. The server code stays public: verify, don't trust.
+
+## OPERATOR — deploying the receiver (telemetry/server)
+
+- Two commands, in this order (before or shortly after this release):
+  `wrangler d1 execute usage-ping --remote --file=schema.sql` (adds the
+  two tables; idempotent, leaves the old table untouched) then
+  `wrangler deploy`. Until then the app keeps counting the old ping way;
+  nothing breaks in between. Full effects and steps:
+  telemetry/server/DEPLOY.md.
+
+================================================================================
 v2026.11.18 (2026-11-18)
 ================================================================================
 

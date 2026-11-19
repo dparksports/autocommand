@@ -1,12 +1,14 @@
 # snapshot-usage.ps1 - the weekly traction snapshot, automated.
 #
 # What it does (one run = one dated snapshot):
-#   1. Pulls /v1/stats (daily-actives series, countries, versions, totals)
-#      with the ADMIN_TOKEN from admin-token.txt next to this script.
+#   1. Pulls /v1/stats (distinct daily-actives series, countries, versions,
+#      install totals) with the ADMIN_TOKEN from admin-token.txt next to this
+#      script.
 #   2. Sums real GitHub download counts for both apps' release assets.
-#   3. Runs the plausibility anchor: yesterday's opt-in DAU must never
-#      exceed cumulative downloads - if it does, the snapshot is marked
-#      SPOOFED-SUSPECTED (annotate in the data room; never delete).
+#   3. Runs the plausibility anchor: yesterday's opt-in DAU (distinct
+#      installs) must never exceed cumulative downloads - if it does, the
+#      snapshot is marked SPOOFED-SUSPECTED (annotate in the data room;
+#      never delete).
 #   4. Writes metrics-history/usage-YYYY-MM-DD.json + one line in
 #      metrics-history/usage-history.csv (the investor time series).
 #
@@ -71,7 +73,7 @@ $dlAuto = TotalDownloads 'dparksports/autocommand-windows'
 $dlShields = TotalDownloads 'dparksports/shields-up'
 $downloads = ($dlAuto + $dlShields)
 
-# plausibility anchor: DAU can never legitimately exceed downloads
+# plausibility anchor: distinct opt-in installs can never legitimately exceed downloads
 $yesterday = ($stats.daily | Sort-Object day -Descending | Select-Object -First 1)
 $dau = if ($yesterday) { [int]$yesterday.dau } else { 0 }
 $plausible = ($downloads -lt 0) -or ($dau -le $downloads)

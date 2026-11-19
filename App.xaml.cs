@@ -335,10 +335,11 @@ namespace AutoCommand
             SinkholeService.Instance.EnsureRunningForCurrentPins();
             _ = Services.TelemetryProofService.Instance.TotalDenied;
 
-            // Anonymous usage ping (opt-in, off by default): sends the user's
-            // answer into effect — consented installs ping once a day, everyone
-            // else is never asked again after the bounded offer. Fully inert
-            // while UsagePingService.Endpoint is unconfigured. Spec and server
+            // Usage ping (opt-in, off by default): consented installs ping
+            // once a day with app version + a random, locally-invented install
+            // id so the server can count unique installs; everyone else is
+            // never asked again after the bounded offer. Fully inert while
+            // UsagePingService.Endpoint is unconfigured. Spec and server
             // code: telemetry/ in the repository.
             _ = Services.UsagePingService.RunStartupFlowAsync();
 
