@@ -30,6 +30,7 @@ namespace AutoCommand.Light.Views
             InitializeComponent();
             Loaded += (s, e) => Rebuild();
             LightGate.Changed += () => Dispatcher.BeginInvoke(new Action(Rebuild));
+            LightTheme.Changed += () => Dispatcher.BeginInvoke(new Action(Rebuild));
         }
 
         private void SearchBox_TextChanged(object sender, TextChangedEventArgs e)

@@ -1,0 +1,29 @@
+<ResourceDictionary xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+                    xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+
+    <!-- Dark palette — the default. The operator-console values the
+         Advanced app's App.xaml already ships (deep slate surfaces, light
+         text, >=4.5:1 everywhere). Same KEYS as Palette.Light.xaml: the
+         theme service swaps this dictionary and every DynamicResource
+         consumer repaints in place. State colors (green/amber/red) keep
+         the same meaning in both palettes. -->
+    <SolidColorBrush x:Key="BackgroundBrush" Color="#171B22"/>
+    <SolidColorBrush x:Key="SurfaceBrush" Color="#1F242E"/>
+    <SolidColorBrush x:Key="SurfaceAltBrush" Color="#282F3B"/>
+    <SolidColorBrush x:Key="BorderBrush" Color="#39414F"/>
+    <SolidColorBrush x:Key="TextPrimaryBrush" Color="#F1F4F9"/>
+    <SolidColorBrush x:Key="TextSecondaryBrush" Color="#98A2B3"/>
+    <SolidColorBrush x:Key="MutedTextBrush" Color="#B9C3D2"/>
+    <SolidColorBrush x:Key="AccentBlueBrush" Color="#3B82F6"/>
+    <SolidColorBrush x:Key="AccentCyanBrush" Color="#53B4E8"/>
+    <SolidColorBrush x:Key="AccentGreenBrush" Color="#34D399"/>
+    <SolidColorBrush x:Key="AccentAmberBrush" Color="#FBBF24"/>
+    <SolidColorBrush x:Key="AccentRedBrush" Color="#F87171"/>
+    <SolidColorBrush x:Key="BadgeRedBg" Color="#3A1520"/>
+    <SolidColorBrush x:Key="BadgeAmberBg" Color="#3A2A14"/>
+    <SolidColorBrush x:Key="BadgeBlueBg" Color="#1A4A8A"/>
+    <SolidColorBrush x:Key="RowAltBrush" Color="#232A35"/>
+    <SolidColorBrush x:Key="RowHoverBrush" Color="#2A3240"/>
+    <SolidColorBrush x:Key="RowSelectedBrush" Color="#2E3A4E"/>
+    <SolidColorBrush x:Key="GridLineBrush" Color="#323B49"/>
+</ResourceDictionary>

@@ -17,6 +17,38 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.18.6 (2026-11-18)
+================================================================================
+
+# v2026.11.18.6 — Light in both shades: dark by default, light by choice
+
+**The gatekeeper wears both uniforms. Two palettes, one set of brush keys, a
+live swap, and the user's choice kept in a plain file — dark first-runs teach
+the product, light is one flip away, and either way the Ask stays amber and
+Today stays honest.**
+
+## NEW — Appearance (Settings)
+
+- A Dark / Light segment on the Settings page. Dark is the first-run default;
+  the flip applies immediately (no restart, no Apply button) and persists in
+  theme.txt inside Light's data folder — plain, inspectable, theme.txt gone
+  means dark again.
+
+## CHANGED — how the repaint works
+
+- The palette moved out of App.xaml into Themes\Palette.Dark.xaml and
+  Themes\Palette.Light.xaml (same keys, both palettes hold the >=4.5:1 text
+  contrast; state colors mean the same thing in either shade). App.xaml merges
+  the dark palette by default; LightTheme re-points that one merged slot on
+  the flip.
+- Every brush consumer in the shell is a DynamicResource now — that is the
+  whole trick, and the reason the repaint is in-place. BasedOn style links
+  stay StaticResource on purpose (style identity is not theme-dependent).
+- Code-composed surfaces (Today's histogram bars and headline tint, the Apps
+  rows) rebuild against the new palette on the swap; the tray lock keeps its
+  state colors — green/amber/red mean the same thing in both shades.
+
+================================================================================
 v2026.11.18.5 (2026-11-18)
 ================================================================================
 

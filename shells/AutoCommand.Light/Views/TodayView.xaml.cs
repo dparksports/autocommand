@@ -19,6 +19,9 @@ namespace AutoCommand.Light.Views
             InitializeComponent();
             Loaded += (s, e) => Rebuild();
             LightGate.Changed += () => Dispatcher.BeginInvoke(new Action(Rebuild));
+            // the histogram bars and headline tint are chosen in code —
+            // a theme swap re-resolves them against the new palette
+            LightTheme.Changed += () => Dispatcher.BeginInvoke(new Action(Rebuild));
         }
 
         public void Rebuild() => _ = RebuildAsync();

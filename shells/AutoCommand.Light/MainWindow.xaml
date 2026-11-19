@@ -69,8 +69,8 @@
         </TabControl>
 
         <!-- the panic action lives where the eyes already are: bottom-right -->
-        <Border Grid.Row="1" Background="{StaticResource SurfaceBrush}"
-                BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0"
+        <Border Grid.Row="1" Background="{DynamicResource SurfaceBrush}"
+                BorderBrush="{DynamicResource BorderBrush}" BorderThickness="0,1,0,0"
                 Padding="14,7">
             <Grid>
                 <Grid.ColumnDefinitions>
@@ -80,13 +80,13 @@
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
                     <Ellipse x:Name="GateDot" Width="8" Height="8"
-                             Fill="{StaticResource AccentGreenBrush}" Margin="0,0,8,0"/>
+                             Fill="{DynamicResource AccentGreenBrush}" Margin="0,0,8,0"/>
                     <TextBlock x:Name="GateText" Text="gate is up — only your browser and allowed apps talk"
-                               Foreground="{StaticResource TextSecondaryBrush}" FontSize="12"/>
+                               Foreground="{DynamicResource TextSecondaryBrush}" FontSize="12"/>
                 </StackPanel>
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                     <TextBlock x:Name="VersionText" Text="AutoCommand Light"
-                               Foreground="{StaticResource MutedTextBrush}" FontSize="11"
+                               Foreground="{DynamicResource MutedTextBrush}" FontSize="11"
                                VerticalAlignment="Center" Margin="0,0,14,0"/>
                     <Button x:Name="OpenBtn" Content="🚑 Open the internet — 10 min"
                             Style="{StaticResource DangerButton}" FontSize="12"
@@ -99,28 +99,28 @@
         <!-- onboarding: three sentences, one choice at the end. Shown once,
              over a dimmed app — the Tracking-Transparency discipline. -->
         <Grid x:Name="Onboarding" Grid.Row="0" Background="#CC1B2733" Visibility="Collapsed">
-            <Border Width="520" Background="{StaticResource SurfaceBrush}" CornerRadius="16"
+            <Border Width="520" Background="{DynamicResource SurfaceBrush}" CornerRadius="16"
                     Padding="32,28" VerticalAlignment="Center" HorizontalAlignment="Center">
                 <StackPanel>
                     <StackPanel x:Name="OnbStep1">
                         <TextBlock FontSize="24" FontWeight="SemiBold"
                                    Text="This app keeps your internet closed." TextWrapping="Wrap"/>
                         <TextBlock FontSize="14" Margin="0,12,0,0" TextWrapping="Wrap"
-                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
                                    Text="Your browser stays open. Everything else asks first — and you decide who stays."/>
                     </StackPanel>
                     <StackPanel x:Name="OnbStep2" Visibility="Collapsed">
                         <TextBlock FontSize="24" FontWeight="SemiBold"
                                    Text="When something wants to talk, you'll see one question." TextWrapping="Wrap"/>
                         <TextBlock FontSize="14" Margin="0,12,0,0" TextWrapping="Wrap"
-                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
                                    Text="Allow once, always, or never — and you can change your mind any time on the Apps page."/>
                     </StackPanel>
                     <StackPanel x:Name="OnbStep3" Visibility="Collapsed">
                         <TextBlock FontSize="24" FontWeight="SemiBold"
                                    Text="If anything ever stops working, one button opens everything." TextWrapping="Wrap"/>
                         <TextBlock FontSize="14" Margin="0,12,0,0" TextWrapping="Wrap"
-                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                   Foreground="{DynamicResource TextSecondaryBrush}"
                                    Text="🚑 sits at the bottom right, nothing is deleted, and it closes itself after ten minutes."/>
                     </StackPanel>
                     <Button x:Name="OnbBtn" Content="Next" Style="{StaticResource PrimaryButton}"

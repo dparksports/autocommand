@@ -9,8 +9,8 @@
         FontFamily="Segoe UI">
     <!-- The TCC grammar: small, focused, background dimmed, one question,
          three answers, and a countdown that answers Never. -->
-    <Border Background="{StaticResource SurfaceBrush}"
-            BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+    <Border Background="{DynamicResource SurfaceBrush}"
+            BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
             CornerRadius="14" Padding="24,20" Margin="12">
         <Border.Effect>
             <DropShadowEffect BlurRadius="18" ShadowDepth="2" Opacity="0.25"/>
@@ -18,7 +18,7 @@
         <StackPanel>
             <TextBlock x:Name="HeadlineText" FontSize="17" FontWeight="SemiBold"
                        TextWrapping="Wrap" Margin="0,0,0,6"/>
-            <TextBlock x:Name="DetailText" FontSize="13" Foreground="{StaticResource TextSecondaryBrush}"
+            <TextBlock x:Name="DetailText" FontSize="13" Foreground="{DynamicResource TextSecondaryBrush}"
                        TextWrapping="Wrap" Margin="0,0,0,16"/>
 
             <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
@@ -37,7 +37,7 @@
             </StackPanel>
 
             <TextBlock x:Name="CountdownText" FontSize="11" Margin="0,12,0,0"
-                       Foreground="{StaticResource MutedTextBrush}"/>
+                       Foreground="{DynamicResource MutedTextBrush}"/>
         </StackPanel>
     </Border>
 </Window>

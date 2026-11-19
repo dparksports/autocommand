@@ -4,14 +4,14 @@
     <ScrollViewer VerticalScrollBarVisibility="Auto">
         <StackPanel MaxWidth="760" HorizontalAlignment="Left" Margin="32,28,32,28">
 
-            <TextBlock x:Name="DateText" FontSize="12" Foreground="{StaticResource MutedTextBrush}"/>
+            <TextBlock x:Name="DateText" FontSize="12" Foreground="{DynamicResource MutedTextBrush}"/>
             <TextBlock x:Name="HeadlineText" FontSize="32" FontWeight="SemiBold" Margin="0,6,0,6"
                        TextWrapping="Wrap"/>
-            <TextBlock x:Name="SublineText" FontSize="14" Foreground="{StaticResource TextSecondaryBrush}"
+            <TextBlock x:Name="SublineText" FontSize="14" Foreground="{DynamicResource TextSecondaryBrush}"
                        TextWrapping="Wrap"/>
 
             <!-- the asks banner: apps waiting for an answer -->
-            <Border x:Name="AsksBanner" Background="{StaticResource BadgeAmberBg}" CornerRadius="10"
+            <Border x:Name="AsksBanner" Background="{DynamicResource BadgeAmberBg}" CornerRadius="10"
                     Padding="16,12" Margin="0,18,0,0" Visibility="Collapsed">
                 <StackPanel Orientation="Horizontal">
                     <TextBlock x:Name="AsksText" TextWrapping="Wrap" MaxWidth="470"
@@ -25,7 +25,7 @@
                 <StackPanel>
                     <TextBlock Style="{StaticResource SectionHeader}" Text="Stopped attempts today"/>
                     <TextBlock x:Name="AttemptsEmpty" FontSize="13" Margin="0,6,0,0"
-                               Foreground="{StaticResource TextSecondaryBrush}"
+                               Foreground="{DynamicResource TextSecondaryBrush}"
                                TextWrapping="Wrap"
                                Text="None. Nothing reached for the internet behind your back today."/>
                     <StackPanel x:Name="AttemptsList" Margin="0,6,0,0"/>
@@ -52,7 +52,7 @@
                         </ItemsControl.ItemTemplate>
                     </ItemsControl>
                     <TextBlock FontSize="11" Margin="2,8,0,0"
-                               Foreground="{StaticResource MutedTextBrush}"
+                               Foreground="{DynamicResource MutedTextBrush}"
                                Text="Midnight → midnight, local time"/>
                 </StackPanel>
             </Border>

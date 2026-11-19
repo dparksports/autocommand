@@ -4,8 +4,8 @@
     <!-- The iOS segmented control, Windows clothing: one capsule, three
          choices, the selected one lifts onto a white card. Used for the
          permission flips — the entire control surface of the product. -->
-    <Border Background="{StaticResource SurfaceAltBrush}"
-            BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+    <Border Background="{DynamicResource SurfaceAltBrush}"
+            BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
             CornerRadius="9" Padding="2">
         <Grid>
             <Grid.ColumnDefinitions>

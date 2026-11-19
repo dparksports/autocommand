@@ -12,7 +12,7 @@
         <StackPanel Grid.Row="0" Margin="0,0,0,12">
             <TextBlock Text="Attempts" Style="{StaticResource PageHeader}"/>
             <TextBlock Text="Every reach for the internet the gate held — and everything this app did, in sentences."
-                       Foreground="{StaticResource TextSecondaryBrush}"/>
+                       Foreground="{DynamicResource TextSecondaryBrush}"/>
         </StackPanel>
 
         <Button x:Name="RefreshBtn" Grid.Row="1" Content="Refresh" Style="{StaticResource QuietButton}"
@@ -22,21 +22,21 @@
             <StackPanel>
                 <TextBlock Style="{StaticResource SectionHeader}" Text="Today's held attempts"/>
                 <TextBlock x:Name="AttemptsEmpty" FontSize="13" Margin="0,6,0,0"
-                           Foreground="{StaticResource TextSecondaryBrush}" TextWrapping="Wrap"
+                           Foreground="{DynamicResource TextSecondaryBrush}" TextWrapping="Wrap"
                            Text="None so far."/>
                 <StackPanel x:Name="AttemptsList" Margin="0,6,0,0"/>
             </StackPanel>
         </Border>
 
         <ListBox x:Name="IncidentList" Grid.Row="3"
-                 Background="{StaticResource SurfaceBrush}"
-                 BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+                 Background="{DynamicResource SurfaceBrush}"
+                 BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
                  ScrollViewer.HorizontalScrollBarVisibility="Disabled">
             <ListBox.ItemTemplate>
                 <DataTemplate>
                     <StackPanel Margin="8,5">
                         <TextBlock Text="{Binding When}" FontSize="11"
-                                   Foreground="{StaticResource MutedTextBrush}"/>
+                                   Foreground="{DynamicResource MutedTextBrush}"/>
                         <TextBlock Text="{Binding Sentence}" TextWrapping="Wrap" Margin="0,2,0,0"/>
                     </StackPanel>
                 </DataTemplate>

@@ -41,6 +41,9 @@ namespace AutoCommand.Light
             // seam is re-pointed BEFORE any facade-bound service starts —
             // then every watcher speaks AL-BLOCK and writes Light's root.
             LightServices.Initialize();
+            // the palette slot is re-pointed next: dark by default, the
+            // user's persisted choice (theme.txt) otherwise
+            LightTheme.Initialize();
             LightGate.Initialize();
 
             // Kernel-side denial telemetry (WFP 5157 audit): the ground

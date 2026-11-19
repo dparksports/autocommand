@@ -11,8 +11,24 @@ namespace AutoCommand.Light.Views
         public SettingsView()
         {
             InitializeComponent();
+            ThemeSegment.Options = new[] { "☾ Dark", "☀ Light" };
+            ThemeSegment.Value = LightTheme.Current == LightTheme.Light ? "☀ Light" : "☾ Dark";
             Loaded += (s, e) => RefreshState();
             LightGate.Changed += () => Dispatcher.BeginInvoke(new Action(RefreshState));
+            LightTheme.Changed += () => Dispatcher.BeginInvoke(new Action(SyncThemeSegment));
+        }
+
+        private void SyncThemeSegment()
+        {
+            ThemeSegment.SuppressCallbacks = true;
+            ThemeSegment.Value = LightTheme.Current == LightTheme.Light ? "☀ Light" : "☾ Dark";
+            ThemeSegment.SuppressCallbacks = false;
+        }
+
+        private void ThemeSegment_ValueChanged(object sender, EventArgs e)
+        {
+            // applies live (palette slot swap) and persists to theme.txt
+            LightTheme.Apply(ThemeSegment.Value == "☀ Light" ? LightTheme.Light : LightTheme.Dark);
         }
 
         private void RefreshState()

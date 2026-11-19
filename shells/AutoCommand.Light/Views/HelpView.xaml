@@ -13,7 +13,7 @@
         <StackPanel Grid.Row="0" Margin="0,0,0,14">
             <TextBlock Text="Help" Style="{StaticResource PageHeader}"/>
             <TextBlock Text="Small, factual questions about this PC's gate — answered from its own records. No account, no internet, no guessing."
-                       Foreground="{StaticResource TextSecondaryBrush}"/>
+                       Foreground="{DynamicResource TextSecondaryBrush}"/>
         </StackPanel>
 
         <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,10">
@@ -26,8 +26,8 @@
         </StackPanel>
 
         <ListBox x:Name="ChatLog" Grid.Row="2"
-                 Background="{StaticResource SurfaceBrush}"
-                 BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+                 Background="{DynamicResource SurfaceBrush}"
+                 BorderBrush="{DynamicResource BorderBrush}" BorderThickness="1"
                  ScrollViewer.HorizontalScrollBarVisibility="Disabled">
             <ListBox.ItemTemplate>
                 <DataTemplate>
@@ -42,15 +42,15 @@
                 <ColumnDefinition Width="Auto"/>
             </Grid.ColumnDefinitions>
             <TextBox x:Name="QuestionBox" Padding="10,8" FontSize="14"
-                     Background="{StaticResource SurfaceBrush}"
-                     BorderBrush="{StaticResource BorderBrush}"
+                     Background="{DynamicResource SurfaceBrush}"
+                     BorderBrush="{DynamicResource BorderBrush}"
                      KeyDown="QuestionBox_KeyDown"/>
             <Button x:Name="AskBtn" Grid.Column="1" Content="Ask" Style="{StaticResource PrimaryButton}"
                     Margin="10,0,0,0" Click="AskBtn_Click"/>
         </Grid>
 
         <TextBlock Grid.Row="4" Margin="0,8,0,0" FontSize="11"
-                   Foreground="{StaticResource MutedTextBrush}"
+                   Foreground="{DynamicResource MutedTextBrush}"
                    Text="Full conversations with a model live in the Advanced app — those need your own API key. These guided answers never do."/>
     </Grid>
 </UserControl>
