@@ -2,9 +2,11 @@ using System;
 using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Diagnostics;
+using System.Diagnostics.Eventing.Reader;
 using System.IO;
 using System.Linq;
 using System.Net;
+using System.Net.Sockets;
 using System.Runtime.InteropServices;
 using System.Text;
 using System.Threading;
@@ -23,7 +25,7 @@ namespace AutoCommand.Contain.Core
     /// identity. The service-scoped firewall rule (AC-BLOCK-SVC bits (Out),
     /// INetFwRule.ServiceName = "bits") therefore never matches BITS
     /// traffic: the connection presents as whoever queued the job, the
-    /// ServiceName condition misses, and the rule blocks nothing. Three
+    /// ServiceName condition misses, and the rule blocks nothing. Four
     /// layers that DO hold:
     ///
     ///   L1 — catch the spawn: a dedicated svchost instance (`-k netsvcs
@@ -33,28 +35,38 @@ namespace AutoCommand.Contain.Core
     ///
     ///   L2 — guard the job queue: every BITS transfer IS a job, and the
     ///        job carries its destination URL before the first connect.
-    ///        Enumerating IBackgroundCopyManager and canceling foreign
-    ///        jobs (IBackgroundCopyJob::Cancel) stops transfers that no
-    ///        prior-IP block could have known about — the decision is on
-    ///        the job's URL at queue time, not on remembered addresses.
+    ///        The Bits-Client event channel pushes job lifecycle events;
+    ///        each one triggers a targeted enumeration and IBackgroundCopy
+    ///        Job::Cancel for foreign jobs. Canceling at the QUEUE stops
+    ///        transfers that no prior-IP block could have known about —
+    ///        the decision is on the job's URL at queue time.
     ///
-    ///   L3 — the socket belt: any TCP flow the known BITS PID still
-    ///        holds toward a non-allowlisted remote is torn down with
-    ///        SetTcpEntry (MIB_TCP_STATE_DELETE_TCB). Not preventive for
-    ///        the first packet, but starving: BITS backs off exponentially
-    ///        and the instance never gets a conversation through.
+    ///   L3 — the flow push: a Sysmon EID 3 connect whose ProcessGuid is
+    ///     a tracked instance arrives ~10-50 ms after the SYN. The guard
+    ///     reacts by installing a per-IP AC-BLOCK rule (kernel enforcement
+    ///     from the first retry) AND tearing the just-established socket
+    ///     down with SetTcpEntry. One handshake may escape; the retry
+    ///     dies at connect() with zero packets.
+    ///
+    ///   L4 — the backstop sweep: a slow (15 s) reconciliation pass that
+    ///     re-asserts everything the event streams might have missed —
+    ///     channel downtime, a full event log, a subscription window
+    ///     missed at startup. It no longer defines the guard's latency,
+    ///     only its worst-case correctness.
     ///
     /// Everything lands in blocks-events.log under origin "job-guard" so
     /// the Blocks tab, trace_block and the instance rows tell the same
-    /// story the packets did. Policy file (re-read per sweep, house
-    /// pattern): %LOCALAPPDATA%\AutoCommand\bits_guard_pref.txt with
+    /// story the packets did. Policy file (re-read at most once a second,
+    /// house pattern): %LOCALAPPDATA%\AutoCommand\bits_guard_pref.txt with
     ///   off     — watch nothing, do nothing
-    ///   audit   — log jobs and flows, cancel/kill nothing
-    ///   enforce — cancel/kill unless every remote classifies Microsoft
-    ///   strict  — cancel/kill everything
+    ///   audit   — log jobs and flows, cancel/kill/block nothing
+    ///   enforce — cancel/block/kill unless every remote classifies
+    ///             Microsoft/Azure (private/LAN destinations always pass)
+    ///   strict  — cancel/block/kill everything
     /// Default: enforce (matches the app's posture — the monitor actor
     /// already auto-blocks Unclassified BITS destinations per-IP; this is
-    /// that decision moved to where it can actually bite).
+    /// that decision moved to where it can actually bite, and moved from
+    /// a polling cadence to the event streams).
     /// </summary>
     public static class BitsJobGuardService
     {
@@ -64,18 +76,33 @@ namespace AutoCommand.Contain.Core
             Environment.GetFolderPath(Environment.SpecialFolder.LocalApplicationData),
             "AutoCommand", "bits_guard_pref.txt");
 
-        /// <summary>Re-read per sweep — a hand edit takes effect without a
-        /// restart (same contract as the spawn-watch rule files). Unknown
-        /// or missing content means enforce.</summary>
+        private static readonly object _policyGate = new();
+        private static string _policyCache = "enforce";
+        private static DateTime _policyReadAtUtc = DateTime.MinValue;
+
+        /// <summary>Re-read at most once a second — a hand edit takes effect
+        /// within a second (same contract as the spawn-watch rule files),
+        /// without turning per-event handling into disk reads. Unknown or
+        /// missing content means enforce.</summary>
         private static string ReadPolicy()
         {
-            try
+            lock (_policyGate)
             {
-                if (!File.Exists(PolicyFilePath)) return "enforce";
-                var value = File.ReadAllText(PolicyFilePath).Trim().ToLowerInvariant();
-                return value is "off" or "audit" or "enforce" or "strict" ? value : "enforce";
+                if ((DateTime.UtcNow - _policyReadAtUtc).TotalSeconds < 1) return _policyCache;
+                try
+                {
+                    _policyReadAtUtc = DateTime.UtcNow;
+                    if (File.Exists(PolicyFilePath))
+                    {
+                        var value = File.ReadAllText(PolicyFilePath).Trim().ToLowerInvariant();
+                        _policyCache = value is "off" or "audit" or "enforce" or "strict"
+                            ? value : "enforce";
+                    }
+                    else _policyCache = "enforce";
+                }
+                catch { _policyCache = "enforce"; } // read failure keeps the last known policy
+                return _policyCache;
             }
-            catch { return "enforce"; }
         }
 
         // ── tracked instances (L1) ────────────────────────────────────────
@@ -85,12 +112,14 @@ namespace AutoCommand.Contain.Core
             public int Pid;
             public string ProcessGuid;
             public string CommandLine;
-            public DateTime SpawnedUtc;
-            public int AliveMisses; // consecutive liveness misses before we let go
+            public DateTime StartedUtc;   // the EID 1 event time (process create)
+            public int AliveMisses;       // consecutive liveness misses before we let go
         }
 
         private static readonly ConcurrentDictionary<string, BitsInstance> _instances = new();
         private static readonly ConcurrentQueue<ArchiveEvent> _queue = new();
+        private static readonly AutoResetEvent _enqueueSignal = new(false);
+        private static readonly AutoResetEvent _jobSignal = new(false);
         private static readonly object _gate = new();
         private static bool _started;
 
@@ -106,9 +135,11 @@ namespace AutoCommand.Contain.Core
 
         // ── lifecycle ─────────────────────────────────────────────────────
 
-        /// <summary>Subscribes to the archive's Appended hook and starts the
-        /// sweep. Idempotent; call AFTER Backfill like SpawnWatchService
-        /// starts, so no backfilled history replays as spawns.</summary>
+        /// <summary>Subscribes to the archive's Appended hook (spawns AND
+        /// connects), the Bits-Client event channel (job lifecycle), and
+        /// starts the consumers. Idempotent; call AFTER Backfill like
+        /// SpawnWatchService starts, so no backfilled history replays as
+        /// spawns or connects.</summary>
         public static void Start()
         {
             lock (_gate)
@@ -116,49 +147,64 @@ namespace AutoCommand.Contain.Core
                 if (_started) return;
                 _started = true;
                 SysmonArchiveService.Appended += OnAppended;
-                _ = Task.Run(SweepLoop);
-                Note("guard started");
+                StartBitsClientWatcher();
+                _ = Task.Run(EventConsumerLoop);   // spawns + connects, ms-class latency
+                _ = Task.Run(JobGuardLoop);        // job pushes + 15 s backstop
+                Note("guard started (event-driven)");
             }
         }
 
         /// <summary>The hook handler. Runs while the archive lock is HELD —
-        /// enqueue and return, nothing else (SpawnWatch's contract).</summary>
+        /// enqueue, signal, return; nothing else (SpawnWatch's contract).
+        /// Both halves of the flow push ride one queue: EID 1 spawns and
+        /// EID 3 connects from any process.</summary>
         private static void OnAppended(object sender, ArchiveEvent e)
         {
-            if (e == null || e.Eid != 1) return;
+            if (e == null || (e.Eid != 1 && e.Eid != 3)) return;
             _queue.Enqueue(e);
+            _enqueueSignal.Set();
         }
 
-        private static async Task SweepLoop()
+        /// <summary>The Bits-Client Operational channel: BITS announces job
+        /// lifecycle here. Any event means the queue changed — signal a
+        /// targeted job sweep. Channel missing or disabled (Analytic-only
+        /// stacks): the exception is swallowed and the 15 s backstop keeps
+        /// correctness.</summary>
+        private static void StartBitsClientWatcher()
+        {
+            try
+            {
+                var query = new EventLogQuery(
+                    "Microsoft-Windows-Bits-Client/Operational", PathType.LogName, "*");
+                var watcher = new EventLogWatcher(query);
+                // (the .NET port renames the framework's EventRecorded:
+                // EventRecordWritten + EventRecordWrittenEventArgs, same
+                // shape SysmonConnect.fs consumes)
+                watcher.EventRecordWritten += (s, e) => _jobSignal.Set();
+                watcher.Enabled = true;
+                Note("bits-client channel watch active");
+            }
+            catch { Note("bits-client channel unavailable - backstop sweep covers jobs"); }
+        }
+
+        // ── the fast event consumer (spawns + connects) ───────────────────
+
+        private static void EventConsumerLoop()
         {
             while (true)
             {
-                try { Sweep(); }
-                catch { /* one bad sweep never stops the guard */ }
-                await Task.Delay(2000).ConfigureAwait(false);
+                try
+                {
+                    if (_queue.TryDequeue(out var e))
+                    {
+                        if (e.Eid == 1) TrackSpawn(e);
+                        else if (e.Eid == 3) HandleConnect(e);
+                        continue;
+                    }
+                }
+                catch { /* one bad event never stops the consumer */ }
+                _enqueueSignal.WaitOne(250); // dedicated thread — blocking wait is the design
             }
-        }
-
-        // ── the sweep ─────────────────────────────────────────────────────
-
-        private static void Sweep()
-        {
-            // Drain the spawn queue (enqueue-only handler; matching here).
-            while (_queue.TryDequeue(out var e)) TrackSpawn(e);
-
-            var policy = ReadPolicy();
-            if (policy == "off") { _instances.Clear(); return; }
-
-            PruneDeadInstances();
-            if (_instances.IsEmpty) return;
-
-            // L2 — the job queue: destinations visible before any connect.
-            SweepJobs(policy);
-
-            // L3 — the socket belt: starve whatever flows the PID holds.
-            if (policy != "audit")
-                foreach (var pid in _instances.Values.Select(i => i.Pid).Distinct().ToList())
-                    KillForeignFlows(pid, policy);
         }
 
         private static void TrackSpawn(ArchiveEvent e)
@@ -186,7 +232,7 @@ namespace AutoCommand.Contain.Core
                 Pid = pid,
                 ProcessGuid = guid,
                 CommandLine = commandLine,
-                SpawnedUtc = DateTime.UtcNow,
+                StartedUtc = e.TsUtc == default ? DateTime.UtcNow : e.TsUtc,
             };
 
             BlocksStore.AppendEvent("job-guard", "svc", "bits",
@@ -197,6 +243,199 @@ namespace AutoCommand.Contain.Core
 
         private static string Get(ArchiveEvent e, string field) =>
             e.Data != null && e.Data.TryGetValue(field, out var v) ? v : null;
+
+        // ── the flow push (L3 as an event, not a sweep) ───────────────────
+
+        /// <summary>A connect from a tracked instance. The rule lands within
+        /// milliseconds of the SYN — kernel enforcement from the first
+        /// retry — and the live socket dies immediately, so the original
+        /// conversation never completes either.</summary>
+        private static void HandleConnect(ArchiveEvent e)
+        {
+            string guid = Get(e, "ProcessGuid");
+            string dst = Get(e, "DestinationIp");
+            if (string.IsNullOrEmpty(dst)) return;
+
+            BitsInstance inst = null;
+            if (!string.IsNullOrEmpty(guid)) _instances.TryGetValue(guid, out inst);
+            if (inst == null)
+            {
+                // fallback: pid match (spawn event lost, guid shape differs)
+                if (int.TryParse(Get(e, "ProcessId"), out var pid))
+                    inst = _instances.Values.FirstOrDefault(i => i.Pid == pid);
+            }
+            if (inst == null) return; // not our instance — not the guard's business
+
+            var policy = ReadPolicy();
+            if (policy == "off") return;
+
+            // Private/LAN/loopback/multicast destinations are never foreign:
+            // a guard that blocks the home gateway or an mDNS group is a
+            // guard that breaks the machine it lives on.
+            if (IsPrivateOrLocal(dst))
+            {
+                if (policy == "audit") Note($"local connect (audit): pid {inst.Pid} -> {dst}");
+                return;
+            }
+
+            bool foreign = policy == "strict" || !IsAllowedIp(dst);
+            if (!foreign)
+            {
+                if (policy == "audit") Note($"allowed connect (audit): pid {inst.Pid} -> {dst}");
+                return;
+            }
+
+            if (policy == "audit")
+            {
+                Note($"foreign connect (audit): pid {inst.Pid} -> {dst}");
+                return;
+            }
+
+            BlockForeignIp(dst, inst, policy);
+            KillFlowsTo(inst.Pid, dst);
+        }
+
+        private static void BlockForeignIp(string ip, BitsInstance inst, string policy)
+        {
+            try
+            {
+                // Per-minute cap: a scan storm must not write hundreds of
+                // rules — beyond the cap the socket belt still kills the
+                // flows, and the trail carries one aggregated line.
+                if (!ReserveBlockSlot())
+                {
+                    Note($"block cap reached - killing flows only for {ip}");
+                    return;
+                }
+
+                var now = DateTime.UtcNow;
+                var description = $"[blocked {now:yyyy-MM-dd HH:mm} UTC] svchost.exe [BITS] " +
+                    $"pid={inst.Pid} service BITS host {ip} · foreign connect · " +
+                    "AutoCommand BITS job guard";
+
+                // The firewall rule is the enforcement; the store is the
+                // identity/history; the decided line is the why. Same trio
+                // the monitor writes, same idempotence on re-blocks.
+                FirewallService.Instance.AddIpBlockWithRulesAsync(ip, description)
+                    .GetAwaiter().GetResult();
+
+                var decision = new BlockDecision
+                {
+                    Actor = "job-guard",
+                    TriggerPid = inst.Pid,
+                    TriggerStartUtc = inst.StartedUtc,
+                    Image = @"C:\Windows\System32\svchost.exe",
+                    SvchostId = "-s BITS",
+                    RowSnapshot = $"dest {ip} (tcp) · foreign connect from guarded instance " +
+                                  $"· event-driven (eid3) · policy={policy}",
+                };
+                BlocksStore.AddOrUpdate(new BlockRecord
+                {
+                    Kind = "ip",
+                    Key = ip,
+                    ProcessName = "svchost.exe",
+                    CreatedUtc = now,
+                    StatusUtc = now,
+                    ServiceKey = "bits",
+                    SvcDisplayName = ServiceCatalog.DisplayNameFor("bits", null),
+                    ClassAtBlock = IpClassifier.Classify(ip),
+                    Origin = "job-guard",
+                    Attrib = "catalog",
+                }, "job-guard", decision);
+
+                TrailOnce(ip, () => BlocksStore.AppendEvent("job-guard", "ip", ip,
+                    $"foreign connect from bits pid={inst.Pid} guid={inst.ProcessGuid ?? "?"} " +
+                    $"-> blocked + flows killed · policy={policy}", "job-guard"));
+                Note($"blocked {ip} (bits pid {inst.Pid}, policy {policy})");
+            }
+            catch (Exception ex)
+            {
+                // rule creation can refuse (COM contention, policy limits) —
+                // the socket belt already killed the flow; say so honestly
+                Note($"rule add failed for {ip}: {ex.Message} - socket belt still applied");
+            }
+        }
+
+        // trail throttle: retries to the same destination must not flood the
+        // journal — one line per ip per minute, the rule itself is idempotent
+        private static readonly ConcurrentDictionary<string, DateTime> _lastTrail = new();
+        private static void TrailOnce(string ip, Action write)
+        {
+            var now = DateTime.UtcNow;
+            if (_lastTrail.TryGetValue(ip, out var last) && (now - last).TotalSeconds < 60) return;
+            _lastTrail[ip] = now;
+            write();
+        }
+
+        // block-rate cap: at most 8 new per-IP rules per rolling minute
+        private static readonly Queue<DateTime> _blockSlots = new();
+        private static bool ReserveBlockSlot()
+        {
+            lock (_blockSlots)
+            {
+                var cutoff = DateTime.UtcNow.AddMinutes(-1);
+                while (_blockSlots.Count > 0 && _blockSlots.Peek() < cutoff) _blockSlots.Dequeue();
+                if (_blockSlots.Count >= 8) return false;
+                _blockSlots.Enqueue(DateTime.UtcNow);
+                return true;
+            }
+        }
+
+        // ── verdict caches ────────────────────────────────────────────────
+
+        private static readonly ConcurrentDictionary<string, bool> _ipVerdicts = new();
+
+        private static bool IsAllowedIp(string ip)
+        {
+            var key = ip.Trim();
+            return _ipVerdicts.GetOrAdd(key, static k =>
+                IpClassifier.Classify(k) == "Microsoft/Azure");
+        }
+
+        private static bool IsPrivateOrLocal(string ip)
+        {
+            if (!IPAddress.TryParse(ip, out var a)) return true;
+            if (a.AddressFamily == AddressFamily.InterNetworkV6) return true; // belt is v4-only
+            var b = a.GetAddressBytes();
+            return b[0] == 10
+                || b[0] == 127
+                || (b[0] == 192 && b[1] == 168)
+                || (b[0] == 172 && b[1] >= 16 && b[1] <= 31)
+                || (b[0] == 169 && b[1] == 254)
+                || b[0] >= 224; // multicast + reserved
+        }
+
+        // ── L2 + L4: the job guard loop (push-triggered, 15 s backstop) ──
+
+        private static void JobGuardLoop()
+        {
+            while (true)
+            {
+                // The Bits-Client channel push wakes this in milliseconds
+                // after any job lifecycle change; the 15 s timeout is the
+                // backstop that re-asserts correctness when no events flow.
+                bool timedOut = !_jobSignal.WaitOne(15000);
+
+                try
+                {
+                    var policy = ReadPolicy();
+                    if (policy == "off") { _instances.Clear(); continue; }
+
+                    PruneDeadInstances();
+                    if (timedOut && _instances.IsEmpty) continue; // quiet machine, quiet guard
+
+                    // L2 — the job queue: destinations visible before any connect.
+                    SweepJobs(policy);
+
+                    // L3 backstop — re-assert the belt for every tracked pid
+                    // (the per-event HandleConnect already killed targeted flows)
+                    if (policy != "audit")
+                        foreach (var pid in _instances.Values.Select(i => i.Pid).Distinct().ToList())
+                            KillForeignFlows(pid, policy);
+                }
+                catch { /* one bad sweep never stops the guard */ }
+            }
+        }
 
         private static void PruneDeadInstances()
         {
@@ -238,7 +477,7 @@ namespace AutoCommand.Contain.Core
             catch (Exception ex)
             {
                 // BITS COM can legitimately refuse (service stopped, RPC
-                // hiccup) — the L3 belt still runs on the PID
+                // hiccup) — the flow push + belt still run on the PID
                 Note($"job enumeration unavailable: {ex.Message}");
                 return;
             }
@@ -336,7 +575,8 @@ namespace AutoCommand.Contain.Core
                 var remotes = new HashSet<string>(StringComparer.Ordinal);
                 foreach (var row in ReadOwnedTcpRows(pid))
                 {
-                    if (policy != "strict" && IsAllowedHost(row.remoteIp)) continue;
+                    if (policy != "strict" && (IsAllowedIp(row.remoteIp) || IsPrivateOrLocal(row.remoteIp)))
+                        continue;
                     if (SetTcpEntryKill(row.row)) { killed++; remotes.Add(row.remoteIp); }
                 }
                 if (killed > 0)
@@ -349,6 +589,20 @@ namespace AutoCommand.Contain.Core
                 }
             }
             catch { /* the belt is best-effort; L2 already canceled the jobs */ }
+        }
+
+        /// <summary>Targeted variant for the flow push: kill only the flows
+        /// to the destination that just raised the event.</summary>
+        private static void KillFlowsTo(int pid, string ip)
+        {
+            try
+            {
+                int killed = 0;
+                foreach (var row in ReadOwnedTcpRows(pid))
+                    if (row.remoteIp == ip && SetTcpEntryKill(row.row)) killed++;
+                if (killed > 0) Note($"killed {killed} flow(s) pid {pid} -> {ip}");
+            }
+            catch { /* best-effort; the rule just installed catches the retry */ }
         }
 
         // ── BITS COM interop (vtable order is the contract) ──────────────
