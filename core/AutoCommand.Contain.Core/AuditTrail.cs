@@ -200,6 +200,7 @@ namespace AutoCommand.Contain.Core
         public static string ActorFor(string origin) => origin switch
         {
             "monitor" => "Process Monitor",
+            "job-guard" => "BITS job guard",
             "reconcile" => "tab reconcile",
             "repair" => "attribution repair",
             "migration" => "migration",

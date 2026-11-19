@@ -88,6 +88,25 @@ type TransmissionRecord() =
     member val ClientAppBytes = 0L with get, set    // decrypted plaintext
     member val ServerAppBytes = 0L with get, set
 
+    /// <summary>Wire-level end reason from the capture: "rst" | "fin" |
+    /// "timeout". The witness for a real TLS-level refusal: an rst/timeout
+    /// end against handshake-only client bytes means the conversation was
+    /// refused — no completed exchange, regardless of what a packet
+    /// counter totaled.</summary>
+    member val EndReason: string = null with get, set
+
+    /// <summary>Whether the capture saw ANY inbound packet this session.
+    /// False rows mean server_bytes is a directional ARTIFACT — the raw
+    /// socket path can be deaf inbound (WFP shadowing) — and must render
+    /// as n/a, never as "the server was silent". Legacy rows predate the
+    /// flag and default true (unknown, not asserted).</summary>
+    member val CaptureInbound: bool = true with get, set
+
+    /// <summary>"sni" when Provider came from the hostname map — late
+    /// RDAP/range updates must not overwrite an application-level
+    /// attribution with an infrastructure one (Amazon ≠ Brave).</summary>
+    member val ProviderSource: string = null with get, set
+
     /// <summary>"decrypted" · "encrypted (no keys)" · "not TLS" ·
     /// "no handshake" · "unsupported cipher" · "undecryptable", with an
     /// optional " · truncated" suffix when the capture dropped bytes.
@@ -113,7 +132,11 @@ type TransmissionRecord() =
 
     member this.TimeDisplay = if this.TsUtc = DateTime() then "" else this.TsUtc.ToLocalTime().ToString("MM-dd HH:mm:ss")
     member this.UpDisplay = TransmissionRecord.FormatBytes this.ClientBytes
-    member this.DownDisplay = TransmissionRecord.FormatBytes this.ServerBytes
+    member this.DownDisplay =
+        // a deaf-inbound capture session makes server_bytes a directional
+        // artifact — say so instead of asserting a zero the wire never gave
+        if this.ServerBytes = 0L && not this.CaptureInbound then "n/a · rx not captured"
+        else TransmissionRecord.FormatBytes this.ServerBytes
     member this.AppBytesDisplay =
         if this.Decrypted then
             $"{TransmissionRecord.FormatBytes this.ClientAppBytes} / {TransmissionRecord.FormatBytes this.ServerAppBytes}"
@@ -205,6 +228,12 @@ type TransmissionsArchiveService private () =
                 add "client_bytes" record.ClientBytes
                 add "server_bytes" record.ServerBytes
                 add "status" record.Status
+                // absent from rows written before the flag existed — Read
+                // tolerates their absence (capture_in defaults to true =
+                // unknown, not asserted)
+                add "end_reason" record.EndReason
+                add "capture_in" record.CaptureInbound
+                add "provider_source" record.ProviderSource
                 let line = JsonSerializer.Serialize fields
                 File.AppendAllText(TransmissionsArchiveService.DayFilePath record.TsUtc, line + Environment.NewLine)
 
@@ -329,6 +358,11 @@ type TransmissionsArchiveService private () =
                                 ClientAppBytes = TransmissionsArchiveService.GetLong(root, "client_app_bytes"),
                                 ServerAppBytes = TransmissionsArchiveService.GetLong(root, "server_app_bytes"),
                                 Status = TransmissionsArchiveService.GetString(root, "status"),
+                                EndReason = TransmissionsArchiveService.GetString(root, "end_reason"),
+                                CaptureInbound = (match root.TryGetProperty("capture_in") with
+                                                  | true, v -> v.GetBoolean()
+                                                  | _ -> true),
+                                ProviderSource = TransmissionsArchiveService.GetString(root, "provider_source"),
                                 HasContent = (match root.TryGetProperty("has_content") with
                                               | true, hc -> hc.GetBoolean()
                                               | _ -> false),

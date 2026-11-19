@@ -563,6 +563,16 @@ namespace AutoCommand
                     // (the Appended hook) — started after backfill so the
                     // replay sees the archive the backfill just filled
                     Agent.Core.SpawnWatchService.Start();
+                    // BITS job guard: the containment layer that does not
+                    // trust the socket's identity. BITS transmits under the
+                    // job owner's token, so the ServiceName firewall rule
+                    // never matches; this watches the dedicated `-s BITS`
+                    // svchost spawn, cancels foreign jobs at the queue
+                    // (destination URL visible before any connect), and
+                    // tears down foreign flows the PID still holds.
+                    // Started after backfill — same reason as spawn watches:
+                    // backfilled history must not replay as spawns.
+                    Contain.Core.BitsJobGuardService.Start();
                     // transmissions witness feed: TLS flow metadata (endpoints,
                     // SNI, byte counts — no bodies, no decryption) into the
                     // archive the containment proof's third witness reads.

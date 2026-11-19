@@ -56,6 +56,30 @@ module internal FlowPortHelper =
                 | _ -> 0
             else 0
 
+// ── SNI-first vendor map ─────────────────────────────────────────────
+
+// The hostname is the durable fact: `updates-cdn.bravesoftware.com` is
+// Brave regardless of which CloudFront/Fastly edge served it, and range
+// classification alone labels every such row "Unclassified". A suffix map
+// turns the SNI into the provider, and ResolveProvider (via the record's
+// ProviderSource = "sni") stops late RDAP/range answers from overwriting
+// an application-level attribution with an infrastructure one.
+module internal SniVendorMap =
+
+    let private rules =
+        [ "bravesoftware.com", "Brave Software"
+          "brave.com", "Brave Software"
+          "bravesoftware.net", "Brave Software" ]
+
+    let ForHost (host: string) : string option =
+        if String.IsNullOrWhiteSpace host then None
+        else
+            let lower = host.Trim().TrimEnd('.').ToLowerInvariant()
+            rules
+            |> List.tryFind (fun (suffix, _) ->
+                lower = suffix || lower.EndsWith("." + suffix, StringComparison.Ordinal))
+            |> Option.map snd
+
 // ── RDAP seam (see the port notes at the top of this file) ─────────
 
 /// <summary>
@@ -226,6 +250,18 @@ type TransmissionsPipelineService private () as this =
         // behalf), wire byte counts, Sysmon-attributed pid/image.
         let sni = TlsSni.TryReadSni(flow.ClientData, flow.ClientData.Length)
 
+        // Capture health + end reason: the raw-socket capture can be deaf
+        // inbound on stacks where WFP shadowing eats the rx direction before
+        // raw delivery — server_bytes is then a directional ARTIFACT, not a
+        // receipt, and must never read as "the server was silent". The end
+        // reason is the honest witness for a refusal: an rst/timeout end
+        // with handshake-only client bytes is a refused conversation.
+        let inboundSeen = TcpStreamCaptureService.Shared.InboundPackets > 0L
+        let endReason =
+            if flow.Reset then "rst"
+            elif flow.FinBoth then "fin"
+            else "timeout"
+
         let record =
             TransmissionRecord(
                 TsUtc = (if flow.EndedUtc = DateTime() then DateTime.UtcNow else flow.EndedUtc),
@@ -238,6 +274,32 @@ type TransmissionsPipelineService private () as this =
                 ClientBytes = flow.ClientBytes,
                 ServerBytes = flow.ServerBytes,
                 Status = (if sni <> null then "TLS" else "TLS (no SNI)"))
+
+        record.EndReason <- endReason
+        record.CaptureInbound <- inboundSeen
+
+        // refused: the wire said the conversation died — an rst, or an idle
+        // timeout that never saw a single server byte against a
+        // handshake-sized request. Only claimable when the capture is not
+        // deaf inbound; otherwise the suffix says so instead.
+        let refused =
+            inboundSeen
+            && (endReason = "rst"
+                || (endReason = "timeout" && flow.ServerBytes = 0L && flow.ClientBytes <= 4096L))
+        if refused then
+            record.Status <- (if sni <> null then "tls·refused" else "tls·refused (no SNI)")
+        elif not inboundSeen then
+            record.Status <- record.Status + " · rx-not-captured"
+
+        // SNI-first attribution: the hostname is the durable fact (Brave's
+        // update CDN is Brave regardless of which edge served it); range
+        // classification stays the fallback for SNI-less flows.
+        if not (isNull sni) then
+            match SniVendorMap.ForHost sni with
+            | Some vendor ->
+                record.Provider <- vendor
+                record.ProviderSource <- "sni"
+            | None -> ()
 
         // Archive rule: EVERY TLS-shaped flow. The containment join needs
         // history for destinations the user blocks only LATER.
@@ -330,15 +392,21 @@ type TransmissionsPipelineService private () as this =
         if String.IsNullOrEmpty ip then ()
         else
         try
+            // SNI-owned rows keep their application-level attribution: the
+            // hostname IS the vendor fact; RDAP/range answers still supply
+            // the country, but never overwrite the provider.
+            let sniOwned =
+                not (isNull record.ProviderSource) && record.ProviderSource = "sni"
             let rdap = TransmissionsPipelineService.Rdap
             let cached = if isNull (box rdap) then Unchecked.defaultof<TransmissionsRdapEntry> else rdap.Cached ip
             if not (isNull (box cached)) && not cached.IsNegative &&
                (not (String.IsNullOrEmpty cached.Netname) || not (String.IsNullOrEmpty cached.Org)) then
-                record.Provider <- (if isNull cached.Netname then cached.Org else cached.Netname)
+                if not sniOwned then
+                    record.Provider <- (if isNull cached.Netname then cached.Org else cached.Netname)
                 record.ProviderCountry <- cached.Country
             else
                 let classified = IpClassification.Classify ip
-                if classified <> "Unclassified" then record.Provider <- classified
+                if classified <> "Unclassified" && not sniOwned then record.Provider <- classified
 
                 // Fire the network lookup; the row's provider arrives late
                 // and the grid updates in place via INotifyPropertyChanged.
@@ -349,7 +417,8 @@ type TransmissionsPipelineService private () as this =
                                 let entry = t.Result
                                 if not (isNull (box entry)) && not entry.IsNegative &&
                                    (not (String.IsNullOrEmpty entry.Netname) || not (String.IsNullOrEmpty entry.Org)) then
-                                    record.Provider <- (if isNull entry.Netname then entry.Org else entry.Netname)
+                                    if not sniOwned then
+                                        record.Provider <- (if isNull entry.Netname then entry.Org else entry.Netname)
                                     record.ProviderCountry <- entry.Country
                             with _ -> ()), // negative/failed lookup keeps the static classification
                         TaskScheduler.Default) |> ignore
