@@ -145,6 +145,13 @@ Assert-Exit 'dotnet publish proxy'
 # the app copies this into) - the single-file exe is all the proxy ships
 Remove-Item "publish/v$relVersion/tools/AgentProxy/*.pdb" -ErrorAction SilentlyContinue
 
+# AutoCommand Light ships in the same release train: same self-contained
+# win-x64 shape as the app, its own zip. The Light csproj's <Version> is
+# bumped in lockstep with the app's (same single-source-of-truth rule).
+Step "Publishing AutoCommand Light (sibling shell, v$relVersion)"
+dotnet publish shells\AutoCommand.Light\AutoCommand.Light.csproj -c Release -r win-x64 --self-contained true -o "publish/v$relVersion-light"
+Assert-Exit 'dotnet publish light'
+
 # -- Verify the binaries carry the csproj version - the whole point -----------
 $exe = "publish/v$relVersion/AutoCommand.exe"
 $binaryVersion = (Get-Item $exe).VersionInfo.ProductVersion
@@ -158,11 +165,22 @@ if ($proxyVersion -ne $relVersion) {
     Die "published proxy reports ProductVersion '$proxyVersion' but expected '$relVersion' - the version pipeline is broken"
 }
 Step "Verified proxy ProductVersion: $proxyVersion"
+$lightExe = "publish/v$relVersion-light/AutoCommand.Light.exe"
+if (-not (Test-Path $lightExe)) { Die 'AutoCommand.Light.exe missing from the Light publish output' }
+$lightVersion = (Get-Item $lightExe).VersionInfo.ProductVersion
+if ($lightVersion -ne $relVersion) {
+    Die "published Light exe reports ProductVersion '$lightVersion' but expected '$relVersion' - the version pipeline is broken (the Light csproj's <Version> must be bumped in lockstep)"
+}
+Step "Verified Light ProductVersion: $lightVersion"
 
 # -- Package ------------------------------------------------------------------
 Step "Zipping release assets"
 if (Test-Path $appZip) { Remove-Item $appZip }
 Compress-Archive -Path "publish/v$relVersion/*" -DestinationPath $appZip
+
+$lightZip = "publish/AutoCommand.Light-v$relVersion-win-x64.zip"
+if (Test-Path $lightZip) { Remove-Item $lightZip }
+Compress-Archive -Path "publish/v$relVersion-light/*" -DestinationPath $lightZip
 
 # Standalone unblock script - separate downloadable asset for users who cannot
 # launch the app at all (Smart App Control / SmartScreen blocks on the
@@ -173,9 +191,10 @@ Copy-Item (Join-Path $repoRoot 'scripts\unblock-autocommand.ps1') $unblockPs1 -F
 $sums = @(
     "{0}  {1}" -f (Get-FileHash $appZip -Algorithm SHA256).Hash.ToLower(), (Split-Path $appZip -Leaf)
     "{0}  {1}" -f (Get-FileHash $unblockPs1 -Algorithm SHA256).Hash.ToLower(), (Split-Path $unblockPs1 -Leaf)
+    "{0}  {1}" -f (Get-FileHash $lightZip -Algorithm SHA256).Hash.ToLower(), (Split-Path $lightZip -Leaf)
 )
 [System.IO.File]::WriteAllLines((Join-Path $repoRoot $sumsFile), $sums)
-Step "Wrote $sumsFile (app + unblock script)"
+Step "Wrote $sumsFile (app + unblock script + Light zip)"
 
 if ($DryRun) {
     Step "Dry run complete - build, zips and checksums verified; nothing committed, tagged or uploaded"
@@ -224,6 +243,8 @@ gh release create "v$Version" --title "v$Version" --notes-file $notesFile
 Assert-Exit 'gh release create (release shell)'
 gh release upload "v$Version" $appZip --clobber
 Assert-Exit 'gh release upload (app zip)'
+gh release upload "v$Version" $lightZip --clobber
+Assert-Exit 'gh release upload (Light zip)'
 gh release upload "v$Version" $unblockPs1 $sumsFile --clobber
 Assert-Exit 'gh release upload (unblock script + sums)'
 

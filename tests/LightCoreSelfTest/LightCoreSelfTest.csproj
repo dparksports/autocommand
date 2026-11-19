@@ -1,0 +1,24 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- Self-test for AutoCommand Light's product core — the plain-language
+       layer (first-run report composer, connection verdict chips, the
+       no-key guided chat router) plus the engines' AL-BLOCK naming policy.
+       Pure offline checks over synthetic facts: the composer's honesty
+       rules (never invent counts, never hide unknowns), the chip priority
+       order (blocked outranks suspicious outranks friendly), the router's
+       intents and its refusal to answer outside the facts. Everything runs
+       in milliseconds with no machine state — the same strict set as the
+       other suites. -->
+  <PropertyGroup>
+    <OutputType>Exe</OutputType>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>LightCoreSelfTest</AssemblyName>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\product\AutoCommand.Light.Core\AutoCommand.Light.Core.csproj" />
+    <ProjectReference Include="..\..\Engines\Engines.Firewall\Engines.Firewall.fsproj" />
+  </ItemGroup>
+</Project>

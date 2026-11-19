@@ -17,6 +17,65 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.18.4 (2026-11-18)
+================================================================================
+
+# v2026.11.18.4 — AutoCommand Light ships: the front door
+
+**This repository's engine layer was built app-agnostic — identity injected, no
+app names inside — and v2026.11.18.4 is the release where that architecture
+pays out: AutoCommand Light, a second app on the same engines, built for the
+person this console was always about. The Advanced app answers "what is this
+process doing" for people who already know what svchost is; Light answers
+"What IS this thing on my PC?" for everyone else, in sentences, with the
+same engines, the same containment, and the same panic button.**
+
+## NEW — AutoCommand Light (shells\AutoCommand.Light)
+
+- Six views, one job — see, understand, stop, undo. Overview opens with a
+  five-minute plain-English report ("Nothing looks dangerous." only when the
+  facts earned it), composed by a pure product core
+  (product\AutoCommand.Light.Core) from live measurements: connections by
+  category (Windows / installed apps / honestly Unknown), blocked attempts
+  stopped, blocks on. Connections is the live grid with a "What it is" chip
+  as a first-class column — svchost names its hosted service, browsers get
+  named, unknowns carry their first-seen date and never pretend otherwise.
+  Blocks lists Light's own rules (removable) and the Advanced app's adopted
+  ones (pause/resume, never delete). History renders the event ledger as
+  sentences via the shared AuditTrail composer.
+- The no-key chat: Ask answers small factual questions ("what is this
+  program?", "my internet broke") from this machine's own records via a
+  local intent router — no API key, no internet, no model cost, and it
+  refuses to guess outside the facts. Full model conversations remain the
+  Advanced app's feature.
+- Own identity, shared containment: Light's AL-BLOCK-* rules live in
+  %LOCALAPPDATA%\AutoCommandLight; both apps adopt each other's blocks in
+  place, so either app's 🚑 Restore Internet pauses everything and the
+  Blocks pages see the whole install. A tamper-evident rule of the boundary:
+  Light detects and tells — no intercept stack, no Python instrumentation,
+  no Shields-Up system edits, no MCP bridge ship in its binary at all.
+
+## CHANGED — the per-process naming seam
+
+- The Contain facade (FirewallService.Instance) is now lazily built from a
+  settable naming policy. Light re-points it once at startup, so the
+  shared containment services (kernel deny watcher, block-hit feed, domain
+  sync, app-block coverage) create AL-BLOCK rules as Light inside Light's
+  process. The Advanced app never calls the seam and behaves byte-for-byte
+  as before. Mutual rule adoption in the engines (Identity.light() /
+  Naming.light()) was landed earlier today with the v2026.11.18.x train.
+
+## CHANGED — packaging and CI
+
+- release.yml and release.ps1 build and attach
+  AutoCommand.Light-v<ver>-win-x64.zip alongside the main zip, with the
+  published Light exe's ProductVersion verified against the csproj version
+  (same pipeline guard as the app and the proxy).
+- LightCoreSelfTest (41 offline checks: report honesty contract, chip
+  priority order, the chat router's intents and refusals, AL-BLOCK naming)
+  joins the strict suite list in ci.yml and local-ci.ps1.
+
+================================================================================
 v2026.11.18.3 (2026-11-18)
 ================================================================================
 

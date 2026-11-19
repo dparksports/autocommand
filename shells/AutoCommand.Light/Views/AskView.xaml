@@ -1,0 +1,58 @@
+<UserControl x:Class="AutoCommand.Light.Views.AskView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid Margin="28,24,28,24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,14">
+            <TextBlock Text="Ask" Style="{StaticResource PageHeader}"/>
+            <TextBlock Text="Small, factual questions about this PC — answered from its own records. No account, no internet, no guessing."
+                       Foreground="{StaticResource TextSecondaryBrush}"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,10">
+            <Button Content="What is this program?" Style="{StaticResource QuietButton}" FontSize="12"
+                    Margin="0,0,8,0" Click="Suggestion_Click"/>
+            <Button Content="What are you blocking?" Style="{StaticResource QuietButton}" FontSize="12"
+                    Margin="0,0,8,0" Click="Suggestion_Click"/>
+            <Button Content="My internet broke" Style="{StaticResource QuietButton}" FontSize="12"
+                    Margin="0,0,8,0" Click="Suggestion_Click"/>
+            <Button Content="Is my PC sending data?" Style="{StaticResource QuietButton}" FontSize="12"
+                    Click="Suggestion_Click"/>
+        </StackPanel>
+
+        <ListBox x:Name="ChatLog" Grid.Row="2"
+                 Background="{StaticResource SurfaceBrush}"
+                 BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+                 ScrollViewer.HorizontalScrollBarVisibility="Disabled">
+            <ListBox.ItemTemplate>
+                <DataTemplate>
+                    <TextBlock Text="{Binding}" TextWrapping="Wrap" Margin="8,5"/>
+                </DataTemplate>
+            </ListBox.ItemTemplate>
+        </ListBox>
+
+        <Grid Grid.Row="3" Margin="0,10,0,0">
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="Auto"/>
+            </Grid.ColumnDefinitions>
+            <TextBox x:Name="QuestionBox" Padding="10,8" FontSize="14"
+                     Background="{StaticResource SurfaceBrush}"
+                     BorderBrush="{StaticResource BorderBrush}"
+                     KeyDown="QuestionBox_KeyDown"/>
+            <Button x:Name="AskBtn" Grid.Column="1" Content="Ask" Style="{StaticResource PrimaryButton}"
+                    Margin="10,0,0,0" Click="AskBtn_Click"/>
+        </Grid>
+
+        <TextBlock Grid.Row="4" Margin="0,8,0,0" FontSize="11"
+                   Foreground="{StaticResource MutedTextBrush}"
+                   Text="Full conversations with a model live in the Advanced app (Be My Guest / its chat) — those need your own API key. These guided answers never do."/>
+    </Grid>
+</UserControl>

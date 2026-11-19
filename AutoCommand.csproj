@@ -6,7 +6,7 @@
     <Nullable>disable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
-    <Version>2026.11.18.3</Version>
+    <Version>2026.11.18.4</Version>
     <AssemblyName>AutoCommand</AssemblyName>
     <Product>AutoCommand</Product>
     <ApplicationManifest>app.manifest</ApplicationManifest>
@@ -204,6 +204,13 @@
     <Compile Remove="product\**" />
     <Compile Remove="shells\**" />
     <Compile Remove="tests\LightCoreSelfTest\**" />
+    <!-- ...and the same for the XAML glob: the WPF SDK globs **\*.xaml as
+         Page items, so without this the app's _wpftmp designer pass tries
+         to compile AutoCommand.Light's windows and views (its Click
+         handlers then look "missing" from the app's partial classes). -->
+    <Page Remove="product\**" />
+    <Page Remove="shells\**" />
+    <Page Remove="tests\LightCoreSelfTest\**" />
   </ItemGroup>
 
   <!-- Filter out Linux .so native binaries when publishing for Windows win-x64 -->

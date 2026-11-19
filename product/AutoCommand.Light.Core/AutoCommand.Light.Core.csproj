@@ -1,0 +1,16 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- AutoCommand Light's product core: the plain-language layer of the
+       Light shell (first-run report, connection verdict chips, the no-key
+       guided chat). Deliberately PURE — no ProjectReferences at all. The
+       engines and cores stay app-agnostic upstream; this layer turns their
+       facts into sentences, and the shell feeds it real numbers. Purity is
+       what makes it self-testable offline (tests\LightCoreSelfTest) and
+       shareable if the Advanced shell ever adopts the same voice. -->
+  <PropertyGroup>
+    <TargetFramework>net10.0-windows</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <AssemblyName>AutoCommand.Light.Core</AssemblyName>
+  </PropertyGroup>
+</Project>

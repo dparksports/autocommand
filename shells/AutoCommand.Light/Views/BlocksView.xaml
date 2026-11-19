@@ -1,0 +1,44 @@
+<UserControl x:Class="AutoCommand.Light.Views.BlocksView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <Grid Margin="28,24,28,24">
+        <Grid.RowDefinitions>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="Auto"/>
+            <RowDefinition Height="*"/>
+        </Grid.RowDefinitions>
+
+        <StackPanel Grid.Row="0" Margin="0,0,0,14">
+            <TextBlock Text="Blocks" Style="{StaticResource PageHeader}"/>
+            <TextBlock Text="Every block, each with a one-click undo. Nothing here is ever deleted without you."
+                       Foreground="{StaticResource TextSecondaryBrush}"/>
+        </StackPanel>
+
+        <StackPanel Grid.Row="1" Orientation="Horizontal" Margin="0,0,0,10">
+            <Button x:Name="RefreshBtn" Content="Refresh" Style="{StaticResource QuietButton}"
+                    FontSize="12" Click="RefreshBtn_Click"/>
+            <TextBlock x:Name="HintText" Margin="14,0,0,0" VerticalAlignment="Center"
+                       FontSize="11" Foreground="{StaticResource MutedTextBrush}"
+                       Text="“Remove” erases your own block; “Pause/Resume” touches blocks the Advanced app made — reversible either way."/>
+        </StackPanel>
+
+        <DataGrid x:Name="BlocksGrid" Grid.Row="2">
+            <DataGrid.Columns>
+                <DataGridTextColumn Header="Blocked" Binding="{Binding Target}" Width="240"/>
+                <DataGridTextColumn Header="Type" Binding="{Binding KindLabel}" Width="100"/>
+                <DataGridTextColumn Header="State" Binding="{Binding StateLabel}" Width="90"/>
+                <DataGridTextColumn Header="Since" Binding="{Binding Since}" Width="130"/>
+                <DataGridTextColumn Header="Note" Binding="{Binding Note}" Width="*"/>
+                <DataGridTemplateColumn Header="Undo" Width="110">
+                    <DataGridTemplateColumn.CellTemplate>
+                        <DataTemplate>
+                            <Button Content="{Binding ActionLabel}" Style="{StaticResource QuietButton}"
+                                    FontSize="11" Padding="10,4" Margin="4,2"
+                                    Click="RowAction_Click"/>
+                        </DataTemplate>
+                    </DataGridTemplateColumn.CellTemplate>
+                </DataGridTemplateColumn>
+            </DataGrid.Columns>
+        </DataGrid>
+    </Grid>
+</UserControl>

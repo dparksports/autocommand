@@ -24,9 +24,29 @@ namespace AutoCommand.Contain.Core
         // enforcer and the Blocks tab inventory.
         public const string NewSvcPrefix = "AC-BLOCK-SVC ";
 
-        /// <summary>The single engine instance all app code goes through.</summary>
-        public static AutoCommand.Engines.Firewall.FirewallService Instance { get; } =
-            new AutoCommand.Engines.Firewall.FirewallService(Naming.autocommand());
+        private static AutoCommand.Engines.Firewall.FirewallService _instance;
+        private static AutoCommand.Engines.Firewall.FirewallNaming _naming = Naming.autocommand();
+
+        /// <summary>The single engine instance all app code goes through.
+        /// Lazily built from the naming policy — AutoCommand's (AC-BLOCK)
+        /// unless a shell re-pointed the seam via UseNaming before any
+        /// service ran (the facade is per-PROCESS state, so a sibling app
+        /// configuring its own naming never touches another install).</summary>
+        public static AutoCommand.Engines.Firewall.FirewallService Instance =>
+            _instance ??= new AutoCommand.Engines.Firewall.FirewallService(_naming);
+
+        /// <summary>Per-process naming seam: AutoCommand Light calls this
+        /// once at startup, before starting any of the facade-bound
+        /// services (block-hit feed, deny watcher, domain sync, coverage),
+        /// so they create and adopt AL-BLOCK rules as Light instead of
+        /// mis-creating the Advanced app's AC-BLOCK rules. The main app
+        /// never calls it and keeps Naming.autocommand() exactly as
+        /// before.</summary>
+        public static void UseNaming(AutoCommand.Engines.Firewall.FirewallNaming naming)
+        {
+            _naming = naming ?? Naming.autocommand();
+            _instance = new AutoCommand.Engines.Firewall.FirewallService(_naming);
+        }
 
         public static string ResolveGroupName(string grouping) => AutoCommand.Engines.Firewall.FirewallService.ResolveGroupName(grouping);
 

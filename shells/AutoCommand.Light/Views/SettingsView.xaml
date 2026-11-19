@@ -1,0 +1,60 @@
+<UserControl x:Class="AutoCommand.Light.Views.SettingsView"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <ScrollViewer VerticalScrollBarVisibility="Auto">
+        <StackPanel MaxWidth="780" HorizontalAlignment="Left" Margin="28,24,28,24">
+
+            <TextBlock Text="Settings" Style="{StaticResource PageHeader}"/>
+            <TextBlock Text="Light keeps it simple: a report, your data, and the truth about what this app will and will not do."
+                       Foreground="{StaticResource TextSecondaryBrush}" Margin="0,0,0,18"/>
+
+            <Border Style="{StaticResource CardPanel}" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Style="{StaticResource SectionHeader}" Text="The report"/>
+                    <TextBlock Text="Rebuild the plain-words overview right now, without waiting five minutes."
+                               TextWrapping="Wrap" Margin="0,4,0,10"
+                               Foreground="{StaticResource TextSecondaryBrush}"/>
+                    <Button Content="Build the 5-minute report again" Style="{StaticResource PrimaryButton}"
+                            HorizontalAlignment="Left" FontSize="13" Click="BuildReport_Click"/>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource CardPanel}" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Style="{StaticResource SectionHeader}" Text="Your data"/>
+                    <TextBlock Text="Everything Light keeps lives in one folder on this PC — the report, your blocks ledger, the readable history. Nothing is stored anywhere else."
+                               TextWrapping="Wrap" Margin="0,4,0,10"
+                               Foreground="{StaticResource TextSecondaryBrush}"/>
+                    <Button Content="Open my data folder" Style="{StaticResource QuietButton}"
+                            HorizontalAlignment="Left" FontSize="13" Click="OpenData_Click"/>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource CardPanel}" Margin="0,0,0,16">
+                <StackPanel>
+                    <TextBlock Style="{StaticResource SectionHeader}" Text="What this app does — and never does"/>
+                    <TextBlock TextWrapping="Wrap" Margin="0,6,0,0" LineHeight="20">
+                        It watches which programs connect to the internet and explains them in plain words.<LineBreak/>
+                        It blocks only what you tell it to, and every block is undoable.<LineBreak/>
+                        It never deletes anything, never edits Windows settings silently, and never sends your data anywhere.<LineBreak/>
+                        It repairs its own leftovers after a crash — and tells you when it did.
+                    </TextBlock>
+                </StackPanel>
+            </Border>
+
+            <Border Style="{StaticResource CardPanel}">
+                <StackPanel>
+                    <TextBlock Style="{StaticResource SectionHeader}" Text="Need more power?"/>
+                    <TextBlock TextWrapping="Wrap" Margin="0,4,0,10"
+                               Foreground="{StaticResource TextSecondaryBrush}">
+                        The Advanced app (AutoCommand) adds deep forensics, site diagnosis, an AI-assistant bridge and
+                        full firewall control — with the same blocks, the same undo, and the same 🚑 button. Either
+                        app's “Restore Internet” pauses both apps' blocks, so they are safe side by side.
+                    </TextBlock>
+                    <TextBlock FontSize="11" Foreground="{StaticResource MutedTextBrush}"
+                               Text="Everything on this page is computed on this PC. Light collects nothing and phones no one."/>
+                </StackPanel>
+            </Border>
+        </StackPanel>
+    </ScrollViewer>
+</UserControl>

@@ -74,30 +74,39 @@ jobs:
       - name: Publish AgentProxy (self-contained single-file tool)
         run: dotnet publish AgentProxy\AutoCommand.AgentProxy.csproj -c Release -r win-x64 --self-contained true /p:PublishSingleFile=true /p:PublishTrimmed=true -o publish/app/tools/AgentProxy
 
+      - name: Publish AutoCommand Light (sibling shell, self-contained win-x64)
+        run: dotnet publish shells\AutoCommand.Light\AutoCommand.Light.csproj -c Release -r win-x64 --self-contained true -o publish/light
+
       - name: Verify binaries carry the csproj version
         shell: pwsh
         run: |
           $ver = '${{ steps.ver.outputs.version }}'
           $exe   = (Get-Item publish/app/AutoCommand.exe).VersionInfo.ProductVersion
           $proxy = (Get-Item publish/app/tools/AgentProxy/AutoCommand.AgentProxy.exe).VersionInfo.ProductVersion
-          if ($exe -ne $ver -or $proxy -ne $ver) {
-            throw "version pipeline broken: app='$exe' proxy='$proxy' expected='$ver'"
+          $light = (Get-Item publish/light/AutoCommand.Light.exe).VersionInfo.ProductVersion
+          if ($exe -ne $ver -or $proxy -ne $ver -or $light -ne $ver) {
+            throw "version pipeline broken: app='$exe' proxy='$proxy' light='$light' expected='$ver'"
           }
-          Write-Host "verified ProductVersion: app=$exe proxy=$proxy"
+          Write-Host "verified ProductVersion: app=$exe proxy=$proxy light=$light"
 
       - name: Zip + SHA256SUMS
         shell: pwsh
         run: |
           $ver = '${{ steps.ver.outputs.version }}'
           $zip = "publish/AutoCommand-v$ver-win-x64.zip"
+          $zipL = "publish/AutoCommand.Light-v$ver-win-x64.zip"
           if (Test-Path $zip) { Remove-Item $zip }
+          if (Test-Path $zipL) { Remove-Item $zipL }
           Compress-Archive -Path publish/app/* -DestinationPath $zip
+          Compress-Archive -Path publish/light/* -DestinationPath $zipL
           Copy-Item scripts/unblock-autocommand.ps1 publish/unblock-autocommand.ps1 -Force
           $h1 = (Get-FileHash $zip -Algorithm SHA256).Hash.ToLower()
           $h2 = (Get-FileHash publish/unblock-autocommand.ps1 -Algorithm SHA256).Hash.ToLower()
+          $h3 = (Get-FileHash $zipL -Algorithm SHA256).Hash.ToLower()
           $sums = @(
             "{0}  {1}" -f $h1, (Split-Path $zip -Leaf)
             "{0}  unblock-autocommand.ps1" -f $h2
+            "{0}  {1}" -f $h3, (Split-Path $zipL -Leaf)
           )
           Set-Content publish/SHA256SUMS.txt $sums
           Get-Content publish/SHA256SUMS.txt
@@ -126,6 +135,7 @@ jobs:
           }
           gh release upload $tag `
             "publish/AutoCommand-v$ver-win-x64.zip" `
+            "publish/AutoCommand.Light-v$ver-win-x64.zip" `
             publish/unblock-autocommand.ps1 `
             publish/SHA256SUMS.txt `
             --clobber --repo $Env:GITHUB_REPOSITORY

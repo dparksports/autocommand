@@ -1,0 +1,60 @@
+<Project Sdk="Microsoft.NET.Sdk">
+
+  <!-- AutoCommand Light — the novice-facing sibling shell (the "front
+       door" app). Deliberately THIN: it references the same headless
+       engines and cores the Advanced shell uses, plus the pure
+       plain-language product core, and adds only its own views. What it
+       deliberately does NOT reference is the boundary: no Intercept.Core
+       (no MITM, no CA trust changes), no Forensics.Core (no Python
+       injection), no ShieldsUp (no doors/bloatware/hosts edits), no
+       MatrixRain, no AgentProxy/bridge (Light's chat is the local,
+       no-key Tier-0 router). Light detects and tells; Advanced fixes.
+       Version bumps travel in lockstep with AutoCommand.csproj — two
+       apps, one release train. -->
+  <PropertyGroup>
+    <OutputType>WinExe</OutputType>
+    <TargetFramework>net10.0-windows10.0.19041.0</TargetFramework>
+    <Nullable>disable</Nullable>
+    <ImplicitUsings>enable</ImplicitUsings>
+    <UseWPF>true</UseWPF>
+    <Version>2026.11.18.4</Version>
+    <!-- no "+<git hash>" suffix on InformationalVersion: the release
+         scripts' ProductVersion checks want the clean number, exactly as
+         AgentProxy's csproj does -->
+    <IncludeSourceRevisionInInformationalVersion>false</IncludeSourceRevisionInInformationalVersion>
+    <AssemblyName>AutoCommand.Light</AssemblyName>
+    <Product>AutoCommand Light</Product>
+    <ApplicationManifest>app.manifest</ApplicationManifest>
+  </PropertyGroup>
+
+  <ItemGroup>
+    <ProjectReference Include="..\..\product\AutoCommand.Light.Core\AutoCommand.Light.Core.csproj" />
+    <ProjectReference Include="..\..\Engines\Engines.Watch\Engines.Watch.fsproj" />
+    <ProjectReference Include="..\..\Engines\Engines.Firewall\Engines.Firewall.fsproj" />
+    <ProjectReference Include="..\..\core\AutoCommand.Contain.Core\AutoCommand.Contain.Core.csproj" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- The engine firewall type under an unambiguous name: Contain.Core
+         also exposes a FirewallService facade, and Light uses both — the
+         facade (via UseNaming below) so its feed services speak AL-BLOCK,
+         and the engine directly for Light's own block/unblock calls. -->
+    <Using Include="EngineFirewall = AutoCommand.Engines.Firewall.FirewallService" />
+    <Using Include="LightNaming = AutoCommand.Engines.Firewall.Naming" />
+    <Using Include="BlockedTarget = AutoCommand.Engines.Firewall.BlockedTarget" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <Using Include="AutoCommand.Engines.Watch" />
+    <Using Include="AutoCommand.Contain.Core" />
+    <Using Include="AutoCommand.Light.Core" />
+  </ItemGroup>
+
+  <!-- Same platform filter as the app's publish: strip Linux .so natives
+       from the win-x64 output if any dependency carries them. -->
+  <Target Name="RemoveUnusedPlatformLibs" AfterTargets="ComputeFilesToPublish">
+    <ItemGroup>
+      <ResolvedFileToPublish Remove="@(ResolvedFileToPublish)" Condition="'%(ResolvedFileToPublish.Extension)' == '.so'" />
+    </ItemGroup>
+  </Target>
+</Project>

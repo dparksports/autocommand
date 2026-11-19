@@ -62,7 +62,8 @@ $strict = @(
     'tests/WslSelfTest',
     'tests/StartupHealthSelfTest',
     'tests/AllowListSelfTest',
-    'tests/WatchSelfTest'
+    'tests/WatchSelfTest',
+    'tests/LightCoreSelfTest'
 )
 Step 'Offline suites (strict)'
 foreach ($s in $strict) {
