@@ -1,0 +1,43 @@
+<Window x:Class="AutoCommand.Light.AskDialog"
+        xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+        xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml"
+        Title="AutoCommand Light"
+        Width="460" SizeToContent="Height"
+        WindowStyle="None" AllowsTransparency="True" Background="Transparent"
+        WindowStartupLocation="CenterScreen"
+        ResizeMode="NoResize" ShowInTaskbar="False"
+        FontFamily="Segoe UI">
+    <!-- The TCC grammar: small, focused, background dimmed, one question,
+         three answers, and a countdown that answers Never. -->
+    <Border Background="{StaticResource SurfaceBrush}"
+            BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+            CornerRadius="14" Padding="24,20" Margin="12">
+        <Border.Effect>
+            <DropShadowEffect BlurRadius="18" ShadowDepth="2" Opacity="0.25"/>
+        </Border.Effect>
+        <StackPanel>
+            <TextBlock x:Name="HeadlineText" FontSize="17" FontWeight="SemiBold"
+                       TextWrapping="Wrap" Margin="0,0,0,6"/>
+            <TextBlock x:Name="DetailText" FontSize="13" Foreground="{StaticResource TextSecondaryBrush}"
+                       TextWrapping="Wrap" Margin="0,0,0,16"/>
+
+            <StackPanel Orientation="Horizontal" HorizontalAlignment="Right">
+                <Button x:Name="OnceBtn" Style="{StaticResource QuietButton}" FontSize="13"
+                        Margin="0,0,10,0" Click="OnceBtn_Click" ToolTip="The gate opens again in 10 minutes">
+                    Allow once
+                </Button>
+                <Button x:Name="NeverBtn" Style="{StaticResource QuietButton}" FontSize="13"
+                        Margin="0,0,10,0" Click="NeverBtn_Click">
+                    Never
+                </Button>
+                <Button x:Name="AlwaysBtn" Style="{StaticResource PrimaryButton}" FontSize="13"
+                        Click="AlwaysBtn_Click">
+                    Always allow
+                </Button>
+            </StackPanel>
+
+            <TextBlock x:Name="CountdownText" FontSize="11" Margin="0,12,0,0"
+                       Foreground="{StaticResource MutedTextBrush}"/>
+        </StackPanel>
+    </Border>
+</Window>

@@ -1,0 +1,24 @@
+<UserControl x:Class="AutoCommand.Light.Controls.Segmented"
+             xmlns="http://schemas.microsoft.com/winfx/2006/xaml/presentation"
+             xmlns:x="http://schemas.microsoft.com/winfx/2006/xaml">
+    <!-- The iOS segmented control, Windows clothing: one capsule, three
+         choices, the selected one lifts onto a white card. Used for the
+         permission flips — the entire control surface of the product. -->
+    <Border Background="{StaticResource SurfaceAltBrush}"
+            BorderBrush="{StaticResource BorderBrush}" BorderThickness="1"
+            CornerRadius="9" Padding="2">
+        <Grid>
+            <Grid.ColumnDefinitions>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+                <ColumnDefinition Width="*"/>
+            </Grid.ColumnDefinitions>
+            <RadioButton Grid.Column="0" GroupName="seg" x:Name="Opt0"
+                         Style="{StaticResource SegmentItem}" Checked="Opt_Checked" Tag="0"/>
+            <RadioButton Grid.Column="1" GroupName="seg" x:Name="Opt1"
+                         Style="{StaticResource SegmentItem}" Checked="Opt_Checked" Tag="1"/>
+            <RadioButton Grid.Column="2" GroupName="seg" x:Name="Opt2"
+                         Style="{StaticResource SegmentItem}" Checked="Opt_Checked" Tag="2"/>
+        </Grid>
+    </Border>
+</UserControl>

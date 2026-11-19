@@ -4,7 +4,7 @@
         xmlns:views="clr-namespace:AutoCommand.Light.Views"
         x:Name="RootWindow"
         Title="AutoCommand Light"
-        Height="720" Width="1080"
+        Height="720" Width="1040"
         MinWidth="720" MinHeight="480"
         WindowStartupLocation="CenterScreen"
         FontFamily="Segoe UI">
@@ -17,54 +17,44 @@
 
         <TabControl x:Name="MainTabs" Grid.Row="0" TabStripPlacement="Left" SelectedIndex="0">
 
-            <TabItem x:Name="OverviewNavItem">
+            <TabItem x:Name="TodayNavItem">
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="🏠" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                        <TextBlock Text="Overview" VerticalAlignment="Center"/>
+                        <TextBlock Text="🛡" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <TextBlock Text="Today" VerticalAlignment="Center"/>
                     </StackPanel>
                 </TabItem.Header>
-                <views:OverviewView x:Name="OverviewTab"/>
+                <views:TodayView x:Name="TodayTab"/>
             </TabItem>
 
-            <TabItem x:Name="ConnectionsNavItem">
+            <TabItem x:Name="AppsNavItem">
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="🔍" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                        <TextBlock Text="Connections" VerticalAlignment="Center"/>
+                        <TextBlock Text="🧩" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
+                        <TextBlock Text="Apps" VerticalAlignment="Center"/>
                     </StackPanel>
                 </TabItem.Header>
-                <views:ConnectionsView x:Name="ConnectionsTab"/>
+                <views:AppsView x:Name="AppsTab"/>
             </TabItem>
 
-            <TabItem x:Name="BlocksNavItem">
-                <TabItem.Header>
-                    <StackPanel Orientation="Horizontal">
-                        <TextBlock Text="⛔" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                        <TextBlock Text="Blocks" VerticalAlignment="Center"/>
-                    </StackPanel>
-                </TabItem.Header>
-                <views:BlocksView x:Name="BlocksTab"/>
-            </TabItem>
-
-            <TabItem x:Name="HistoryNavItem">
+            <TabItem x:Name="AttemptsNavItem">
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="🧾" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                        <TextBlock Text="History" VerticalAlignment="Center"/>
+                        <TextBlock Text="Attempts" VerticalAlignment="Center"/>
                     </StackPanel>
                 </TabItem.Header>
-                <views:HistoryView x:Name="HistoryTab"/>
+                <views:AttemptsView x:Name="AttemptsTab"/>
             </TabItem>
 
-            <TabItem x:Name="AskNavItem">
+            <TabItem x:Name="HelpNavItem">
                 <TabItem.Header>
                     <StackPanel Orientation="Horizontal">
                         <TextBlock Text="💬" FontSize="14" VerticalAlignment="Center" Margin="0,0,8,0"/>
-                        <TextBlock Text="Ask" VerticalAlignment="Center"/>
+                        <TextBlock Text="Help" VerticalAlignment="Center"/>
                     </StackPanel>
                 </TabItem.Header>
-                <views:AskView x:Name="AskTab"/>
+                <views:HelpView x:Name="HelpTab"/>
             </TabItem>
 
             <TabItem x:Name="SettingsNavItem">
@@ -78,8 +68,7 @@
             </TabItem>
         </TabControl>
 
-        <!-- Status bar: state on the left, the panic button always on the
-             right — the safety net is never more than one click away. -->
+        <!-- the panic action lives where the eyes already are: bottom-right -->
         <Border Grid.Row="1" Background="{StaticResource SurfaceBrush}"
                 BorderBrush="{StaticResource BorderBrush}" BorderThickness="0,1,0,0"
                 Padding="14,7">
@@ -90,21 +79,54 @@
                     <ColumnDefinition Width="Auto"/>
                 </Grid.ColumnDefinitions>
                 <StackPanel Grid.Column="0" Orientation="Horizontal" VerticalAlignment="Center">
-                    <Ellipse x:Name="WatchDot" Width="8" Height="8"
+                    <Ellipse x:Name="GateDot" Width="8" Height="8"
                              Fill="{StaticResource AccentGreenBrush}" Margin="0,0,8,0"/>
-                    <TextBlock x:Name="WatchText" Text="watching live"
+                    <TextBlock x:Name="GateText" Text="gate is up — only your browser and allowed apps talk"
                                Foreground="{StaticResource TextSecondaryBrush}" FontSize="12"/>
                 </StackPanel>
                 <StackPanel Grid.Column="2" Orientation="Horizontal" VerticalAlignment="Center">
                     <TextBlock x:Name="VersionText" Text="AutoCommand Light"
                                Foreground="{StaticResource MutedTextBrush}" FontSize="11"
                                VerticalAlignment="Center" Margin="0,0,14,0"/>
-                    <Button x:Name="RestoreInternetBtn" Content="🚑 Restore Internet"
+                    <Button x:Name="OpenBtn" Content="🚑 Open the internet — 10 min"
                             Style="{StaticResource DangerButton}" FontSize="12"
-                            ToolTip="Blocked something and lost connectivity? Pauses ALL blocks — Advanced's and Light's — in one click. Nothing is deleted."
-                            Click="RestoreInternetBtn_Click"/>
+                            ToolTip="If anything ever stops working: pauses EVERY block for ten minutes. Nothing is deleted, and it closes itself."
+                            Click="OpenBtn_Click"/>
                 </StackPanel>
             </Grid>
         </Border>
+
+        <!-- onboarding: three sentences, one choice at the end. Shown once,
+             over a dimmed app — the Tracking-Transparency discipline. -->
+        <Grid x:Name="Onboarding" Grid.Row="0" Background="#CC1B2733" Visibility="Collapsed">
+            <Border Width="520" Background="{StaticResource SurfaceBrush}" CornerRadius="16"
+                    Padding="32,28" VerticalAlignment="Center" HorizontalAlignment="Center">
+                <StackPanel>
+                    <StackPanel x:Name="OnbStep1">
+                        <TextBlock FontSize="24" FontWeight="SemiBold"
+                                   Text="This app keeps your internet closed." TextWrapping="Wrap"/>
+                        <TextBlock FontSize="14" Margin="0,12,0,0" TextWrapping="Wrap"
+                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                   Text="Your browser stays open. Everything else asks first — and you decide who stays."/>
+                    </StackPanel>
+                    <StackPanel x:Name="OnbStep2" Visibility="Collapsed">
+                        <TextBlock FontSize="24" FontWeight="SemiBold"
+                                   Text="When something wants to talk, you'll see one question." TextWrapping="Wrap"/>
+                        <TextBlock FontSize="14" Margin="0,12,0,0" TextWrapping="Wrap"
+                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                   Text="Allow once, always, or never — and you can change your mind any time on the Apps page."/>
+                    </StackPanel>
+                    <StackPanel x:Name="OnbStep3" Visibility="Collapsed">
+                        <TextBlock FontSize="24" FontWeight="SemiBold"
+                                   Text="If anything ever stops working, one button opens everything." TextWrapping="Wrap"/>
+                        <TextBlock FontSize="14" Margin="0,12,0,0" TextWrapping="Wrap"
+                                   Foreground="{StaticResource TextSecondaryBrush}"
+                                   Text="🚑 sits at the bottom right, nothing is deleted, and it closes itself after ten minutes."/>
+                    </StackPanel>
+                    <Button x:Name="OnbBtn" Content="Next" Style="{StaticResource PrimaryButton}"
+                            Margin="0,22,0,0" HorizontalAlignment="Right" Click="OnbBtn_Click"/>
+                </StackPanel>
+            </Border>
+        </Grid>
     </Grid>
 </Window>

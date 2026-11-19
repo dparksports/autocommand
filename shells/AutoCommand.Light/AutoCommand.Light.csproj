@@ -17,7 +17,10 @@
     <Nullable>disable</Nullable>
     <ImplicitUsings>enable</ImplicitUsings>
     <UseWPF>true</UseWPF>
-    <Version>2026.11.18.4</Version>
+    <!-- WinForms rides along only for the tray icon (NotifyIcon): the
+         persistent surface renders its state at runtime, no icon assets. -->
+    <UseWindowsForms>true</UseWindowsForms>
+    <Version>2026.11.18.5</Version>
     <!-- no "+<git hash>" suffix on InformationalVersion: the release
          scripts' ProductVersion checks want the clean number, exactly as
          AgentProxy's csproj does -->
@@ -48,6 +51,15 @@
     <Using Include="AutoCommand.Engines.Watch" />
     <Using Include="AutoCommand.Contain.Core" />
     <Using Include="AutoCommand.Light.Core" />
+  </ItemGroup>
+
+  <ItemGroup>
+    <!-- WinForms rides along only for the tray icon; strip its implicit
+         global usings so Forms/Drawing names never shadow WPF's
+         (Application, UserControl, KeyEventArgs...). TrayController keeps
+         its own explicit usings. -->
+    <Using Remove="System.Windows.Forms" />
+    <Using Remove="System.Drawing" />
   </ItemGroup>
 
   <!-- Same platform filter as the app's publish: strip Linux .so natives

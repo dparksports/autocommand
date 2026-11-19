@@ -1,16 +1,21 @@
 using System;
 using System.Windows;
+using System.Windows.Threading;
 
 namespace AutoCommand.Light
 {
     public partial class App : Application
     {
+        private TrayController? _tray;
+        private readonly DispatcherTimer _sweep = new(DispatcherPriority.Background)
+        { Interval = TimeSpan.FromSeconds(15) };
+
         protected override void OnStartup(StartupEventArgs e)
         {
             base.OnStartup(e);
 
             // UI-thread exceptions surface, log to Light's own data root,
-            // and never take the app down — the same contract as Advanced.
+            // and never take the gate down — same contract as Advanced.
             DispatcherUnhandledException += (s, args) =>
             {
                 LogCrash(args.Exception, "Dispatcher");
@@ -33,41 +38,67 @@ namespace AutoCommand.Light
             };
 
             // Order matters: engines learn Light's identity and the facade
-            // seam is re-pointed BEFORE any of the facade-bound services
-            // start — then every background watcher speaks AL-BLOCK and
-            // writes into Light's own data root.
+            // seam is re-pointed BEFORE any facade-bound service starts —
+            // then every watcher speaks AL-BLOCK and writes Light's root.
             LightServices.Initialize();
+            LightGate.Initialize();
 
-            // Ground-truth denial telemetry (WFP 5157 audit): rate-limited,
-            // persisted under Light's root. Machine-global audit flip is
-            // idempotent — safe whether or not the Advanced app also runs.
+            // Kernel-side denial telemetry (WFP 5157 audit): the ground
+            // truth the gate's "attempts stopped" numbers rest on.
             FirewallDenyWatchService.Instance.Start();
 
-            // The live "who is being blocked" feed, joined against the
-            // AL+adopted-AC inventory. Degrades silently without Sysmon.
+            // The live "who is being blocked" feed — joined against the
+            // AL + adopted-AC inventory. Degrades silently without Sysmon.
             BlockHitFeedService.Instance.Start();
 
-            // Name-blocked apps stay blocked across moves/updates. Runs
-            // without Sysmon (disk sweeps); never the last rule.
+            // Name-blocked apps stay blocked across moves/updates — the
+            // gate's rules survive app updates because of this service.
             AppBlockCoverageService.Instance.Start();
 
-            // Domain blocks the user maintains; a no-op until the list is
-            // non-empty, and the reconcile cadence rides the deny/feed
-            // services' own timers in this shell.
+            // Domain blocks (sync service no-ops until a list exists).
             DomainBlockSyncService.Instance.Start();
 
             var window = new MainWindow();
             MainWindow = window;
             window.Show();
 
-            // Connections start flowing immediately — the product promise
-            // is "it is already watching", so the watcher starts with the
-            // window, not on first click.
             LightServices.StartWatch();
+
+            // the tray is the persistent surface: states without the window
+            _tray = new TrayController(
+                readState: () =>
+                {
+                    var asks = LightGate.PendingAsks().Count;
+                    var attempts = LightGate.AttemptsToday().Count;
+                    var state = asks > 0 ? TrayController.TrayState.Asking
+                        : attempts > 0 ? TrayController.TrayState.Stopped
+                        : TrayController.TrayState.Quiet;
+                    var tooltip = state switch
+                    {
+                        TrayController.TrayState.Asking => $"{asks} app(s) waiting for your answer",
+                        TrayController.TrayState.Stopped => $"{attempts} attempt(s) stopped today",
+                        _ => "AutoCommand Light — quiet",
+                    };
+                    return (tooltip, state);
+                },
+                openToday: () => (MainWindow as MainWindow)?.NavigateTo("today"),
+                openApps: () => { (MainWindow as MainWindow)?.ShowFromTray(); (MainWindow as MainWindow)?.NavigateTo("apps"); },
+                openTemporarily: () => _ = LightGate.OpenForEveryoneAsync(TimeSpan.FromMinutes(10)),
+                quit: () => Shutdown());
+
+            // the enforcement tick: expire allow-once, resolve running
+            // apps, decide expired tickets — everything but first-attempt
+            // ensures, which happen synchronously in the event stream
+            LightGate.Changed += () => Dispatcher.BeginInvoke(new Action(() =>
+                _tray?.UpdateFrom(LightGate.PendingAsks().Count, LightGate.AttemptsToday().Count)));
+            _sweep.Tick += (s, e) => _ = LightGate.SweepAsync();
+            _sweep.Start();
         }
 
         protected override void OnExit(ExitEventArgs e)
         {
+            _sweep.Stop();
+            _tray?.Dispose();
             LightServices.Shutdown();
             base.OnExit(e);
         }

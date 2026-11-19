@@ -1,6 +1,5 @@
 using System;
 using System.Collections.Generic;
-using System.Threading.Tasks;
 using System.Windows;
 using System.Windows.Controls;
 using System.Windows.Input;
@@ -8,21 +7,19 @@ using System.Windows.Input;
 namespace AutoCommand.Light.Views
 {
     /// <summary>
-    /// The no-key chat. Answers come from TrialChatRouter over facts
-    /// gathered from this machine's live records — the model-free tier,
-    /// deliberately: zero cost, zero abuse surface, and the answers are
-    /// grounded in what actually happened on this PC. The question log is
-    /// in-memory only; nothing about the conversation is persisted.
+    /// The no-key chat, reframed for the gate: it answers from the gate's
+    /// records (attempts, asks, holds). In-memory only; nothing about the
+    /// conversation is persisted, and the answers are composed on this PC.
     /// </summary>
-    public partial class AskView : UserControl
+    public partial class HelpView : UserControl
     {
         private readonly List<string> _log = new();
 
-        public AskView()
+        public HelpView()
         {
             InitializeComponent();
             ChatLog.ItemsSource = _log;
-            _log.Add("Ask me about this PC's connections and blocks. Try a suggestion above.");
+            _log.Add("Ask about the gate: what it holds, what waits for you, why the internet stopped.");
             ChatLog.Items.Refresh();
         }
 
@@ -46,8 +43,7 @@ namespace AutoCommand.Light.Views
             try
             {
                 var facts = await LightServices.ChatFactsAsync();
-                var answer = TrialChatRouter.Answer(question, facts);
-                AddLine(answer);
+                AddLine(TrialChatRouter.Answer(question, facts));
             }
             catch (Exception ex)
             {

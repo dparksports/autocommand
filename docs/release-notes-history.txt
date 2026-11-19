@@ -17,6 +17,68 @@ run release.ps1. Format contract (the scripts parse this file):
   GitHub verbatim. Bodies keep the markdown the release page used to
   render; only this file's own layout is plain text.
 ================================================================================
+v2026.11.18.5 (2026-11-18)
+================================================================================
+
+# v2026.11.18.5 — Light becomes the gatekeeper: Apple-HIG surfaces, closed-by-default world
+
+**Light 1.0 watched a machine. Light 2.0 guards a person. The world model inverts:
+the internet is closed by default, your browser talks, everything else asks — and
+the UI is rebuilt from Apple's Human Interface Guidelines, because a guardian
+should feel calm: one metaphor (the gate), permission grammar people already know
+from their phones (Always / Ask / Never), and screens whose default state is quiet.**
+
+## CHANGED — the world model
+
+- Closed by default: a program's first reach for the internet is held at once and
+  raised as one question — Allow once (10 minutes), Always allow, or Never. Escape,
+  closing the dialog, or 90 seconds of silence all mean Never: silence is an
+  answer, and it is the safe one. Allow-once re-blocks itself when its time ends.
+- Browsers ship Always (seeded, still user-changeable); Windows' own essentials are
+  a pinned, honestly-labeled group that never gets gated — the fine print of
+  "nobody transmits except you", shown, not hidden.
+- The gate stands down for exactly as long as you ask: "Open the internet for
+  everyone — 10 minutes" (tray, Today, and the 🚑 button) closes itself, and the
+  gate re-arms on its own.
+
+## NEW — the surfaces
+
+- **Today** — the Screen-Time-meets-Safari-privacy-report home: one headline
+  ("A quiet day." / "3 attempts were stopped today."), named top apps, a 24-hour
+  strip, and a banner when apps wait for your answer.
+- **Apps** — the whole control surface in one list: search, groups that read as
+  sentences (Allowed / Asks first / Never / Windows system), and a segmented
+  Always-Ask-Never control on every row. A flip lands on the firewall instantly
+  with a one-flip-deep undo.
+- **The Ask** — a small focused dialog in the platform permission grammar:
+  who wants to reach where, three buttons, a visible countdown.
+- **The tray** — the persistent surface: green quiet, amber while an app waits,
+  red on a day of stopped attempts; menu carries review and the temporary open.
+- **Attempts** — today's held attempts (who, where, when) above the readable
+  sentence history; **Help** keeps the no-key guided answers, reframed for the
+  gate; **Settings** dissolves to the one switch that matters, your data folder,
+  and the honest never-does list.
+- Onboarding: three sentences, one choice, shown once — the Tracking-Transparency
+  discipline.
+
+## REMOVED from Light
+
+- The Connections data grid, packet counters, IP columns and thresholds move out
+  of Light's story entirely: Light guards a person, Advanced watches the machine.
+  Nothing was lost from Advanced.
+
+## CHANGED — internals
+
+- product\AutoCommand.Light.Core grows the pure gate model: PermissionStore
+  (readable apps.json), GatePolicy (exemptions + resolve, priority: Windows
+  essential > your decision > Ask), AskTicket expiry, TodayStats composition —
+  LightCoreSelfTest grows to 60 checks, all offline.
+- shells\AutoCommand.Light\LightGate: the enforcement tick — expire allow-once,
+  resolve every running app, ensure/remove AL-BLOCK-APP rules under a lock, raise
+  and resolve tickets; first attempts are held synchronously in the event stream,
+  so the first handshake never escapes.
+
+================================================================================
 v2026.11.18.4 (2026-11-18)
 ================================================================================
 

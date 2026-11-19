@@ -223,6 +223,98 @@ void Check(string name, bool ok, string detail = "")
           id.AdoptedRulePrefixes.Contains("AC-BLOCK-SVC "));
 }
 
+// ── 5. the gatekeeper world model ───────────────────────────────────────
+{
+    var now = DateTime.UtcNow;
+    var store = PermissionStore.Seeded(now);
+
+    Check("gate: browsers are seeded Always",
+          store.Find("msedge") is { } e1 && e1.Permission == AppPermission.Always);
+
+    var browser = GatePolicy.Resolve("chrome", @"C:\Program Files\Chrome\chrome.exe",
+        false, store, now);
+    Check("gate: a browser is open — not gated, not new",
+          !browser.ShouldGate && browser.Permission == AppPermission.Always && !browser.IsNew);
+
+    var unknown = GatePolicy.Resolve("fun-tool", @"C:\Tools\fun-tool.exe", false, store, now);
+    Check("gate: an unknown app defaults to Ask and is gated",
+          unknown.ShouldGate && unknown.Permission == AppPermission.Ask && unknown.IsNew);
+
+    var svchost = GatePolicy.Resolve("svchost", @"C:\Windows\System32\svchost.exe", true, store, now);
+    Check("gate: svchost is a Windows essential — exempt, never gated",
+          svchost.Exemption == Exemption.WindowsEssential && !svchost.ShouldGate);
+
+    var sysdir = GatePolicy.Resolve("weirdthing", @"C:\Windows\System32\weirdthing.exe", false, store, now);
+    Check("gate: anything under Windows\\ is a system essential",
+          sysdir.Exemption == Exemption.WindowsEssential);
+
+    store.Upsert(new PermissionEntry("fun-tool", AppPermission.Never, "FunTool", now, null, "ask-dialog"));
+    var nevered = GatePolicy.Resolve("fun-tool", @"C:\Tools\fun-tool.exe", false, store, now);
+    Check("gate: Never stays gated and is no longer new",
+          nevered.ShouldGate && nevered.Permission == AppPermission.Never && !nevered.IsNew);
+
+    store.Upsert(new PermissionEntry("fun-tool", AppPermission.Always, "FunTool", now,
+        now.AddMinutes(10), "ask-dialog"));
+    var allowedOnce = GatePolicy.Resolve("fun-tool", @"C:\Tools\fun-tool.exe", false, store, now);
+    Check("gate: allow-once opens the gate while it lasts",
+          !allowedOnce.ShouldGate && allowedOnce.Permission == AppPermission.Always);
+
+    var expired = GatePolicy.Resolve("fun-tool", @"C:\Tools\fun-tool.exe", false, store,
+        now.AddMinutes(11));
+    Check("gate: an expired allow-once closes the gate again (and reads as Ask)",
+          expired.ShouldGate && expired.Permission == AppPermission.Ask);
+    Check("gate: expired-allow detection is the store entry's own clock",
+          store.Find("fun-tool")!.IsExpiredAllow(now.AddMinutes(11)) &&
+          !store.Find("fun-tool")!.IsExpiredAllow(now));
+
+    // ── the Ask ticket: silence is an answer, and it is Never ──────────
+    var ticket = new AskTicket("fun-tool", "FunTool", @"C:\Tools\fun-tool.exe",
+        now, now.AddSeconds(AskTicket.TimeoutSeconds));
+    Check("ask: the ticket is alive inside its window",
+          !ticket.Expired(now.AddSeconds(30)));
+    Check("ask: the ticket expires to the safe default",
+          ticket.Expired(now.AddSeconds(91)));
+
+    // ── the store round-trips as readable JSON ──────────────────────────
+    var json = store.ToJson();
+    var back = PermissionStore.FromJson(json);
+    Check("gate: the store round-trips through JSON with decisions intact",
+          back.Find("fun-tool") is { } e2 && e2.Permission == AppPermission.Always &&
+          e2.AllowUntilUtc.HasValue);
+    Check("gate: a corrupt store file degrades to an empty world, not a crash",
+          PermissionStore.FromJson("{ not json !!!").Entries.Count == 0);
+
+    // key normalization is identity: path or bare name find the same row
+    Check("gate: keys normalize (path vs bare name vs case)",
+          PermissionStore.NormalizeKey(@"C:\Tools\Fun-Tool.EXE") == "fun-tool" &&
+          store.Find(@"C:\somewhere\else\FUN-TOOL.exe") != null);
+}
+
+// ── 6. Today's composition ──────────────────────────────────────────────
+{
+    var quiet = TodayStats.Compose(Array.Empty<AttemptFact>(), 0, DateTime.Now);
+    Check("today: a quiet day says so, calmly",
+          quiet.IsQuiet && quiet.Headline == "A quiet day." && quiet.Tone == LightTone.Good);
+
+    var now = DateTime.UtcNow;
+    var attempts = new List<AttemptFact>
+    {
+        new("fun-tool", "FunTool", now.AddMinutes(-3), "cdn.faststorage.io"),
+        new("fun-tool", "FunTool", now.AddMinutes(-8), "cdn.faststorage.io"),
+        new("updater", "Updater", now.AddMinutes(-1), "updates.vendor.com"),
+    };
+    var busy = TodayStats.Compose(attempts, 1, DateTime.Now);
+    Check("today: attempts counted, apps deduped, never alarmist",
+          busy.StoppedAttempts == 3 && busy.StoppedApps == 2 &&
+          busy.Headline == "3 attempts were stopped today.");
+    Check("today: the top app leads the detail list",
+          busy.TopApps.Count > 0 && busy.TopApps[0].App == "FunTool" && busy.TopApps[0].Count == 2);
+    Check("today: pending asks surface alongside",
+          busy.PendingAsks == 1 && !busy.IsQuiet);
+    Check("today: the histogram has 24 buckets",
+          busy.HourHistogram.Count == 24);
+}
+
 // ── summary ─────────────────────────────────────────────────────────────
 Console.WriteLine($"light-core: {passed} passed, {failed} failed");
 if (failed > 0)
